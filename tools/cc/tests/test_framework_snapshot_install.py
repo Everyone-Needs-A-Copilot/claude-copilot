@@ -327,7 +327,10 @@ def _fake_cc_installer(snapshot: Path, staged_shim: Path) -> None:
     runtime.chmod(0o755)
     receipt_file = runtime.parent.parent / "tc-provenance.json"
     receipt_file.write_text('{"fixture":"tc-provenance"}\n')
-    tc_info = {"verified": True, "mode": "snapshot", "version": "2.0.0",
+    # Report the version the snapshot's own manifest declares, as a real tc would.
+    manifest = json.loads((snapshot / "VERSION.json").read_text())
+    tc_version = manifest.get("components", {}).get("tc", {}).get("version", "2.0.0")
+    tc_info = {"verified": True, "mode": "snapshot", "version": tc_version,
                "source_commit": (snapshot / ".source-commit").read_text().strip(),
                "source_tree": (snapshot / ".source-tree").read_text().strip(),
                "capabilities": ["check-qa", "contract", "evidence-identity"],
@@ -861,3 +864,35 @@ def test_full_repository_real_installer_succeeds_in_isolated_home(
         assert (home / ".claude" / "commands" / name).read_bytes() == (
             snapshot / ".claude" / "commands" / name
         ).read_bytes()
+
+
+def test_snapshot_records_every_committed_version_of_installed_paths(tmp_path: Path):
+    """Project updates read this to recognise an older framework copy the
+    project lock never recorded (cc.core.ecosystem.framework_history)."""
+    repo, first, _tree = _source_repository(tmp_path)
+    command = repo / ".claude" / "commands" / MACHINE_COMMANDS[0]
+    old_bytes = command.read_bytes()
+    command.write_text("# second committed version\n", encoding="utf-8")
+    subprocess.run(
+        ("git", "-C", str(repo), "-c", "user.name=T", "-c", "user.email=t@test.invalid",
+         "commit", "--quiet", "-am", "second"),
+        check=True,
+    )
+    commit = _git(repo, "rev-parse", "HEAD")
+    tree = _git(repo, "rev-parse", "HEAD^{tree}")
+    command.write_text("# uncommitted\n", encoding="utf-8")
+
+    snapshot = Path(_install(repo, commit, tree, tmp_path / "home")["snapshot"])
+
+    marker = snapshot / ".framework-history.json"
+    assert stat.S_IMODE(marker.stat().st_mode) & 0o222 == 0
+    history = json.loads(marker.read_text())
+    assert history["schema_version"] == 1 and history["commit"] == commit
+    recorded = set(history["paths"][f".claude/commands/{MACHINE_COMMANDS[0]}"])
+    assert recorded == {
+        "sha256:" + hashlib.sha256(old_bytes).hexdigest(),
+        "sha256:" + hashlib.sha256(b"# second committed version\n").hexdigest(),
+    }
+    assert "tracked-outside-runtime.txt" not in history["paths"]
+    # Reinstalling the same commit validates and reuses the snapshot.
+    assert Path(_install(repo, commit, tree, tmp_path / "home")["snapshot"]) == snapshot

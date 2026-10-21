@@ -279,6 +279,10 @@ cc reconcile assistant-prepare --request /private/path/reconcile-request.json --
 cc reconcile assistant-run --session-id session_0123456789abcdef0123456789abcdef --json
 cc reconcile assistant-status --session-id session_0123456789abcdef0123456789abcdef --json
 
+# Check cc/tc prerequisites and write the one-project request (both components)
+# for a Git project root; /setup-project and /update-project use this.
+cc reconcile request --project /absolute/project/path --output /private/path/reconcile-request.json
+
 # Freeze explicit user intent in a private file, then review the exact plan
 cc reconcile plan --request /private/path/reconcile-request.json --json
 

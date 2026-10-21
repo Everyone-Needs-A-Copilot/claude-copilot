@@ -20,7 +20,12 @@ from types import MappingProxyType
 from typing import Any, Callable, Mapping, Sequence
 
 from cc.core.config import resolve_key
-from cc.core.ecosystem.canonical_transaction import claude_reference_roster
+from cc.core.ecosystem.canonical_transaction import (
+    claude_reference_roster,
+    claude_support_files,
+)
+from cc.core.ecosystem.framework_history import is_prior_framework_version
+from cc.core.ecosystem.project_ownership import declares_project_owner
 from cc.core.ecosystem.codex_plugin_source import (
     CodexPluginSource,
     CodexPluginSourceError,
@@ -85,6 +90,8 @@ _COMPONENT_TARGETS: Mapping[str, tuple[str, ...]] = MappingProxyType(
             ".claude/commands/extensions.md",
             ".claude/commands/orchestrate.md",
             ".claude/commands/reflect.md",
+            ".claude/commands/cleanup.md",
+            ".claude/skills/cleanup/SKILL.md",
             ".claude/fitness-check.sh",
             ".claude/hooks/copilot-hook.sh",
             ".claude/settings.json",
@@ -171,7 +178,9 @@ _CLAUDE_BLOCK = (
     "## Claude Copilot\n\n"
     "This project uses the shared Claude Copilot framework. Preserve the "
     "project-specific instructions in this file and the installed `.claude/` "
-    "capabilities.\n"
+    "capabilities. Read `.claude/agents/_shared/work-lifecycle.md` when installed "
+    "for proportional learning, handoff and verified retirement checkpoints; "
+    "use `/cleanup` for accumulated clutter.\n"
     "<!-- cc:project-integration:claude:v1:end -->\n"
 )
 
@@ -891,6 +900,7 @@ def _framework_files(source: Path, component: str) -> list[dict[str, str]]:
     if component == "claude":
         try:
             commands, agents = claude_reference_roster(source)
+            support_files = claude_support_files(source, commands)
             agent_files = _claude_agent_files(source)
         except (OSError, RequestValidationError) as exc:
             raise RecipeValidationError(
@@ -901,6 +911,7 @@ def _framework_files(source: Path, component: str) -> list[dict[str, str]]:
             ".claude/fitness-check.sh",
             ".claude/hooks/copilot-hook.sh",
             *agent_files,
+            *(path for path in support_files if path not in agent_files),
         ]
         required_agents = {f".claude/agents/{agent}.md" for agent in agents}
         if not required_agents <= set(agent_files):
@@ -1092,6 +1103,17 @@ def _ecosystem_lock_collision(root: Path) -> bool:
     )
 
 
+def _exclude_project_owned(root: Path, entry: dict[str, Any]) -> dict[str, Any]:
+    """Drop framework paths the project has claimed with `owner: project`
+    (see `project_ownership`)."""
+    files = [
+        item
+        for item in entry.get("files", [])
+        if not declares_project_owner(root / str(item.get("path", "")))
+    ]
+    return {**entry, "files": files}
+
+
 def _lock_payload(root: Path, entry: Any) -> dict[str, Any]:
     payload: dict[str, Any] = {"component_entry": entry}
     if _ecosystem_lock_collision(root):
@@ -1101,12 +1123,7 @@ def _lock_payload(root: Path, entry: Any) -> dict[str, Any]:
 
 def _claude_customized_lock_entry(source: Path, root: Path) -> dict[str, Any]:
     entry = _lock_entry(source, "claude")
-    commands, _agents = claude_reference_roster(source)
-    owned_paths = {
-        *(f".claude/commands/{command}" for command in commands),
-        ".claude/fitness-check.sh",
-        ".claude/hooks/copilot-hook.sh",
-    }
+    owned_paths = _claude_support_paths(source)
     return {
         **entry,
         "ownership_mode": "customized-preserve",
@@ -1324,6 +1341,7 @@ def _claude_setup(root: Path, component: str) -> tuple[RecipeOperation, ...]:
     source = _source_root(component)
     try:
         command_roster, agent_roster = claude_reference_roster(source)
+        support_files = claude_support_files(source, command_roster)
     except RequestValidationError as exc:
         raise RecipeValidationError(str(exc)) from exc
     operations: list[RecipeOperation] = []
@@ -1351,6 +1369,7 @@ def _claude_setup(root: Path, component: str) -> tuple[RecipeOperation, ...]:
         )
     for target in (
         *(f".claude/commands/{command}" for command in command_roster),
+        *(path for path in support_files if not path.startswith(".claude/agents/")),
         ".claude/fitness-check.sh",
     ):
         if _target_missing(root, target):
@@ -1547,7 +1566,7 @@ def _claude_setup(root: Path, component: str) -> tuple[RecipeOperation, ...]:
                 },
             )
         )
-    lock_entry = _lock_entry(source, component)
+    lock_entry = _exclude_project_owned(root, _lock_entry(source, component))
     operations.append(
         _operation(
             root=root,
@@ -1578,16 +1597,78 @@ def _claude_legacy(root: Path, component: str) -> tuple[RecipeOperation, ...]:
             kind=RecipeOperationKind.UPSERT_LOCK_COMPONENT,
             target="copilot.lock.json",
             description="Refresh only the Claude lock component after verification.",
-            payload=_lock_payload(root, _lock_entry(source, component)),
+            payload=_lock_payload(
+                root, _exclude_project_owned(root, _lock_entry(source, component))
+            ),
         ),
     )
 
 
+def _claude_customized_update(
+    root: Path, component: str, existing: Mapping[str, Any]
+) -> tuple[RecipeOperation, ...]:
+    """Refresh a customized-preserve install without touching project content.
+
+    Only files the lock already records (plus absent or identical support
+    files) are refreshed. Framework agents are not installed: the project owns
+    its agent tree.
+    """
+    source = _source_root(component)
+    desired = _desired_component_contract(root, component, existing)
+    operations = [
+        operation
+        for operation in _claude_setup(root, component)
+        if operation.kind != RecipeOperationKind.UPSERT_LOCK_COMPONENT
+        and operation.target != ".claude/agents"
+        and (not operation.target.startswith(".claude/agents/")
+             or operation.target in claude_support_files(source, claude_reference_roster(source)[0]))
+    ]
+    planned_targets = {operation.target for operation in operations}
+    for item in desired["files"]:
+        target = str(item["path"])
+        if target in planned_targets:
+            continue
+        try:
+            current = _bytes_hash((root / target).read_bytes())
+        except OSError:
+            current = None
+        if current == item["checksum"]:
+            continue
+        operations.append(
+            _operation(
+                root=root,
+                component=component,
+                kind=RecipeOperationKind.COPY_FILE_FROM_SOURCE,
+                target=target,
+                description=f"Refresh the verified framework-owned {target} file.",
+                source=source / target,
+                payload={
+                    "source_path": str(source / target),
+                    "mode": 0o755 if target.endswith(".sh") else 0o644,
+                },
+            )
+        )
+    operations.append(
+        _operation(
+            root=root,
+            component=component,
+            kind=RecipeOperationKind.UPSERT_LOCK_COMPONENT,
+            target="copilot.lock.json",
+            description="Record the refreshed Claude framework-owned checksums.",
+            payload=_lock_payload(root, desired),
+        )
+    )
+    return tuple(operations)
+
+
 def _claude_update(root: Path, component: str) -> tuple[RecipeOperation, ...]:
+    existing = _existing_lock_entries(root).get(component)
+    if existing is not None and existing.get("ownership_mode") == "customized-preserve":
+        return _claude_customized_update(root, component, existing)
     source = _source_root(component)
     operations = list(_claude_setup(root, component))
     planned_targets = {operation.target for operation in operations}
-    desired = _lock_entry(source, component)
+    desired = _exclude_project_owned(root, _lock_entry(source, component))
     for item in desired["files"]:
         target = str(item["path"])
         if target in planned_targets:
@@ -2032,20 +2113,34 @@ def _safe_claude_project_tree(root: Path) -> bool:
 
 
 def _recognized_internal_codex_skill_bridge(root: Path, path: Path) -> bool:
-    """Admit only Codex's exact project-contained skill bridge.
+    """Admit only exact project-contained plugin skill bridges.
 
-    Claude preservation recipes never write through this link.  The target is
-    the portable Codex plugin already contained by the same project, so this
-    does not grant access to an external shared checkout or broaden the recipe
-    mutation boundary.
+    A bridge is `.claude/skills/<name>` linking to `../../plugins/<name>/skills`
+    in the same project: Codex's own `codex-copilot` bridge, or a bridge to a
+    project-owned plugin that exposes its skills to Claude the same way.
+    Claude preservation recipes never write through these links. The target
+    is a real directory inside the same project, so this does not grant access
+    to an external shared checkout or broaden the recipe mutation boundary.
     """
     try:
-        if path.relative_to(root).as_posix() != ".claude/skills/codex-copilot":
+        relative = path.relative_to(root)
+        if len(relative.parts) != 3 or relative.parts[:2] != (".claude", "skills"):
             return False
-        if path.readlink().as_posix() != "../../plugins/codex-copilot/skills":
+        name = relative.parts[2]
+        if name in {"", ".", ".."}:
             return False
-        expected = (root / "plugins/codex-copilot/skills").resolve(strict=True)
-        return path.resolve(strict=True) == expected and expected.is_dir()
+        if path.readlink().as_posix() != f"../../plugins/{name}/skills":
+            return False
+        plugins = root / "plugins"
+        for part in (plugins, plugins / name, plugins / name / "skills"):
+            if stat.S_ISLNK(part.lstat().st_mode):
+                return False
+        expected = (plugins / name / "skills").resolve(strict=True)
+        return (
+            path.resolve(strict=True) == expected
+            and expected.is_dir()
+            and expected.is_relative_to(root.resolve(strict=True))
+        )
     except (OSError, ValueError):
         return False
 
@@ -2249,9 +2344,9 @@ def _claude_assistant_preserve_entry(
     operations = _claude_customized_preserve_entry(root, component)
     bounded: list[RecipeOperation] = []
     for operation in operations:
-        if operation.target == ".claude/agents" or operation.target.startswith(
+        if (operation.target == ".claude/agents" or operation.target.startswith(
             ".claude/agents/"
-        ):
+        )) and operation.target not in claude_support_files(source, claude_reference_roster(source)[0]):
             continue
         if operation.kind == RecipeOperationKind.UPSERT_LOCK_COMPONENT:
             bounded.append(
@@ -2628,7 +2723,14 @@ def _verified_update_boundary(
         and isinstance(item.get("path"), str)
         and isinstance(item.get("checksum"), str)
     }
-    retired = set(existing_files) - set(desired_files)
+    # A recorded path the project has since claimed (`owner: project`) is
+    # handed back to the project, not retired: the update re-records the lock
+    # without it and never touches the file.
+    retired = {
+        relative
+        for relative in set(existing_files) - set(desired_files)
+        if not declares_project_owner(root / relative)
+    }
     if retired:
         raise ComponentSourceConflict(
             "The authoritative source retires framework paths that require an owner-reviewed disposition."
@@ -2644,11 +2746,18 @@ def _verified_update_boundary(
                 "A newly managed framework path could not be inspected safely."
             ) from exc
         try:
-            conflicts = (
-                stat.S_ISLNK(metadata.st_mode)
-                or not stat.S_ISREG(metadata.st_mode)
-                or _bytes_hash(target.read_bytes()) != desired_files[relative]
+            conflicts = stat.S_ISLNK(metadata.st_mode) or not stat.S_ISREG(
+                metadata.st_mode
             )
+            if not conflicts:
+                current = _bytes_hash(target.read_bytes())
+                # An older framework copy the lock never recorded is framework
+                # content, not project content: replacing it is the update.
+                conflicts = current != desired_files[
+                    relative
+                ] and not is_prior_framework_version(
+                    _source_root(component), relative, current
+                )
         except OSError as exc:
             raise ComponentSourceConflict(
                 "A newly managed framework path could not be inspected safely."
@@ -2680,11 +2789,50 @@ def _verified_update_boundary(
         )
 
 
+def _claude_support_paths(source: Path) -> set[str]:
+    """The framework-owned Claude files a customized install may carry.
+
+    Agent definitions are never in this set: a customized-preserve project
+    keeps them. The canonical lifecycle reference is a bounded support file.
+    """
+    commands, _agents = claude_reference_roster(source)
+    return {
+        *claude_support_files(source, commands),
+        *(f".claude/commands/{command}" for command in commands),
+        ".claude/fitness-check.sh",
+        ".claude/hooks/copilot-hook.sh",
+    }
+
+
+def _claude_new_support_paths(
+    root: Path, desired_files: Sequence[Mapping[str, Any]]
+) -> set[str]:
+    """Support files a customized install does not record yet but may add.
+
+    A path qualifies only when it is absent or already byte-identical to the
+    authoritative file, so project-authored content is never claimed.
+    """
+    support = _claude_support_paths(_source_root("claude"))
+    result: set[str] = set()
+    for item in desired_files:
+        relative = str(item.get("path", ""))
+        if relative not in support:
+            continue
+        if _target_missing(root, relative) or (
+            _safe_target_kind(root, relative) == "regular"
+            and _bytes_hash((root / relative).read_bytes()) == item.get("checksum")
+        ):
+            result.add(relative)
+    return result
+
+
 def _desired_component_contract(
     root: Path, component: str, existing: Mapping[str, Any]
 ) -> dict[str, Any]:
     binding = _codex_plugin_binding(root) if component == "codex" else _BINDING_UNSET
     desired = _lock_entry(_source_root(component), component, codex_binding=binding)
+    if component == "claude":
+        desired = _exclude_project_owned(root, desired)
     if existing.get("ownership_mode") != "customized-preserve":
         return desired
 
@@ -2693,6 +2841,8 @@ def _desired_component_contract(
         for item in existing.get("files", [])
         if isinstance(item, Mapping) and isinstance(item.get("path"), str)
     }
+    if component == "claude":
+        owned_paths |= _claude_new_support_paths(root, desired["files"])
     desired["ownership_mode"] = "customized-preserve"
     desired["files"] = [
         item for item in desired["files"] if str(item.get("path", "")) in owned_paths
@@ -2723,14 +2873,15 @@ def component_lock_update_required(root: Path, component: str) -> bool:
         return False
     desired = _desired_component_contract(root, component, existing)
     _verified_update_boundary(root, component, existing, desired)
-    update_required = _normalized_component_contract(
-        existing
-    ) != _normalized_component_contract(desired)
-    if update_required and existing.get("ownership_mode") == "customized-preserve":
-        raise ComponentSourceConflict(
-            "The customized framework boundary differs from the authoritative source and requires owner review."
-        )
-    return update_required
+    # A customized-preserve lock differs from today's source whenever the
+    # release moved. That is a bounded update, not a conflict: the desired
+    # contract is already restricted to the files the lock records (plus
+    # absent or identical support files), retired paths and colliding new
+    # paths were rejected above, and the inspector verified the recorded files
+    # against disk before this comparison ran.
+    return _normalized_component_contract(existing) != _normalized_component_contract(
+        desired
+    )
 
 
 def _managed_records(entry: Mapping[str, Any]) -> list[dict[str, str]]:

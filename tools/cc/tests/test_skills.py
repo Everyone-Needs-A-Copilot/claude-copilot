@@ -306,6 +306,50 @@ class TestKnowledgeSkillPaths:
         pairs = default_skill_paths()
         assert (skills_dir, "knowledge") in pairs
 
+    def test_default_skill_paths_includes_installed_framework_catalog(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Agents load framework skills by name (`cc skill get stride-dread`)
+        and consumer projects never receive the framework's .claude/skills
+        tree, so a fresh machine with no ~/.claude/skills copy must still
+        resolve those names -- from the installed framework snapshot."""
+        framework = tmp_path / "framework-snapshot"
+        skill_dir = framework / ".claude" / "skills" / "security" / "stride-dread"
+        skill_dir.mkdir(parents=True)
+        (skill_dir / "SKILL.md").write_text(
+            "---\nname: stride-dread\ndescription: Threat modeling.\n---\n\nBody\n"
+        )
+        monkeypatch.setattr("cc.core.config.resolve_knowledge_repos", lambda: [])
+        monkeypatch.setattr("cc.core.skill_store._git_root", lambda: None)
+        monkeypatch.setattr(Path, "home", lambda: tmp_path / "fresh-home")
+        monkeypatch.setattr(
+            "cc.core.config.resolve_key",
+            lambda key, **_: str(framework) if key == "paths.claude_copilot_root" else None,
+        )
+
+        pairs = default_skill_paths()
+        assert (framework / ".claude" / "skills", "machine") in pairs
+        names = {s.name for s in discover_skills([p for p, _ in pairs])}
+        assert "stride-dread" in names
+
+    def test_personal_machine_skills_precede_framework_catalog(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        home = tmp_path / "home"
+        (home / ".claude" / "skills").mkdir(parents=True)
+        framework = home / ".claude" / "copilot"
+        (framework / ".claude" / "skills").mkdir(parents=True)
+        monkeypatch.setattr("cc.core.config.resolve_knowledge_repos", lambda: [])
+        monkeypatch.setattr("cc.core.skill_store._git_root", lambda: None)
+        monkeypatch.setattr(Path, "home", lambda: home)
+        monkeypatch.setattr("cc.core.config.resolve_key", lambda key, **_: None)
+
+        pairs = default_skill_paths()
+        assert pairs == [
+            (home / ".claude" / "skills", "machine"),
+            (framework / ".claude" / "skills", "machine"),
+        ]
+
 
 class TestKnowledgeSkillDiscovery:
     def test_discovers_real_knowledge_repo_structure(

@@ -27,6 +27,7 @@ from cc.core.evaluation.journey_runtime import (
     MandatorySecurityVerifier,
     TcJourneyLedger,
     _platform_global_lock_path,
+    abandon_run,
     begin_run,
     bind_prompt,
     inspect_run,
@@ -143,6 +144,7 @@ def begin(rows: Rows, *, specialists=("me", "qa"), session="session-296"):
         prompt_sha256="b" * 64,
         session_id=session,
         ledger=ledger(rows),
+        resolver=resolver,
         capability=type(
             "Capability",
             (),
@@ -703,6 +705,7 @@ def test_security_denial_stops_before_knowledge_and_dispatch():
             prompt_sha256="b" * 64,
             session_id="denied-session",
             ledger=ledger(rows),
+            resolver=resolver,
             capability=type(
                 "Explode",
                 (),
@@ -1143,6 +1146,7 @@ def test_real_tc_cross_stage_row_reassignment_is_rejected(tmp_path, monkeypatch)
         prompt_sha256="b" * 64,
         session_id="real-chronology",
         ledger=real_ledger(task_id),
+        resolver=resolver,
         capability=capability,
     )
     first = prepare_run(
@@ -1256,6 +1260,7 @@ def test_real_tc_terminal_chronology(tmp_path, monkeypatch, attack, specialists)
         prompt_sha256="b" * 64,
         session_id=session_id,
         ledger=real_ledger(task_id),
+        resolver=resolver,
         capability=capability,
     )
 
@@ -1433,6 +1438,7 @@ def test_security_change_at_dispatch_stops_before_knowledge():
         prompt_sha256="b" * 64,
         session_id="security-change",
         ledger=ledger(rows),
+        resolver=resolver,
         capability=type(
             "Capability",
             (),
@@ -1795,6 +1801,7 @@ def test_persisted_classification_and_reasons_reject_unsafe_values(unsafe):
             prompt_sha256="b" * 64,
             session_id="safe-session",
             ledger=ledger(rows),
+            resolver=resolver,
             capability=type(
                 "Capability",
                 (),
@@ -1837,6 +1844,7 @@ def test_persisted_reason_and_session_reject_disclosure_values(unsafe):
             prompt_sha256="b" * 64,
             session_id="safe-session",
             ledger=ledger(rows),
+            resolver=resolver,
             capability=capability,
         )
     with pytest.raises(ValueError, match="unsafe"):
@@ -1855,6 +1863,7 @@ def test_persisted_reason_and_session_reject_disclosure_values(unsafe):
             prompt_sha256="b" * 64,
             session_id=unsafe,
             ledger=ledger(rows),
+            resolver=resolver,
             capability=capability,
         )
 
@@ -1968,6 +1977,7 @@ def test_real_tc_guard_safe_roundtrip_and_multiprocess_dispatch(tmp_path, monkey
         prompt_sha256="b" * 64,
         session_id="real-process-session",
         ledger=real_ledger(task_id),
+        resolver=resolver,
         capability=capability,
     )
     prepared = prepare_run(
@@ -2009,3 +2019,137 @@ def test_real_tc_guard_safe_roundtrip_and_multiprocess_dispatch(tmp_path, monkey
     assert all(item["guard"] == "title=clean;content=clean" for item in rows)
     assert sum(item["title"] == "Journey v2.1 dispatch evidence" for item in rows) == 1
     assert sum(item["title"] == "Journey v2.1 final evidence" for item in rows) == 1
+
+
+def test_begin_refuses_route_whose_knowledge_cannot_be_prepared():
+    rows = Rows()
+
+    def partial(specialist):
+        if specialist == "qa":
+            raise ValueError("Required authenticated Knowledge is unavailable.")
+        return resolver(specialist)
+
+    with pytest.raises(ValueError, match="unavailable for qa; .*no journey was begun"):
+        begin_run(
+            task_id=296,
+            runtime="claude",
+            classification="implementation",
+            specialists=("me", "qa"),
+            events=[
+                {"kind": "transition", "specialist": item, "reason": "protocol-supplied"}
+                for item in ("me", "qa")
+            ],
+            prompt_sha256="b" * 64,
+            session_id="session-296",
+            ledger=ledger(rows),
+            resolver=partial,
+            capability=type(
+                "Capability",
+                (),
+                {
+                    "invoke": lambda self, **_: CapabilityReceipt(
+                        "cli-copilot-health", "unavailable"
+                    )
+                },
+            )(),
+        )
+    assert not [
+        row for row in rows.list_wps(task=296)
+        if payload_for(row).get("record_type") == "begin"
+    ]
+    assert verify_dispatch(
+        session_id="session-296",
+        specialist="me",
+        marker="",
+        prompt_sha256="c" * 64,
+        knowledge_sha256="",
+        ledger_factory=ledger_factory(rows),
+        resolver=resolver,
+    )["state"] == "no_active"
+
+
+def test_abandon_releases_session_and_permanently_closes_run():
+    rows = Rows()
+    started = begin(rows)
+    prepared = prepare_run(
+        started["run_id"], "me", ledger=ledger(rows), resolver=resolver
+    )
+
+    def unframed():
+        return verify_dispatch(
+            session_id="session-296",
+            specialist="me",
+            marker="",
+            prompt_sha256="c" * 64,
+            knowledge_sha256="",
+            ledger_factory=ledger_factory(rows),
+            resolver=resolver,
+        )
+
+    with pytest.raises(ValueError, match="active-journey-marker-required"):
+        unframed()
+    with pytest.raises(ValueError, match="session does not match"):
+        abandon_run(
+            started["run_id"],
+            session_id="session-other",
+            reason="knowledge-unavailable",
+            ledger=ledger(rows),
+        )
+
+    closed = abandon_run(
+        started["run_id"],
+        session_id="session-296",
+        reason="knowledge-unavailable",
+        ledger=ledger(rows),
+    )
+    assert closed["status"] == "abandoned"
+    assert closed["next_specialist"] is None
+    assert inspect_run(started["run_id"], ledger=ledger(rows)) == closed
+    assert abandon_run(
+        started["run_id"],
+        session_id="session-296",
+        reason="knowledge-unavailable",
+        ledger=ledger(rows),
+    ) == closed
+
+    assert unframed()["state"] == "no_active"
+    with pytest.raises(ValueError, match="Journey was abandoned"):
+        prepare_run(started["run_id"], "me", ledger=ledger(rows), resolver=resolver)
+    with pytest.raises(ValueError, match="Journey was abandoned"):
+        bind_prompt(started["run_id"], "me", "c" * 64, ledger=ledger(rows))
+    with pytest.raises(ValueError, match="dispatch-run-abandoned"):
+        verify_dispatch(
+            session_id="session-296",
+            specialist="me",
+            marker=prepared.invocation_marker,
+            prompt_sha256="c" * 64,
+            knowledge_sha256=prepared.composed_content_sha256,
+            ledger_factory=ledger_factory(rows),
+            resolver=resolver,
+        )
+    assert pause_run(started["run_id"], ledger=ledger(rows))["status"] == "abandoned"
+    assert resume_run(296, ledger=ledger(rows))["state"] == "no_journey"
+    assert begin(rows)["run_id"] != started["run_id"]
+
+
+def test_abandon_after_partial_progress_detects_tampered_evidence():
+    rows = Rows()
+    started = begin(rows)
+    first = prepare_run(started["run_id"], "me", ledger=ledger(rows), resolver=resolver)
+    authorize(rows, first)
+    closed = abandon_run(
+        started["run_id"],
+        session_id="session-296",
+        reason="route-stalled",
+        ledger=ledger(rows),
+    )
+    assert closed["dispatch_authorized_specialists"] == ("me",)
+    abandon_row = next(
+        row for row in rows.list_wps(task=296)
+        if payload_for(row).get("record_type") == "abandon"
+    )
+    payload = payload_for(abandon_row)
+    payload["dispatch_authorizations_sha256"] = "0" * 64
+    abandon_row["content"] = json.dumps(payload)
+    with pytest.raises(ValueError, match="abandon evidence changed"):
+        inspect_run(started["run_id"], ledger=ledger(rows))

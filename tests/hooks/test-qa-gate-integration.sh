@@ -67,7 +67,7 @@ cleanup_all() {
   esac
 }
 
-trap cleanup_all EXIT
+trap '[ -n "${KEEP_ROOT:-}" ] || cleanup_all' EXIT
 
 mkdir -p "$TEST_PROJECT" "$OTHER_PROJECT" "$STATE_DIR"
 printf '%s\n' \
@@ -371,6 +371,126 @@ if [[ "$EXIT" -eq 0 ]]; then
 else
   fail "Scenario 3: rejected task IDs left a gate behind (exit $EXIT)"
 fi
+
+# ---------------------------------------------------------------------------
+# Scenarios 4-8: rejection -> rework -> re-arm -> approval, malformed evidence,
+# per-criterion verdicts, header-less QA stops, tc executable override
+# ---------------------------------------------------------------------------
+send_pretool_tool() {
+  local tool="$1"
+  local payload
+  payload="$(printf '{"session_id":"%s","tool_name":"%s","tool_input":{"file_path":"x"}}' "$TEST_SESSION" "$tool")"
+  local exit_code=0
+  bash "$PRETOOL_HOOK" <<< "$payload" >/dev/null 2>&1 || exit_code=$?
+  printf '%d' "$exit_code"
+}
+
+gate_list() {  # gate_list <pending_tasks|rework_tasks>
+  "$JQ" -c --arg sid "$TEST_SESSION" --arg k "$1" '.[$sid][$k] // []' "$GATE_FILE" 2>/dev/null || echo "[]"
+}
+
+expect_eq() {  # expect_eq <label> <expected> <actual>
+  if [[ "$2" == "$3" ]]; then ok "$1"; else fail "$1 (expected '$2', got '$3')"; fi
+}
+
+echo ""
+echo "--- Scenario 4: clean rejection -> rework -> re-arm -> approval ---"
+cleanup_state
+REWORK_ID="$(create_task "$TEST_PROJECT" "QA gate rework fixture")"
+REWORK_TASK="TASK-${REWORK_ID}"
+send_stop "me" "Task: ${REWORK_TASK} | WP: WP-10\nSummary: implementation done."
+store_evidence "$REWORK_ID" "REJECTED"
+send_stop "qa" "Task: ${REWORK_TASK} | WP: WP-11\nQA rejected."
+expect_eq "Scenario 4: rejected task leaves pending_tasks" "[]" "$(gate_list pending_tasks)"
+expect_eq "Scenario 4: rejected task enters rework_tasks" "[\"${REWORK_TASK}\"]" "$(gate_list rework_tasks)"
+expect_eq "Scenario 4: rejection does not advance the retry counter" "{}" "$("$JQ" -c --arg sid "$TEST_SESSION" '.[$sid].retries' "$GATE_FILE")"
+expect_eq "Scenario 4: Agent(me) allowed during rework" "0" "$(get_exit_code "$(send_pretool_agent me)")"
+expect_eq "Scenario 4: Edit allowed during rework" "0" "$(send_pretool_tool Edit)"
+expect_eq "Scenario 4: unrelated Agent(ta) still denied during rework" "2" "$(get_exit_code "$(send_pretool_agent ta)")"
+expect_eq "Scenario 4: arbitrary Bash still denied during rework" "2" "$(get_exit_code "$(send_pretool_bash "ls")")"
+if (cd "$TEST_PROJECT" && tc task check-qa "$REWORK_ID" --json >/dev/null 2>&1); then
+  fail "Scenario 4: a rejection must never count as approval"
+else
+  ok "Scenario 4: tc task check-qa still not approved after rejection"
+fi
+send_stop "me" "Task: ${REWORK_TASK} | WP: WP-12\nSummary: fixed."
+expect_eq "Scenario 4: implementer stop re-arms task as pending" "[\"${REWORK_TASK}\"]" "$(gate_list pending_tasks)"
+expect_eq "Scenario 4: rework list empty after re-arm" "[]" "$(gate_list rework_tasks)"
+expect_eq "Scenario 4: re-armed gate denies Agent(me) again" "2" "$(get_exit_code "$(send_pretool_agent me)")"
+expect_eq "Scenario 4: re-armed gate allows Agent(qa)" "0" "$(get_exit_code "$(send_pretool_agent qa)")"
+send_stop "qa" "Task: ${REWORK_TASK} | WP: WP-13\nStill the rejected evidence."
+expect_eq "Scenario 4: stale rejection again moves to rework" "[\"${REWORK_TASK}\"]" "$(gate_list rework_tasks)"
+send_stop "me" "Task: ${REWORK_TASK} | WP: WP-14\nSummary: fixed again."
+store_evidence "$REWORK_ID" "APPROVED"
+send_stop "qa" "Task: ${REWORK_TASK} | WP: WP-15\nApproved."
+expect_eq "Scenario 4: approval clears pending" "[]" "$(gate_list pending_tasks)"
+expect_eq "Scenario 4: approval leaves no rework" "[]" "$(gate_list rework_tasks)"
+expect_eq "Scenario 4: Bash allowed after approval" "0" "$(get_exit_code "$(send_pretool_bash "ls")")"
+
+echo ""
+echo "--- Scenario 5: malformed evidence keeps blocking (no rework) ---"
+cleanup_state
+MAL_ID="$(create_task "$TEST_PROJECT" "QA gate malformed fixture")"
+MAL_TASK="TASK-${MAL_ID}"
+send_stop "me" "Task: ${MAL_TASK} | WP: WP-20\nSummary: done."
+(cd "$TEST_PROJECT" && tc wp store --task "$MAL_ID" --type test --title "Malformed" \
+  --content $'ARTIFACT: test-run|pytest exit=1\nVERDICT: REJECTED' --json) >/dev/null 2>&1
+send_stop "qa" "Task: ${MAL_TASK} | WP: WP-21\nRejected, but the packet is malformed."
+expect_eq "Scenario 5: malformed rejection stays pending" "[\"${MAL_TASK}\"]" "$(gate_list pending_tasks)"
+expect_eq "Scenario 5: malformed rejection is not rework" "[]" "$(gate_list rework_tasks)"
+expect_eq "Scenario 5: malformed rejection counts a retry" "1" "$("$JQ" -r --arg sid "$TEST_SESSION" --arg t "$MAL_TASK" '.[$sid].retries[$t]' "$GATE_FILE")"
+expect_eq "Scenario 5: Agent(me) still denied" "2" "$(get_exit_code "$(send_pretool_agent me)")"
+
+echo ""
+echo "--- Scenario 6: header-less QA stops still advance retries ---"
+for _ in 1 2; do send_stop "qa" "All done, nothing structured here." >/dev/null; done
+expect_eq "Scenario 6: two header-less QA stops advance to 3rd-attempt unblock" "[]" "$(gate_list pending_tasks)"
+
+echo ""
+echo "--- Scenario 7: per-criterion verdicts through the real tc ---"
+cleanup_state
+# These cases exercise this checkout's evidence validator, so run the whole
+# scenario (evidence recording and the hooks) under the checkout's own tc when
+# it is installed; QA identity binds the runtime, so one tc must do both.
+SAVED_PATH="$PATH"
+[[ -x "$PROJECT_ROOT/tools/tc/.venv/bin/tc" ]] && PATH="$PROJECT_ROOT/tools/tc/.venv/bin:$PATH"
+MIX_ID="$(create_task "$TEST_PROJECT" "QA gate mixed verdict fixture")"
+MIX_TASK="TASK-${MIX_ID}"
+send_stop "me" "Task: ${MIX_TASK} | WP: WP-30\nSummary: done."
+store_evidence "$MIX_ID" $'SUPPORTED\nVERDICT: REJECTED'
+send_stop "qa" "Task: ${MIX_TASK} | WP: WP-31\nOne criterion rejected."
+expect_eq "Scenario 7: SUPPORTED+REJECTED is a rejection (rework)" "[\"${MIX_TASK}\"]" "$(gate_list rework_tasks)"
+send_stop "me" "Task: ${MIX_TASK} | WP: WP-32\nFixed."
+store_evidence "$MIX_ID" "SUPPORTED"
+send_stop "qa" "Task: ${MIX_TASK} | WP: WP-33\nAll criteria supported."
+expect_eq "Scenario 7: all SUPPORTED approves" "[]" "$(gate_list pending_tasks)"
+PATH="$SAVED_PATH"
+
+echo ""
+echo "--- Scenario 8: COPILOT_TC_BIN override is honoured ---"
+cleanup_state
+TC_LOG="${TEST_ROOT}/tc-wrapper.log"
+TC_WRAPPER="${TEST_ROOT}/tc-wrapper"
+REAL_TC="$(command -v tc)"
+printf '%s\n' '#!/usr/bin/env bash' "echo \"\$*\" >> '${TC_LOG}'" "exec '${REAL_TC}' \"\$@\"" > "$TC_WRAPPER"
+chmod +x "$TC_WRAPPER"
+OVR_ID="$(create_task "$TEST_PROJECT" "QA gate tc override fixture")"
+OVR_TASK="TASK-${OVR_ID}"
+COPILOT_TC_BIN="$TC_WRAPPER" send_stop "me" "Task: ${OVR_TASK} | WP: WP-40\nSummary: done."
+expect_eq "Scenario 8: override executable armed the gate" "[\"${OVR_TASK}\"]" "$(gate_list pending_tasks)"
+if grep -q "task get ${OVR_ID}" "$TC_LOG" 2>/dev/null; then ok "Scenario 8: SubagentStop(me) called the override executable"; else fail "Scenario 8: override executable not called by me stop"; fi
+store_evidence "$OVR_ID" "APPROVED"
+: > "$TC_LOG"
+COPILOT_TC_BIN="$TC_WRAPPER" send_stop "qa" "Task: ${OVR_TASK} | WP: WP-41\nApproved."
+if grep -q "task check-qa ${OVR_ID}" "$TC_LOG" 2>/dev/null; then ok "Scenario 8: SubagentStop(qa) called the override executable for check-qa"; else fail "Scenario 8: override executable not used for check-qa"; fi
+expect_eq "Scenario 8: approval via override clears pending" "[]" "$(gate_list pending_tasks)"
+cleanup_state
+COPILOT_TC_BIN="${TEST_ROOT}/does-not-exist" send_stop "me" "Task: ${OVR_TASK} | WP: WP-42\nSummary: done."
+expect_eq "Scenario 8: missing override executable fails open (no arm)" "[]" "$(gate_list pending_tasks)"
+cleanup_state
+send_stop "me" "Task: ${OVR_TASK} | WP: WP-43\nSummary: done."
+expect_eq "Scenario 8: override executable is a safe Bash prefix under the gate" "0" "$(COPILOT_TC_BIN="$TC_WRAPPER" bash -c '. /dev/null; printf "{\"session_id\":\"%s\",\"tool_name\":\"Bash\",\"tool_input\":{\"command\":\"%s task get 1\"}}" "$0" "$1" | bash "$2" >/dev/null 2>&1; echo $?' "$TEST_SESSION" "$TC_WRAPPER" "$PRETOOL_HOOK")"
+expect_eq "Scenario 8: unsafe command via override still denied" "2" "$(COPILOT_TC_BIN="$TC_WRAPPER" bash -c 'printf "{\"session_id\":\"%s\",\"tool_name\":\"Bash\",\"tool_input\":{\"command\":\"%s rm -rf x\"}}" "$0" "$1" | bash "$2" >/dev/null 2>&1; echo $?' "$TEST_SESSION" "$TC_WRAPPER" "$PRETOOL_HOOK")"
 
 # ---------------------------------------------------------------------------
 # Results

@@ -127,6 +127,51 @@ def run_setup_journey(
         raise typer.Exit(1)
 
 
+@reconcile_app.command("request")
+def request_command(
+    project: Optional[Path] = typer.Option(
+        None, "--project", help="The Git project root to set up or update."
+    ),
+    output: Optional[Path] = typer.Option(
+        None, "--output", help="File that receives the canonical request JSON."
+    ),
+) -> None:
+    """Check the cc/tc prerequisites and write the one-project request.
+
+    This runs inside cc's own runtime so `/setup-project` and `/update-project`
+    never depend on whichever `python3` happens to be on PATH, and work the same
+    for a development venv and a frozen release binary.
+    """
+    from cc.core.ecosystem.canonical_transaction import (
+        canonical_project_request_json,
+        inspect_canonical_prerequisites,
+    )
+
+    prerequisites = inspect_canonical_prerequisites()
+    if not prerequisites["ready"]:
+        typer.echo(json.dumps(prerequisites, sort_keys=True), err=True)
+        raise typer.Exit(3)
+    if project is None or output is None:
+        _emit(
+            _error("invalid-request", "Provide both --project and --output.", 2),
+            output_json=True,
+        )
+        raise typer.Exit(2)
+    try:
+        payload = canonical_project_request_json(project)
+    except RequestValidationError as exc:
+        _emit(_error("invalid-request", str(exc), 2), output_json=True)
+        raise typer.Exit(2) from exc
+    try:
+        output.write_text(payload, encoding="utf-8")
+    except OSError as exc:
+        _emit(
+            _error("invalid-request", "The request file could not be written.", 2),
+            output_json=True,
+        )
+        raise typer.Exit(2) from exc
+
+
 @reconcile_app.command("plan")
 def plan(
     request: Optional[Path] = typer.Option(

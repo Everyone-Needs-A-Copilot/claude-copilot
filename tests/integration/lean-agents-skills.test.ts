@@ -187,7 +187,9 @@ async function testAgentStructure() {
   // Test: the old '## Skill Loading Protocol' section (a fictional
   // skill_evaluate() JS snippet) was removed in the same pass. Skill
   // discovery is now real: `cc skill search` (fallback keyword search) or a
-  // mandatory `@include .claude/skills/...` for a domain-required skill
+  // mandatory `cc skill get <name>` for a domain-required skill
+  // (resolved project -> machine -> knowledge; consumer projects never ship
+  // the framework's .claude/skills tree, so repo-relative paths are dead there)
   // (e.g. sec's STRIDE+DREAD). Not every agent uses the same wording or a
   // dedicated heading, so assert the mechanism is documented in the body.
   await runTest('All agents document a real skill-discovery mechanism', () => {
@@ -196,10 +198,10 @@ async function testAgentStructure() {
       const content = readFileSync(agentPath, 'utf-8');
 
       const hasSkillDiscovery =
-        content.includes('cc skill search') || content.includes('@include .claude/skills/');
+        content.includes('cc skill search') || content.includes('cc skill get ');
       assert(
         hasSkillDiscovery,
-        `Agent ${agent} missing a real skill-discovery mechanism (cc skill search or @include .claude/skills/)`
+        `Agent ${agent} missing a real skill-discovery mechanism (cc skill search or cc skill get)`
       );
     }
   });

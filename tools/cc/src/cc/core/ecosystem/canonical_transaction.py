@@ -89,6 +89,24 @@ def claude_reference_roster(
     return commands, agents
 
 
+def claude_support_files(source: Path, commands: Sequence[str]) -> dict[str, Path]:
+    """Required local references for commands declared by this framework.
+
+    Keep older installations readable; a release declaring cleanup must ship
+    both its thin skill and canonical lifecycle, never a dangling command.
+    """
+    if "cleanup.md" not in commands:
+        return {}
+    paths = (
+        ".claude/agents/_shared/work-lifecycle.md",
+        ".claude/skills/cleanup/SKILL.md",
+    )
+    files = {relative: source / relative for relative in paths}
+    if any(not path.is_file() or path.is_symlink() for path in files.values()):
+        raise RequestValidationError("The Claude work lifecycle package is incomplete.")
+    return files
+
+
 def inspect_canonical_prerequisites(
     *,
     which: Callable[[str], str | None] = shutil.which,
@@ -142,6 +160,11 @@ def inspect_canonical_prerequisites(
         "next_action": (
             "Continue with the canonical project transaction."
             if ready
+            # An installed tc whose receipt no longer matches its source (the
+            # usual cause: the development checkout moved to a new commit)
+            # needs only a reinstall, not full machine setup.
+            else "Reinstall tc from reviewed source with `bash ~/.claude/copilot/tools/tc/install.sh`, then retry the project transaction."
+            if cc_path is not None and tc_path
             else "Complete Claude Copilot machine setup in ~/.claude/copilot with /setup, open a fresh shell, then retry the project transaction."
         ),
     }

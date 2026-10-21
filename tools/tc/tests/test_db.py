@@ -124,6 +124,65 @@ class TestFindDbPath:
         # so we can only assert it returns a Path or None
 
 
+class TestFindDbPathWorktree:
+    """A linked git worktree shares its main checkout's task database."""
+
+    @staticmethod
+    def _worktree(main: Path, wt: Path, name: str = "wt") -> None:
+        gitdir = main / ".git" / "worktrees" / name
+        gitdir.mkdir(parents=True)
+        (gitdir / "commondir").write_text("../..\n")
+        wt.mkdir(parents=True, exist_ok=True)
+        (wt / ".git").write_text(f"gitdir: {gitdir}\n")
+
+    def test_worktree_uses_main_checkout_db(self, tmp_dir, monkeypatch):
+        main, wt = tmp_dir / "repo", tmp_dir / "repo-feature"
+        init_db(main / ".copilot" / "tasks.db")
+        self._worktree(main, wt)
+        init_db(wt / ".copilot" / "tasks.db")   # the branch's committed snapshot
+        (wt / "src").mkdir()
+        monkeypatch.chdir(wt / "src")
+        assert find_db_path() == main / ".copilot" / "tasks.db"
+
+    def test_nested_agent_worktree_uses_main_checkout_db(self, tmp_dir, monkeypatch):
+        main = tmp_dir / "repo"
+        wt = main / ".claude" / "worktrees" / "agent-1"
+        init_db(main / ".copilot" / "tasks.db")
+        self._worktree(main, wt, "agent-1")
+        init_db(wt / ".copilot" / "tasks.db")
+        monkeypatch.chdir(wt)
+        assert find_db_path() == main / ".copilot" / "tasks.db"
+
+    def test_local_override_uses_worktree_copy(self, tmp_dir, monkeypatch):
+        main, wt = tmp_dir / "repo", tmp_dir / "repo-feature"
+        init_db(main / ".copilot" / "tasks.db")
+        self._worktree(main, wt)
+        init_db(wt / ".copilot" / "tasks.db")
+        monkeypatch.chdir(wt)
+        monkeypatch.setenv("TC_WORKTREE_DB", "local")
+        assert find_db_path() == wt / ".copilot" / "tasks.db"
+
+    def test_worktree_without_main_db_falls_back(self, tmp_dir, monkeypatch):
+        main, wt = tmp_dir / "repo", tmp_dir / "repo-feature"
+        (main / ".git").mkdir(parents=True)
+        self._worktree(main, wt)
+        init_db(wt / ".copilot" / "tasks.db")
+        monkeypatch.chdir(wt)
+        assert find_db_path() == wt / ".copilot" / "tasks.db"
+
+    def test_submodule_is_not_a_worktree(self, tmp_dir, monkeypatch):
+        parent = tmp_dir / "repo"
+        init_db(parent / ".copilot" / "tasks.db")
+        modules = parent / ".git" / "modules" / "sub"
+        modules.mkdir(parents=True)   # no commondir: a submodule
+        sub = parent / "sub"
+        sub.mkdir()
+        (sub / ".git").write_text(f"gitdir: {modules}\n")
+        init_db(sub / ".copilot" / "tasks.db")
+        monkeypatch.chdir(sub)
+        assert find_db_path() == sub / ".copilot" / "tasks.db"
+
+
 class TestGetDb:
     """Tests for get_db connection utility."""
 
@@ -252,3 +311,40 @@ class TestVersion:
         result = runner.invoke(app, ["version"])
         assert result.exit_code == 0
         assert "tc version" in result.output
+
+
+def test_sqlite_runtime_files_never_make_the_project_dirty(tmp_path, monkeypatch):
+    """WAL/SHM side files go in the clone's .git/info/exclude, so a project
+    using tc stays clean for Claude Copilot's update stability check."""
+    import subprocess
+
+    from tc.db.connection import get_db, init_db
+
+    subprocess.run(("git", "init", "-q", str(tmp_path)), check=True)
+    monkeypatch.chdir(tmp_path)
+    db = init_db()
+    conn = get_db(db)
+    conn.execute("CREATE TABLE IF NOT EXISTS probe (x)")
+    conn.execute("INSERT INTO probe VALUES (1)")
+    conn.commit()
+    assert (tmp_path / ".copilot" / "tasks.db-wal").exists()
+
+    status = subprocess.run(
+        ("git", "status", "--porcelain", "--untracked-files=all"),
+        cwd=tmp_path, capture_output=True, text=True, check=True,
+    ).stdout
+    assert ".db-wal" not in status and ".db-shm" not in status
+    assert ".copilot/tasks.db" in status  # the database itself stays committable
+    exclude = (tmp_path / ".git" / "info" / "exclude").read_text()
+    get_db(db).close()
+    assert (tmp_path / ".git" / "info" / "exclude").read_text() == exclude
+    assert exclude.count("**/.copilot/*.db-wal") == 1
+    conn.close()
+
+
+def test_runtime_exclude_is_skipped_outside_git(tmp_path, monkeypatch):
+    from tc.db.connection import get_db, init_db
+
+    monkeypatch.chdir(tmp_path)
+    get_db(init_db()).close()
+    assert not (tmp_path / ".git").exists()

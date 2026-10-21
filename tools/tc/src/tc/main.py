@@ -13,6 +13,8 @@ from tc.commands.task import task_app
 from tc.commands.wp import wp_app
 from tc.commands.db_cmd import db_app
 from tc.commands.deploy import deploy_app
+from tc.commands.history import archive_command, history_app
+from tc.commands.execution import execution_app
 
 app = typer.Typer(
     name="tc",
@@ -27,6 +29,9 @@ app.add_typer(task_app, name="task")
 app.add_typer(wp_app, name="wp")
 app.add_typer(db_app, name="db")
 app.add_typer(deploy_app, name="deploy")
+app.add_typer(history_app, name="history")
+app.add_typer(execution_app, name="execution")
+app.command("archive")(archive_command)
 
 
 @app.command("init")
@@ -153,46 +158,25 @@ def handoff(
     json: bool = typer.Option(False, "--json", help="Output as JSON."),
 ) -> None:
     """Log an agent handoff and update the task's assigned agent."""
-    from tc.db.connection import get_db
+    from tc.services.handoff import handoff_task
+    from tc.db.exceptions import TaskNotFound
     from tc.formatting import output_json
     from tc.utils.errors import require_db, error_exit, EXIT_NOT_FOUND
 
-    if len(context) > 200:
-        context = context[:200]
-
-    db_path = require_db()
-    conn = get_db(db_path)
-
-    task_row = conn.execute("SELECT * FROM tasks WHERE id = ?", (task,)).fetchone()
-    if task_row is None:
-        conn.close()
-        error_exit(f"Task #{task} not found", EXIT_NOT_FOUND)
-
-    details = f"{from_agent} -> {to_agent}: {context}"
-    conn.execute(
-        "INSERT INTO agent_log (agent, stream_id, task_id, action, details) VALUES (?, ?, ?, ?, ?)",
-        (from_agent, task_row["stream_id"], task, "handoff", details),
-    )
-    conn.execute(
-        "UPDATE tasks SET agent = ?, updated_at = datetime('now') WHERE id = ?",
-        (to_agent, task),
-    )
-    conn.commit()
-    conn.close()
-
-    result = {
-        "task_id": task,
-        "from": from_agent,
-        "to": to_agent,
-        "context": context,
-        "status": "handed_off",
-    }
+    context = context[:200]
+    try:
+        result = handoff_task(task_id=task, from_agent=from_agent, to_agent=to_agent,
+                              context=context, db_path=require_db())
+    except TaskNotFound as exc:
+        error_exit(str(exc), EXIT_NOT_FOUND)
 
     if json:
         output_json(result)
     else:
         print(f"Task #{task} handed off from {from_agent} to {to_agent}")
         print(f"Context: {context}")
+        if "execution" in result:
+            output_json(result["execution"])
 
 
 @app.command("log")
@@ -262,6 +246,7 @@ def watch_cmd(
 
 @app.command("worker")
 def worker_cmd(
+    criterion: Optional[str] = typer.Option(None, help="Required acceptance criterion for guarded workers."),
     task_id: int = typer.Argument(..., help="Task ID to dispatch an agent for."),
     max_budget_usd: Optional[float] = typer.Option(
         None,
@@ -337,7 +322,12 @@ def worker_cmd(
         raise typer.Exit(0)
 
     db_path = require_db()
-    outcome = dispatch(task_id, cmd=cmd, agent=agent, db_path=db_path)
+    from tc.db.exceptions import TcError
+    from tc.utils.errors import error_exit, EXIT_VALIDATION
+    try:
+        outcome = dispatch(task_id, cmd=cmd, agent=agent, db_path=db_path, criterion=criterion)
+    except (TcError, ValueError, OSError) as exc:
+        error_exit(str(exc), EXIT_VALIDATION)
 
     if output_json:
         typer.echo(_json.dumps(outcome))

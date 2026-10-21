@@ -52,3 +52,18 @@ def db_stats(
     else:
         rows = [{"table": t, "rows": c} for t, c in stats.items()]
         output_table(["table", "rows"], rows, title="Database Stats")
+
+
+@db_app.command("track")
+def db_track(
+    check: bool = typer.Option(False, "--check", help="Exit 1 if .gitignore is not at the standard; change nothing."),
+) -> None:
+    """Make .gitignore commit the task database, history and work products (and ignore SQLite side files)."""
+    from tc.services.track import ensure_tracked
+
+    root = require_db().parent.parent
+    changed = ensure_tracked(root, check=check)
+    if check:
+        print("needs update" if changed else "ok")
+        raise typer.Exit(1 if changed else 0)
+    print(f"Updated {root / '.gitignore'}" if changed else "Already tracking task state.")

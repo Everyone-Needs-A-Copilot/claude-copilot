@@ -11,8 +11,8 @@ Capture durable learning from completed work.
 
 1. Review recent `tc log` and work products when task context exists.
 2. Identify decisions, lessons, and unresolved risks.
-3. Store meaningful durable entries with `cc memory store`.
-4. Store a concise `retrospective` work product when `tc` context exists.
+3. Update the existing maintained narrative with source, applicability, corrective decision/check, outcome and counterexample or uncertainty; memory holds a deduplicated pointer when useful.
+4. Reference that record from the existing task work product. Distinguish recorded, applied and measured learning; do not create a second retrospective merely to satisfy this checkpoint.
 
 ## Output
 
@@ -39,3 +39,10 @@ personal rules cannot become organizational policy through repetition. Check
 applicability on later work and record actual feedback; retirement removes a rule
 from active loading while retaining its history. Use frozen held-out work to assess
 benefit; `cc survival` is a confounded edit proxy, not a quality verdict.
+
+## Work Lifecycle
+
+Apply the [shared work lifecycle](../cleanup/references/work-lifecycle.md) once
+per task, including direct invocation of this skill: start/resume, maintain,
+pause/handoff, finish and later reuse. Keep the checkpoint proportional in the
+existing record; a small answer does not need a new task or document.

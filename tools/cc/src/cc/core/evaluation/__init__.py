@@ -22,6 +22,7 @@ from cc.core.evaluation.journey_runtime import (
     PreparedInvocation,
     SecurityAuthorization,
     TcJourneyLedger,
+    abandon_run,
     begin_run,
     bind_prompt,
     inspect_run,
@@ -57,6 +58,7 @@ from cc.core.evaluation.models import (
 from cc.core.evaluation.runner import EvaluationRunner, RuntimeAdapterFailure
 
 __all__ = [
+    "abandon_run",
     "CapabilityReceipt",
     "ArtifactReceipt",
     "ComparisonRecord",

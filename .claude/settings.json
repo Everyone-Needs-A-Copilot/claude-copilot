@@ -26,15 +26,6 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bash \"$(git rev-parse --show-toplevel)/.claude/hooks/pretool-check.sh\""
-          }
-        ]
-      },
-      {
-        "matcher": "Bash|Read|Edit|Write|Agent",
-        "hooks": [
-          {
-            "type": "command",
             "command": "bash \"$CLAUDE_PROJECT_DIR/.claude/hooks/copilot-hook.sh\" pretool-check",
             "_copilot_source": "claude-copilot"
           }

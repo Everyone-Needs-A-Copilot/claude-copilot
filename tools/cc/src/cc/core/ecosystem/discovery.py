@@ -35,6 +35,7 @@ before this existed.
 from __future__ import annotations
 
 import hashlib
+import json
 from pathlib import Path
 from typing import Any, Optional
 
@@ -49,6 +50,7 @@ from cc.core.ecosystem.dimensions import DIMENSION_SEMANTICS
 # is its first real reader (previously WRITE-only -- see this module's own
 # docstring update).
 _LAYER_DECLARATION_FILENAME = "copilot.layer.yml"
+_CODEX_PROJECT_CONFIG_FILENAME = ".codex-copilot.json"
 _IGNORED_METADATA_NAMES = frozenset({".DS_Store"})
 
 
@@ -83,6 +85,33 @@ def _declared_dimensions(layer_root: Path) -> Optional[tuple[str, ...]]:
         return None
     names = tuple(name for name in declared if isinstance(name, str) and name)
     return names or None
+
+
+def _own_codex_install(layer_root: Path) -> Optional[str]:
+    """The repo-relative path of the layer repository's OWN Codex project
+    install, from its `.codex-copilot.json` `pluginPath`, or `None`.
+
+    A layer repository is often also a Codex Copilot project: setup copies
+    the framework plugin to `plugins/codex-copilot` so Codex can run inside
+    that repo. That copy is the repo's tooling, not something the tier
+    publishes, and it sits exactly where a plugin contribution would. Counted
+    as a contribution, an unsigned personal tier's copy outranks the signed
+    foundation release and blocks every project's Codex reconciliation.
+    Unreadable or unsafe declarations return `None`, leaving discovery
+    unchanged."""
+    try:
+        raw = json.loads(
+            (layer_root / _CODEX_PROJECT_CONFIG_FILENAME).read_text(encoding="utf-8")
+        )
+    except (OSError, ValueError):
+        return None
+    plugin = raw.get("pluginPath") if isinstance(raw, dict) else None
+    if not isinstance(plugin, str) or not plugin:
+        return None
+    relative = Path(plugin)
+    if relative.is_absolute() or ".." in relative.parts:
+        return None
+    return relative.as_posix()
 
 
 def _hash_file(path: Path) -> str:
@@ -148,6 +177,7 @@ def discover_contributions(
             else dimensions
         )
 
+        own_install = _own_codex_install(root)
         layer_contrib: dict[str, dict[str, str]] = {}
         for dimension in layer_dimensions:
             dim_dir = root / dimension
@@ -157,6 +187,8 @@ def discover_contributions(
                 items: dict[str, str] = {}
                 for entry in sorted(dim_dir.iterdir()):
                     if _is_ignored_metadata(Path(entry.name)):
+                        continue
+                    if own_install == f"{dimension}/{entry.name}":
                         continue
                     if entry.is_file():
                         items[entry.stem] = _hash_file(entry)

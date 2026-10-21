@@ -32,7 +32,7 @@ def budget(tmp_path):
     def invoke(tool='Bash', data=None, *, through_shim=False, **overrides):
         payload = {'session_id': 'budget-test', 'tool_name': tool,
                    'transcript_path': str(transcript),
-                   'tool_input': data or {'command': 'echo small'}}
+                   'tool_input': data or {'command': 'cat big.log'}}
         script = 'copilot-hook.sh' if through_shim else 'pretool-check.sh'
         return subprocess.run(
             ['bash', str(hooks / script), 'pretool-check'], cwd=tmp_path,
@@ -210,3 +210,121 @@ def test_highest_baseline_version_wins(budget):
     append(transcript, tool_result('x' * 11))
     result = invoke()
     assert result.returncode == 2 and '11/10 bytes' in result.stdout
+
+
+# --- Budget relaxations (task 152): memory writes, small mutations, project config ---
+
+def over_budget(transcript, extra=1):
+    append(transcript, tool_result('x' * (POLICY['byte_budget_bytes'] + extra)))
+
+
+def memory_file(root, name='note.md'):
+    return str(root / 'claude-config/projects/-some-project/memory' / name)
+
+
+def test_auto_memory_writes_are_allowed_over_budget_and_never_counted(budget):
+    root, state, transcript, invoke, _ = budget
+    config = {'CLAUDE_CONFIG_DIR': str(root / 'claude-config')}
+    over_budget(transcript)
+    # A large memory Write is still allowed (size does not matter for memory paths).
+    big = {'file_path': memory_file(root), 'content': 'm' * 50000}
+    assert invoke('Write', big, **config).returncode == 0
+    assert invoke('Edit', {'file_path': memory_file(root, 'MEMORY.md'), 'new_string': 'n'}, **config).returncode == 0
+    append(transcript, tool_use('Write', big))
+    assert invoke('Read', {'file_path': str(root / 'a')}, **config).returncode == 2
+    saved = json.loads(state.read_text())
+    assert saved['bytesCharged'] == POLICY['byte_budget_bytes'] + 1
+    assert all('memory' not in f for f in saved['filesTouched'])
+
+
+def test_memory_path_exemption_rejects_traversal_and_lookalikes(budget):
+    root, _, transcript, invoke, _ = budget
+    config = {'CLAUDE_CONFIG_DIR': str(root / 'claude-config')}
+    over_budget(transcript)
+    big = 'm' * 50000
+    for path in (memory_file(root, '../../escape.md'),
+                 str(root / 'claude-config/projects/-p/not-memory/x.md'),
+                 str(root / 'elsewhere/projects/-p/memory/x.md')):
+        denied = invoke('Write', {'file_path': path, 'content': big}, **config)
+        assert denied.returncode == 2, path
+
+
+def test_small_mutations_pass_over_budget_but_reads_and_large_writes_do_not(budget):
+    root, _, transcript, invoke, _ = budget
+    over_budget(transcript)
+    small = invoke('Write', {'file_path': str(root / 'out.txt'), 'content': 'x' * 1000})
+    assert small.returncode == 0 and 'force-delegate-budget-warn' in small.stderr
+    assert invoke('Edit', {'file_path': str(root / 'out.txt'), 'old_string': 'a', 'new_string': 'b'}).returncode == 0
+    assert invoke('Read', {'file_path': str(root / 'out.txt')}).returncode == 2
+    large = invoke('Write', {'file_path': str(root / 'big.txt'), 'content': 'x' * 20000})
+    assert large.returncode == 2 and 'Large reads and output are blocked' in large.stdout
+
+
+def test_small_mutation_also_passes_when_only_the_file_meter_is_over(budget):
+    root, _, _, invoke, _ = budget
+    for i in range(POLICY['files_budget_count']):
+        assert invoke('Read', {'file_path': str(root / f'f{i}')}).returncode == 0
+    assert invoke('Read', {'file_path': str(root / 'extra')}).returncode == 2
+    assert invoke('Write', {'file_path': str(root / 'extra'), 'content': 'tiny'}).returncode == 0
+
+
+def test_warning_precedes_the_hard_deny(budget):
+    root, _, transcript, invoke, _ = budget
+    warn_at = int(POLICY['byte_budget_bytes'] * POLICY['warning_ratio'])
+    append(transcript, tool_result('x' * warn_at))
+    warned = invoke('Read', {'file_path': str(root / 'a')})
+    assert warned.returncode == 0 and 'force-delegate-budget-warn' in warned.stderr
+    over_budget(transcript, extra=POLICY['byte_budget_bytes'] - warn_at + 1)
+    assert invoke('Read', {'file_path': str(root / 'a')}).returncode == 2
+
+
+def write_project_config(root, mode):
+    config = root / '.claude/cc/config.json'
+    config.parent.mkdir(parents=True, exist_ok=True)
+    config.write_text(json.dumps({'hooks': {'force_delegate': {'mode': mode}}}))
+
+
+def test_project_config_warn_mode_turns_deny_into_warning(budget):
+    root, _, transcript, invoke, _ = budget
+    over_budget(transcript)
+    assert invoke('Read', {'file_path': str(root / 'a')}).returncode == 2
+    write_project_config(root, 'warn')
+    relaxed = invoke('Read', {'file_path': str(root / 'a')})
+    assert relaxed.returncode == 0 and 'mode=warn' in relaxed.stderr
+
+
+def test_project_config_off_mode_skips_the_meter_and_invalid_mode_enforces(budget):
+    root, _, transcript, invoke, _ = budget
+    over_budget(transcript)
+    write_project_config(root, 'off')
+    assert invoke('Read', {'file_path': str(root / 'a')}).returncode == 0
+    write_project_config(root, 'sometimes')
+    invalid = invoke('Read', {'file_path': str(root / 'a')})
+    assert invalid.returncode == 2 and 'invalid hooks.force_delegate.mode' in invalid.stderr
+
+
+def test_explicit_bypass_still_works_and_default_without_config_enforces(budget):
+    root, _, transcript, invoke, _ = budget
+    over_budget(transcript)
+    assert invoke('Read', {'file_path': str(root / 'a')}).returncode == 2
+    assert invoke('Read', {'file_path': str(root / 'a')}, COPILOT_FORCE_DELEGATE='off').returncode == 0
+
+
+# --- Cheap Bash over budget (task 152, Pablo-approved): pass with a warning; large reads stay governed ---
+
+def test_cheap_bash_passes_over_budget_with_a_warning(budget):
+    _, _, transcript, invoke, _ = budget
+    over_budget(transcript)
+    for command in ('echo small', 'git status', 'git add -A && git commit -m x', 'ls', 'tc task get 1',
+                    'mkdir -p out', 'git log -5 | head -20', 'grep -rn x src | head -20'):
+        result = invoke(data={'command': command})
+        assert result.returncode == 0, command
+        assert 'force-delegate-budget-warn' in result.stderr and 'cheap Bash' in result.stderr
+
+
+def test_large_read_shaped_bash_is_still_denied_over_budget(budget):
+    _, _, transcript, invoke, _ = budget
+    over_budget(transcript)
+    for command in ('cat big.log', 'grep -rn x src', 'find / -name z', 'git diff', 'git log', 'ls -laR /',
+                    'echo ' + 'x' * 1100):
+        assert invoke(data={'command': command}).returncode == 2, command

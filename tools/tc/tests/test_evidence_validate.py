@@ -390,3 +390,54 @@ def test_render_parse_round_trip_is_idempotent_for_any_valid_packet():
         twice = validate_packet(parse_packet(rendered))
         once = validate_packet(packet)
         assert twice["valid"] == once["valid"] is True, (verdict, twice["errors"])
+
+
+# ---------------------------------------------------------------------------
+# Per-criterion verdicts (SUPPORTED / REJECTED lines, one per CRITERION)
+# ---------------------------------------------------------------------------
+
+TWO_CRITERIA = """\
+CRITERION: first behavior
+EXPECTED: first expected
+OBSERVED: first observed
+CRITERION: second behavior
+EXPECTED: second expected
+OBSERVED: second observed
+IDENTITY: checkout deadbee, clean
+BASELINE: unavailable, fresh fixture
+ARTIFACT: test-run|pytest tests/test_x.py exit=0 "3 passed"
+UNTESTED: none
+"""
+
+
+def test_mixed_per_criterion_verdicts_are_a_clean_rejection():
+    result = validate_packet(parse_packet(TWO_CRITERIA + "VERDICT: SUPPORTED\nVERDICT: REJECTED\n"))
+    assert result["valid"] is False
+    assert result["verdict"] == "REJECTED"
+    assert result["reason"] == "VERDICT is REJECTED"
+    assert not any("conflicting" in e for e in result["errors"])
+
+
+def test_all_supported_per_criterion_verdicts_approve():
+    result = validate_packet(parse_packet(TWO_CRITERIA + "VERDICT: SUPPORTED\nVERDICT: SUPPORTED\n"))
+    assert result["valid"] is True, result["errors"]
+    assert result["verdict"] == "APPROVED"
+
+
+def test_supported_count_must_cover_every_criterion():
+    result = validate_packet(parse_packet(TWO_CRITERIA + "VERDICT: SUPPORTED\n"))
+    assert result["valid"] is False
+    assert "does not match" in result["reason"]
+
+
+def test_overall_approval_next_to_rejected_criterion_stays_ambiguous():
+    result = validate_packet(parse_packet(TWO_CRITERIA + "VERDICT: SUPPORTED\nVERDICT: REJECTED\nVERDICT: APPROVED\n"))
+    assert result["valid"] is False
+    assert "conflicting" in result["reason"]
+
+
+def test_mixed_rejection_with_other_defect_is_not_a_clean_rejection():
+    text = (TWO_CRITERIA + "VERDICT: SUPPORTED\nVERDICT: REJECTED\n").replace("BASELINE: unavailable, fresh fixture\n", "")
+    result = validate_packet(parse_packet(text))
+    assert result["valid"] is False
+    assert result["reason"] != "VERDICT is REJECTED"

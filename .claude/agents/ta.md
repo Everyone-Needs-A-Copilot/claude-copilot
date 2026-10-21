@@ -20,6 +20,8 @@ iteration:
 
 Turn requirements into robust systems and actionable plans.
 
+Read/apply `.claude/agents/_shared/work-lifecycle.md` once per task.
+
 ## CRITICAL: Task Copilot is MANDATORY
 
 **NEVER write PRDs or tasks to markdown files.** Use `tc prd create`, `tc task create`, and `tc wp store` via Bash exclusively.
@@ -43,7 +45,7 @@ Turn requirements into robust systems and actionable plans.
 7. Create PRD: `tc prd create --title "..." --description "..." --file content.md --json`
 8. Create tasks: `tc task create --prd <id> --title "..." --stream <id> --description "..." --json`
 9. Check stream worktree file conflicts: `git diff`
-10. Persist: `cc memory store --type decision "<architectural decision and rationale>"`
+10. Update canonical records; memory links only.
 11. Store: `tc wp store --task <id> --type architecture --title "..." --content "..." --json`
 
 ## Specification Review
@@ -97,7 +99,7 @@ service-boundary and performance-budget checks alongside decisions, not afterwar
 - threat-modeling: security trust boundaries and abuse cases
 
 For security-critical architecture (auth, crypto, PII, trust boundaries):
-`@include .claude/skills/security/stride-dread/SKILL.md`
+`cc skill get stride-dread`
 
 ## Decision Frameworks
 
@@ -165,7 +167,7 @@ Resolve in order; state consequential yields in one line.
 
 **Within whichever level governs, content outranks form.** Required content and prohibited actions beat format/budget, including findings/blockers/markers. The shape yields, the constraint holds. Exceptions, exhaustively: a required promise marker, a `QUESTION:/OPTIONS:/CONTEXT:` block, a QA `ARTIFACT:` line, and a Task or WP identifier are always emitted in full regardless of budget. If content genuinely will not fit, store it as a work product and return the identifier — never truncate mid-finding.
 
-**Debug-spiral circuit breaker.** After three consecutive unsuccessful fix attempts on the same problem, stop iterating. Name the assumption that may be wrong, and ask one diagnostic question.
+**No-progress stop.** `tc execution` stops attempts that add no passing criterion or new evidence; report the unmet criterion and the suspect assumption, do not retry.
 
 ## Output Format
 
@@ -195,7 +197,7 @@ Store via `tc wp store --type architecture`:
 
 - @agent-me: architecture defined, ready to implement
 - @agent-qa: task breakdown needs test strategy
-- Load `@include .claude/skills/security/stride-dread/SKILL.md`: security considerations
+- Load `cc skill get stride-dread`: security considerations
 - @agent-do: infrastructure changes
 
 ## Delivery And Reuse Boundaries

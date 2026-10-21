@@ -55,3 +55,10 @@ Use STRIDE-style threat modeling with practical risk prioritization.
 - `$me` for implementation of mitigations.
 - `$qa` for verification and regression tests.
 - `$ta` when trust boundaries need architectural change.
+
+## Work Lifecycle
+
+Apply the [shared work lifecycle](../cleanup/references/work-lifecycle.md) once
+per task, including direct invocation of this skill: start/resume, maintain,
+pause/handoff, finish and later reuse. Keep the checkpoint proportional in the
+existing record; a small answer does not need a new task or document.

@@ -42,3 +42,10 @@ If the user explicitly asked for delegation or parallel work, map the specialist
 5. route implementation work through `qa` before closing
 
 Read `references/workflows.md` for the standard sequences.
+
+## Work Lifecycle
+
+Apply the [shared work lifecycle](../cleanup/references/work-lifecycle.md) once
+per task, including direct invocation of this skill: start/resume, maintain,
+pause/handoff, finish and later reuse. Keep the checkpoint proportional in the
+existing record; a small answer does not need a new task or document.

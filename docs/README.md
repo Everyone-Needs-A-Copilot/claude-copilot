@@ -48,6 +48,7 @@ Reference-mode pages for settings and customisation.
 | `20-configuration/01-configuration.md` | Environment variables, `.claude/` directory layout, `cc config` |
 | `20-configuration/02-customization.md` | Per-project overrides, `.claude/quality-gates.json`, agent model pinning |
 | `20-configuration/03-references-registry.md` | Knowledge Copilot and knowledge-repo path registry reference |
+| `20-configuration/04-claude-md-standard.md` | What a project `CLAUDE.md` contains, what it must not, and how the template implements it |
 
 ---
 

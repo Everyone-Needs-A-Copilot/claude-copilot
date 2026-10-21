@@ -195,7 +195,7 @@ invoke_hook() {
   local tool_name="$1"
   local extra_env="${2:-}"
   local payload
-  payload="$(printf '{"session_id":"%s","tool_name":"%s","transcript_path":"%s","tool_input":{"command":"echo hi"}}' \
+  payload="$(printf '{"session_id":"%s","tool_name":"%s","transcript_path":"%s","tool_input":{"command":"cat big.log"}}' \
     "$TEST_SESSION" "$tool_name" "$TRANSCRIPT")"
   local exit_code=0
   local output
@@ -463,7 +463,7 @@ test_escape_hatch_off() {
   clean_state
   append_result $(( BYTE_BUDGET * 3 ))
   local payload ec=0
-  payload="$(printf '{"session_id":"%s","tool_name":"Bash","transcript_path":"%s","tool_input":{"command":"ls"}}' "$TEST_SESSION" "$TRANSCRIPT")"
+  payload="$(printf '{"session_id":"%s","tool_name":"Bash","transcript_path":"%s","tool_input":{"command":"cat big.log"}}' "$TEST_SESSION" "$TRANSCRIPT")"
   env COPILOT_FORCE_DELEGATE=off bash "$HOOK" <<< "$payload" > /dev/null 2>&1 || ec=$?
   if [[ "$ec" -eq 0 ]]; then
     ok "COPILOT_FORCE_DELEGATE=off: allowed with 3x the byte budget already measured"
@@ -570,7 +570,7 @@ test_warning_before_deny() {
   append_result "$warn_bytes"
 
   local payload out ec=0
-  payload="$(printf '{"session_id":"%s","tool_name":"Bash","transcript_path":"%s","tool_input":{"command":"ls"}}' "$TEST_SESSION" "$TRANSCRIPT")"
+  payload="$(printf '{"session_id":"%s","tool_name":"Bash","transcript_path":"%s","tool_input":{"command":"cat big.log"}}' "$TEST_SESSION" "$TRANSCRIPT")"
   out="$(bash "$HOOK" <<< "$payload" 2>&1 >/dev/null)" || ec=$?
   if [[ "$ec" -eq 0 ]] && printf '%s' "$out" | grep -q "force-delegate-budget-warn"; then
     ok "crossing the $WARNING_RATIO warning ratio ($warn_bytes/$BYTE_BUDGET B): allowed, with an advisory on stderr"
@@ -1153,14 +1153,14 @@ test_command_string_escape_hatch() {
   # Pre-condition: an ordinary call is denied, so the escape hatch below is
   # bypassing a real deny, not a no-op.
   local result exit_code
-  result="$(invoke_hook_bash_cmd "git status")"
+  result="$(invoke_hook_bash_cmd "cat big.log")"
   if [[ "$(get_exit_code "$result")" -ne 2 ]]; then
     fail "pre-condition: over-budget call should be denied, got exit $(get_exit_code "$result")"
     return
   fi
 
   rm -f "${STATE_DIR}/budget-${TEST_SESSION}.json"
-  result="$(invoke_hook_bash_cmd "COPILOT_FORCE_DELEGATE=off git status")"
+  result="$(invoke_hook_bash_cmd "COPILOT_FORCE_DELEGATE=off cat big.log")"
   exit_code="$(get_exit_code "$result")"
   if [[ "$exit_code" -eq 0 ]] && [[ ! -e "${STATE_DIR}/budget-${TEST_SESSION}.json" ]]; then
     ok "command-string escape hatch: COPILOT_FORCE_DELEGATE=off prefix allows the call and persists nothing"

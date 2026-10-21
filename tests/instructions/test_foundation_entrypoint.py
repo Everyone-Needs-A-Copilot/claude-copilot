@@ -33,7 +33,7 @@ def test_canonical_consumer_setup_then_shared_verification(tmp_path, monkeypatch
         pytest.skip('current native Codex source unavailable; set CODEX_COPILOT_TEST_ROOT explicitly')
     # Stage actual reviewed adapters in disposable public-source roots. This does
     # not use Claude's vendored plugin or claim a signed/global installation.
-    for directory in ('.claude/agents', '.claude/commands'):
+    for directory in ('.claude/agents', '.claude/commands', '.claude/skills/cleanup'):
         shutil.copytree(ROOT / directory, claude / directory, dirs_exist_ok=True)
     for relative in ('VERSION.json', '.claude/fitness-check.sh', '.claude/hooks/copilot-hook.sh'):
         shutil.copy2(ROOT / relative, claude / relative)

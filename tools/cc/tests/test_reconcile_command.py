@@ -221,3 +221,103 @@ def test_recover_command_emits_its_strict_schema_branch(
     report = json.loads(invocation.stdout)
     assert report["phase"] == "recover"
     assert not list(_validator().iter_errors(report))
+
+
+def _prerequisites(ready: bool) -> dict:
+    return {
+        "ready": ready,
+        "cc": {"state": "ready", "path": "/opt/fixture/bin/cc"},
+        "tc": {"state": "ready" if ready else "unverified", "path": "/opt/fixture/bin/tc"},
+        "responsible_actor": "none" if ready else "person",
+        "next_action": "fixture",
+    }
+
+
+def test_request_command_writes_canonical_request_from_cc_runtime(
+    tmp_path, monkeypatch
+) -> None:
+    from cc.core.ecosystem import canonical_transaction
+
+    output = tmp_path / "request.json"
+    monkeypatch.setattr(
+        canonical_transaction, "inspect_canonical_prerequisites", lambda: _prerequisites(True)
+    )
+    monkeypatch.setattr(
+        canonical_transaction,
+        "canonical_project_request_json",
+        lambda project: json.dumps({"project": str(project)}),
+    )
+
+    result = CliRunner().invoke(
+        command.reconcile_app,
+        ["request", "--project", str(tmp_path), "--output", str(output)],
+    )
+
+    assert result.exit_code == 0
+    assert json.loads(output.read_text(encoding="utf-8")) == {"project": str(tmp_path)}
+
+
+def test_request_command_stops_on_failed_prerequisites_without_writing(
+    tmp_path, monkeypatch
+) -> None:
+    from cc.core.ecosystem import canonical_transaction
+
+    output = tmp_path / "request.json"
+    output.write_text("", encoding="utf-8")
+    monkeypatch.setattr(
+        canonical_transaction, "inspect_canonical_prerequisites", lambda: _prerequisites(False)
+    )
+
+    result = CliRunner().invoke(
+        command.reconcile_app,
+        ["request", "--project", str(tmp_path), "--output", str(output)],
+    )
+
+    assert result.exit_code == 3
+    assert json.loads(result.stderr)["tc"]["state"] == "unverified"
+    assert output.read_text(encoding="utf-8") == ""
+
+
+@pytest.mark.parametrize("missing", ["--project", "--output"])
+def test_request_command_requires_project_and_output(
+    tmp_path, monkeypatch, missing
+) -> None:
+    from cc.core.ecosystem import canonical_transaction
+
+    monkeypatch.setattr(
+        canonical_transaction, "inspect_canonical_prerequisites", lambda: _prerequisites(True)
+    )
+    arguments = {"--project": str(tmp_path), "--output": str(tmp_path / "request.json")}
+    del arguments[missing]
+
+    result = CliRunner().invoke(
+        command.reconcile_app,
+        ["request", *[item for pair in arguments.items() for item in pair]],
+    )
+
+    assert result.exit_code == 2
+    report = json.loads(result.stdout)
+    assert report["error"]["code"] == "invalid-request"
+    assert not list(_validator().iter_errors(report))
+
+
+def test_request_command_rejects_a_path_that_is_not_a_project_root(
+    tmp_path, monkeypatch
+) -> None:
+    from cc.core.ecosystem import canonical_transaction
+
+    monkeypatch.setattr(
+        canonical_transaction, "inspect_canonical_prerequisites", lambda: _prerequisites(True)
+    )
+    output = tmp_path / "request.json"
+
+    result = CliRunner().invoke(
+        command.reconcile_app,
+        ["request", "--project", str(tmp_path / "missing"), "--output", str(output)],
+    )
+
+    assert result.exit_code == 2
+    report = json.loads(result.stdout)
+    assert report["error"]["code"] == "invalid-request"
+    assert not output.exists()
+    assert not list(_validator().iter_errors(report))

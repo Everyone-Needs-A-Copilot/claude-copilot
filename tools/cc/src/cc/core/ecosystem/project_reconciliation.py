@@ -23,12 +23,15 @@ from cc.core.ecosystem.codex_plugin_source import (
     CodexPluginSourceError,
     resolve_codex_plugin_source,
 )
-from cc.core.ecosystem.project_integration import inspect_project_integration
+from cc.core.ecosystem.project_ownership import declares_project_owner
+from cc.core.ecosystem.project_integration import (
+    PROJECT_INSTRUCTION_FILES,
+    inspect_project_integration,
+)
 from cc.core.ecosystem.project_locking import (
     ProjectIdentity,
     ProjectIdentityMismatch,
     fingerprint_file_payload,
-    fingerprint_managed_block_payload,
     fingerprint_symlink,
     inspect_project_identity,
 )
@@ -386,19 +389,6 @@ def _path_fingerprint(project: Path, relative: str) -> str | None:
     return None
 
 
-def _managed_output_matches(
-    project: Path, relative: str, kind: str, fingerprint: str
-) -> bool:
-    if _path_fingerprint(project, relative) == fingerprint:
-        return True
-    if kind != "managed-text" or relative not in {"CLAUDE.md", "AGENTS.md"}:
-        return False
-    leaf = _anchored_leaf(project, relative)
-    if leaf is None or leaf[0] != "file" or not isinstance(leaf[1], bytes):
-        return False
-    return fingerprint_managed_block_payload(leaf[1], mode=leaf[2]) == fingerprint
-
-
 def _framework_checksum(project: Path, relative: str) -> str | None:
     leaf = _anchored_leaf(project, relative)
     if leaf is None or leaf[0] != "file" or not isinstance(leaf[1], bytes):
@@ -423,6 +413,7 @@ def _framework_path_allowed(component: str, relative: str) -> bool:
             in {
                 ".claude/fitness-check.sh",
                 ".claude/hooks/copilot-hook.sh",
+                ".claude/skills/cleanup/SKILL.md",
             }
             or (pure.parts[:2] == (".claude", "agents") and len(pure.parts) >= 3)
             or (
@@ -523,7 +514,13 @@ def _dirty_paths_are_repeat_safe(
                 or not _sha256_fingerprint(checksum)
                 or not _framework_path_allowed(str(component), str(relative))
                 or relative in recorded
-                or _framework_checksum(project, relative) != checksum
+                or (
+                    _framework_checksum(project, relative) != checksum
+                    and not (
+                        _framework_checksum(project, relative) is not None
+                        and declares_project_owner(project / str(relative))
+                    )
+                )
             ):
                 return False
             recorded.add(str(relative))
@@ -543,7 +540,13 @@ def _dirty_paths_are_repeat_safe(
                 or target_kinds.get(relative) != kind
                 or not _sha256_fingerprint(fingerprint)
                 or relative in recorded
-                or not _managed_output_matches(project, relative, str(kind), fingerprint)
+                or (
+                    _path_fingerprint(project, relative) != fingerprint
+                    and not (
+                        relative in PROJECT_INSTRUCTION_FILES
+                        and _path_fingerprint(project, relative) is not None
+                    )
+                )
             ):
                 return False
             if (

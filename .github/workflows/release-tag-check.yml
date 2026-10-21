@@ -1,0 +1,37 @@
+name: release-tag-check
+
+# Every framework version that reaches main must be tagged. `/update-copilot`
+# installs main's HEAD and project locks record `release_tag: v<version>` for
+# it, so an untagged version is a release that installed projects reference and
+# cannot resolve (5.15.3 and 5.15.4, 2026-10-06). This turns main red until the
+# release is tagged with scripts/tag-release.sh. Tags are signed with the local
+# release key, so CI checks and never tags.
+
+on:
+  push:
+    branches: [main]
+    paths: [VERSION.json]
+  schedule:
+    - cron: "17 13 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  tagged:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          fetch-depth: 0
+          fetch-tags: true
+      - name: Current framework version is tagged
+        run: |
+          version="$(python3 -c "import json; print(json.load(open('VERSION.json'))['framework'])")"
+          if git rev-parse -q --verify "refs/tags/v${version}" >/dev/null; then
+            echo "v${version} is tagged at $(git rev-parse "v${version}^{commit}")"
+          else
+            echo "::error::Framework ${version} is on main but v${version} is not tagged. Run: scripts/tag-release.sh --at <bump commit> --push"
+            exit 1
+          fi

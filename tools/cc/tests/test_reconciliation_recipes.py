@@ -854,3 +854,45 @@ def test_changed_source_blocks_without_project_mutation(
     assert receipts[0]["status"] == "blocked"
     assert not (project / "CLAUDE.md").exists()
     assert not (project / "AGENTS.md").exists()
+
+
+def _bridge_project(tmp_path, name, target):
+    from pathlib import Path
+
+    project = Path(tmp_path) / "project"
+    (project / "plugins" / name / "skills").mkdir(parents=True)
+    (project / ".claude/skills").mkdir(parents=True)
+    (project / ".claude/skills" / name).symlink_to(target)
+    return project
+
+
+def test_claude_tree_admits_project_plugin_skill_bridges(tmp_path):
+    project = _bridge_project(
+        tmp_path, "studio", "../../plugins/studio/skills"
+    )
+
+    assert recipes._safe_claude_project_tree(project) is True
+
+
+@pytest.mark.parametrize(
+    "target",
+    ["../../plugins/other/skills", "../../../outside", "/tmp"],
+)
+def test_claude_tree_rejects_skill_links_outside_their_own_plugin(tmp_path, target):
+    project = _bridge_project(tmp_path, "studio", target)
+
+    assert recipes._safe_claude_project_tree(project) is False
+
+
+def test_claude_tree_rejects_bridge_to_symlinked_plugin(tmp_path):
+    from pathlib import Path
+
+    outside = Path(tmp_path) / "outside" / "skills"
+    outside.mkdir(parents=True)
+    project = Path(tmp_path) / "project"
+    (project / "plugins").mkdir(parents=True)
+    (project / "plugins/studio").symlink_to(outside.parent)
+    (project / ".claude/skills").mkdir(parents=True)
+    (project / ".claude/skills/studio").symlink_to("../../plugins/studio/skills")
+
+    assert recipes._safe_claude_project_tree(project) is False

@@ -67,17 +67,28 @@ git -C "${REPO}" merge-base --is-ancestor "${SOURCE_COMMIT}" "${branch_ref}" ||
     die "${SOURCE_COMMIT} is not an ancestor of ${branch_ref} (RC-3: refusing a release-cut step that is not a real descendant of the branch it claims)"
 
 principal="${FOUNDATION_RELEASE_PRINCIPAL:-enac-foundation}"
-# Claude's owner-authorized 2026-09-09 replacement signer. Historical releases
-# can still be checked with their explicitly supplied historical public key.
-# See docs/30-operations/19-claude-signer-migration.md; no check is optional.
-public_key="${FOUNDATION_RELEASE_PUBLIC_KEY:-ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIIDGEZqgcjnCXb5XJQvD5/BKBAdO8CJcKYbteehyzu+i}"
+# The Claude signers cc trusts (FOUNDATION_ALLOWED_SIGNERS["claude"]): the
+# owner's GitHub signing key (2026-09-09 migration) and the ENAC foundation
+# release key, re-authorized on 2026-10-07 so releases can be cut from any
+# machine holding it. See docs/30-operations/19-claude-signer-migration.md.
+# FOUNDATION_RELEASE_PUBLIC_KEY narrows the check to one key; no check is
+# optional either way.
+trusted_keys=(
+    "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIIDGEZqgcjnCXb5XJQvD5/BKBAdO8CJcKYbteehyzu+i"
+    "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAINah8Gf036FQkhMcUU35m2p7Nqa41oBtVS/QV9tYZX8H"
+)
+if [[ -n "${FOUNDATION_RELEASE_PUBLIC_KEY:-}" ]]; then
+    trusted_keys=("${FOUNDATION_RELEASE_PUBLIC_KEY}")
+fi
 trust_file="$(mktemp "${TMPDIR:-/tmp}/foundation-release-signers.XXXXXX")"
 cleanup() {
     rm -f "${trust_file}"
 }
 trap cleanup EXIT
 chmod 600 "${trust_file}"
-printf '%s namespaces="git" %s\n' "${principal}" "${public_key}" >"${trust_file}"
+for public_key in "${trusted_keys[@]}"; do
+    printf '%s namespaces="git" %s\n' "${principal}" "${public_key}" >>"${trust_file}"
+done
 
 verify_args=(
     -c gpg.format=ssh

@@ -2,10 +2,247 @@
 
 ## [Unreleased]
 
-### Fixed
+- `/setup-project` asks for optional project identity after a newly applied, verified setup, preserving existing descriptions and skipped answers. Current project-owned instruction behavior supersedes PR #99’s older byte-for-byte managed-block proposal.
 
-- `/setup-project` asks again what the project is about and its main tech stack (plus optional notes) after a successful apply and ready verification, and writes a project-authored `## Project` section into `CLAUDE.md` and `AGENTS.md` outside the framework-managed blocks. The questions were dropped when the command became an adapter over `cc reconcile` (a572b71). They are skipped for no-op or update runs, held or failed plans, and projects that already have a project-authored description.
-- `cc` verification no longer reports `verified-managed-output` mismatch when a person adds their own text before or after the framework-managed block in `CLAUDE.md` or `AGENTS.md`. The block itself is still verified byte-for-byte; edits inside it, or a duplicated or malformed block, still fail.
+## [5.23.3] - 2026-10-19 - `tc deploy wait` reaches the deploy CLI and reads Coolify's trigger response
+
+Framework **5.23.3**, `cc` **2.15.0**, `tc` **2.7.1**, agents **5.9.1**.
+
+- **Default deploy CLI runs `python3`.** With no `CC_DEPLOY_CLI` and no `deploy.cli` config, `tc deploy wait` ran `python -m copilot_cli`. macOS and many Linux distributions ship no bare `python`, so the deploy step failed before reaching CLI Copilot. The default is now `python3 -m copilot_cli`, falling back to `python` only when no `python3` is on PATH. Explicit `CC_DEPLOY_CLI` and `deploy.cli` settings are unchanged.
+- **Trigger response shape.** Coolify's `/deploy` endpoint returns `{"deployments": [{"deployment_uuid": ..., "resource_uuid": ..., "message": ...}]}`, but `tc` read only a bare dict or list carrying `deployment_uuid`, so a real trigger stopped with "missing 'deployment_uuid'". The envelope is now unwrapped and its first deployment polled; an empty envelope still exits 4. The bare dict and list shapes still work.
+- **Tests.** `tools/tc/tests/test_deploy.py` adds four cases: the `python3` default, the `python` fallback, the `deployments` envelope and an empty envelope. No existing assertion changed.
+- **Found by** a consumer release (The Herd microsite, releases 19 and 20) that pushed and queued its deployment but had to be finished by hand. The companion fix, the Coolify commands honouring the CLI's global `--json`, ships in cli-copilot-internal.
+
+## [5.23.2] - 2026-10-17 - Codex reference copies resynced; foundation entrypoint fixture completed
+
+Framework **5.23.2**, `cc` **2.15.0**, `tc` **2.7.0**, agents **5.9.1**.
+
+- **Codex `shared-behaviors.md` was out of sync.** Its Optional Context block still carried the pre-condensation wording, while the canonical `.claude/agents/_shared/optional-context.md` had been condensed in the delivery-evidence work (`062cff0`). `tests/instructions/test-optional-context-surfaces.sh` failed on that copy on a clean checkout. The copy is resynced byte for byte from the canonical source; the test and its assertions are unchanged.
+- **Codex `verification-policy.md` mirrors the receipt change.** The vendored Codex reference now matches codex-copilot 0.10.2: a test-change receipt whose `changeBasis` is `owner-requested-obsolete-check` records the old/new expectation, rationale and changed files and needs no negative control; `defect-detection` or unlabeled receipts still do.
+- **`test_foundation_entrypoint` fixture.** `test_canonical_consumer_setup_then_shared_verification` failed locally whenever a sibling `codex-copilot` checkout existed (CI has none and skips it). Its staged Claude source lacked `.claude/skills/cleanup`, which the 5.23.0 lifecycle support-file check requires, so the Claude installer read as unverifiable and the plan held. The fixture now stages that skill; no assertion changed.
+
+## [5.23.1] - 2026-10-17 - Owner-requested behavior changes update the checks they make obsolete
+
+Framework **5.23.1**, `cc` **2.15.0**, `tc` **2.7.0**, agents **5.9.1**.
+
+- **Obsolete checks no longer wait for approval.** The verification policy used to require explicit authority before a check made obsolete by a behavior change could be updated. Now a behavior change the owner requested is that authority: update the checks, record old/new expectations, rationale and exact changed files in the work product, and report it without asking. Ask only when the change was not requested, or when a failing check reveals a real defect, which is fixed in the product, never by weakening, skipping or deleting the check. "Never weaken, skip or delete assertions to hide defects" is unchanged.
+- **One text, every copy.** `.claude/agents/_shared/verification-policy.md`, its embeds in `me.md` and `qa.md`, and the Codex reference copy under `plugins/codex-copilot/skills/specialist-agents/references/` carry the same rule. The sentence "Escalate undecided authority/behavior" is dropped; the "Ask only when" clause replaces it.
+- **Test.** `tests/instructions/test-verification-policy.sh` asserts the new sentence and the retained "Never weaken, skip or delete assertions" sentence, and rejects the old obsolete-migration wording. The two assertions that required the retired "explicit authority" and "negative control" wording were replaced by the new-rule assertions.
+## [5.23.0] - 2026-10-16 - `/optimize` renamed to `/cleanup`
+
+Framework **5.23.0**, `cc` **2.15.0**, `tc` **2.7.0**.
+
+- **Renamed.** The work-lifecycle command and skill are now `/cleanup` and the `cleanup` skill (`.claude/commands/cleanup.md`, `.claude/skills/cleanup/`, Codex `plugins/codex-copilot/skills/cleanup/`, `$cleanup`). The old name read as code or product optimization; the job is retiring accumulated clutter. The canonical procedure, `.claude/agents/_shared/work-lifecycle.md`, now names its section "Finish and clean up".
+- **No alias.** `/optimize` and the `optimize` skill are gone. Earlier entries below keep the old name as history. The `optimize:` protocol keyword and the `optimize` design verb are unrelated and unchanged.
+- **Installer constants follow the rename.** `VERSION.json` `projectCommands`, the canonical lifecycle support-file check, project-integration targets, reconciliation recipes and diagnostics, the `CLAUDE.md` managed block text and `templates/CLAUDE.template.md` now name `cleanup`.
+- **Existing installs keep a stale copy until removed.** The update path never deletes a retired command or skill. A project that recorded the Codex `optimize` skill in `copilot.lock.json` is stopped by the verified-update boundary ("retires framework paths that require an owner-reviewed disposition") until that copy is removed or claimed. Remove `.claude/commands/optimize.md`, `.claude/skills/optimize/` and `plugins/codex-copilot/skills/optimize/` by hand, then update.
+
+## [5.22.0] — 2026-10-15 — Execution limits consolidated into five rules
+
+Framework **5.22.0**, `cc` **2.14.2**, `tc` **2.7.0**. Also ships the force-delegate fixes listed under Unreleased below.
+
+- **`tc execution` ships** (merged from `fix/execution-limits`): persistent task scope, evidence checkpoints, the two-failure prove/diagnose gate and successor ledgers.
+- **Policy v2.** `tc execution register` without `--attempts` has no fixed attempt cap. N=3 attempts with no newly passing criterion, no new evidence and no new source stop the task with a `STOPPED:` report (`no_progress`, no approval). A hard ceiling of 50 attempts or 6 hours of attempt runtime halts it (`ceiling_reached`); `tc execution reopen` continues on the owner's recorded decision. Legacy `--attempts` registrations behave exactly as before.
+- **Project budget.** `tc execution budget show|set`: one lifetime, append-only paid-call budget per project (default `$0`), raised only by a new verbatim owner quote. Spending inside it is silent; exceeding it refuses with `DECISION NEEDED: $X over <project> budget for N more paid calls`.
+- **Auto-reconcile.** Timed-out running attempts that reserved and used nothing paid are settled `abandoned`; paid ones keep their lock and full charge.
+- **`tc execution migrate [--dry-run]`** appends a v2 round per legacy task (backup first, history, spend and QA identity untouched) and seeds each project's budget from its existing per-task approvals. Idempotent.
+- **Instructions.** `/protocol` scopes "no auto-proceed" to design-flow checkpoints, documents the `DECISION NEEDED:` convention, and drops the unenforced 3-iteration and continuation counts. The debug-spiral paragraph in every agent and the canonical precedence block now points at the `tc` no-progress stop (evals updated to match). `tests/instructions/test-retired-phrases.sh` keeps the retired text out.
+- **Hooks.** The credential-URL and database-URL block patterns no longer match ordinary commands that merely contain `://`, a colon and an at-sign; `pretool-check` is registered once (via the shim) instead of running twice per tool call.
+
+## [Unreleased] — Force-delegate budget no longer strands small writes
+
+- **Memory writes are never blocked or counted.** Writes and edits to Claude Code auto-memory (`<claude config dir>/projects/<project>/memory/**`) pass the byte/file budget even when it is exhausted, and are excluded from the byte meter. Path traversal is rejected.
+- **Over budget, only large reads/output and large writes are denied.** A Write/Edit of 8,192 bytes or less is allowed with a `[force-delegate-budget-warn]` message; the 80% warning before any deny is unchanged and now covered by a test. The deny text says what is still allowed.
+- **Cheap Bash passes over budget.** Commands that are not shaped like a large read or listing (`git status`, `tc ...`, `mkdir`, `git commit`, anything piped to `head`) are allowed with the warning; `cat`, unbounded `grep`/`find`, `git diff|log|show` and very long commands are still denied.
+- **Per-project relaxation.** `.claude/cc/config.json` `{"hooks":{"force_delegate":{"mode":"enforce|warn|off"}}}` lets a project whose instructions say not to delegate downgrade the deny to a warning or skip the meter. Default is `enforce`; `COPILOT_FORCE_DELEGATE=off` still bypasses. Documented in `.claude/hooks/README.md`. Hook rules live in the machine runtime, so projects inherit the fix on the next framework snapshot install without any per-project file change.
+
+## [5.21.4] — 2026-10-15 — QA gate: rejections can be reworked
+
+Framework **5.21.4**, `cc` **2.14.2**, `tc` **2.6.0**.
+
+- **Rejection no longer deadlocks the session.** A clean, well-formed QA rejection (`tc task check-qa` reason exactly `VERDICT is REJECTED`) moves the task to a new `rework_tasks` state in `qa-gate.json`. The gate then allows `@agent-me`, `@agent-qa`, `Read`/`Edit`/`Write` and the safe `tc` commands, and re-arms the task as pending when the implementer stops. Only `tc task check-qa` approval clears it; a rejection never counts as approval and never consumes a retry. Malformed, stale or missing evidence keeps blocking exactly as before.
+- **Retries now advance on every QA stop.** `@agent-qa` stops whose final message had no parseable `Task: TASK-N` header were silently ignored, so the counter stayed put. The hook now falls back to the session's pending tasks, and the header match tolerates markdown emphasis and list markers.
+- **`tc` (evidence validator):** per-criterion verdicts are parsed explicitly. `VERDICT: SUPPORTED` / `VERDICT: REJECTED` lines (one per `CRITERION`) no longer read as "conflicting VERDICT values": any REJECTED is a rejection; approval needs SUPPORTED for every criterion, plus the existing identity and coverage checks. An overall approval next to a REJECTED, two different approvals, or a SUPPORTED count that does not match the criteria stays invalid.
+- **Configurable `tc` executable.** The gate hooks honour `COPILOT_TC_BIN` (default plain `tc`), so a gate can check with the same runtime that recorded the QA evidence (`tc` binds evidence to its recording runtime). Documented in `.claude/hooks/README.md`.
+
+## [5.21.3] — 2026-10-15 — Journey tracking can no longer lock a session
+
+Framework **5.21.3**, `cc` **2.14.2**, `tc` **2.5.0**.
+
+- `cc journey begin` now checks that Knowledge can be prepared for every specialist in the route before it records anything, and refuses the route otherwise. Previously a route that included a specialist with no extension (for example `sd`) began successfully. Every later `prepare` and `pause` then failed with "Required authenticated Knowledge is unavailable", and the dispatch hook denied every Agent call in that session.
+- New `cc journey abandon --run <id> --session <id> --reason <slug>` closes an unfinished run so it stops gating its session. Abandoning authorizes nothing: only the session that began the run can abandon it, the abandon record must be the run's last row, it binds the dispatch evidence it closes over, and the run can never again prepare, bind or authorize a dispatch. An abandoned run never counts as completed journey evidence.
+- `/protocol` documents both behaviors. Installed projects pick up the updated `protocol.md` on update; no other change is needed.
+
+## [5.21.2] — 2026-10-14 — Solo setup: `/setup-project` works without an organization
+
+Framework **5.21.2**, `cc` **2.14.1**, `tc` **2.5.0**.
+
+- `/setup-project` (`cc reconcile`) no longer blocks a person who has no organization. When no `layers.manifest` is configured and no organization config (ecosystem.yml) exists, the machine assessment treats the Mac as a solo setup: sign-in, the layer manifest and organization config become optional, layers report `not-configured` ("no signed layer pins are required"), and the project is wired fully, including the hook shim, hook registrations and `copilot.lock.json`. Previously the missing manifest made the whole machine `could-not-verify`, so plan reported `blocked` and apply refused to change the project.
+- The organization path is unchanged: a configured manifest (even a broken one), or any organization config, keeps every sign-in, layer and organization-config check. An unreadable configuration or connections source never counts as solo.
+- Solo has no layer pins by design: pins live in the machine ecosystem lockfile and apply only to layers named by a manifest; the project `copilot.lock.json` records framework file ownership and needs none.
+- Python 3.10 or newer is now stated and enforced everywhere: `/setup`, `/update-copilot`, `project-context.md` and the mypy target said or implied 3.9; `tools/cc/install.sh` and `tools/tc/install.sh` now stop early with a clear message on older Python (macOS system `python3` is 3.9).
+- `/knowledge-copilot` clones the canonical knowledge repo over anonymous HTTPS instead of SSH, and `/setup-project` documents solo mode and the approved-folder step.
+- Existing installed projects need no change.
+- `knowledge-copilot` and `cli-copilot` are now public (MIT), so a solo setup can clone every foundation component anonymously.
+
+## [5.21.1] — 2026-10-14 — Proactive worktree housekeeping
+
+Framework **5.21.1**, `cc` **2.14.0**, `tc` **2.5.0**.
+
+- Require scoped worktree disposition at start/resume, including a new PRD or initiative, and at finish, merge, pause or handoff without waiting for `/optimize`.
+- Surface eligible paths in a visible deletion approval request after recovery and dependency checks. Hold unique work and active consumers with an owner and next action; reuse unchanged prior approval after drift checks and keep unrelated new work moving.
+- Clarify protocol and project-template instructions and align the bundled Codex plugin with 0.9.1. These are agent-executed checkpoints, not automatic deletion hooks; installed projects require reviewed adoption.
+
+## [5.21.0] — 2026-10-14 — Work lifecycle, learning and repository optimization
+
+Framework **5.21.0**, `cc` **2.14.0**, `tc` **2.5.0**.
+
+- Add `/optimize` and one shared lifecycle contract for protocol, direct specialists, resume, pause, reflection and completion. Checkpoints use existing task records and one maintained narrative; no routine handoff trees or duplicate memory transcripts.
+- Require scoped lesson application and measured later outcomes; preserving a lesson does not establish improved product quality.
+- Make cleanup measurable: preserve required assets and original evidence, verify recovery and dependencies, obtain exact destructive approval, and report net retirement separately from holds.
+- Ship the optimize skill and shared reference through cc activation and reconciliation, preserving project-owned collisions.
+- Remove contradictory automatic memory dumping and mandatory initiative scaffolding.
+- Align the bundled Codex plugin exactly with Codex 0.9.0, including its existing proportional-verification guidance and version metadata.
+- This is a signed source release. Existing installed projects require reviewed adoption; no automatic deletion, model calls or project updates occur.
+
+## [5.20.0] — 2026-10-10 — Git worktrees share the main checkout's task list
+
+Framework **5.20.0**, `cc` **2.13.10**, `tc` **2.5.0**.
+
+- Inside a linked git worktree, tc now reads and writes the main checkout's `.copilot/tasks.db` instead of the worktree's own copy. Since 5.19.0 commits the task database, every branch carries a snapshot of it, and each worktree checked that snapshot out: one owner's Convoco repository had seven sibling worktrees, each holding a frozen copy 55 tasks behind the real list, and a `tc` command run in any of them would have written to that copy and forked the project's tasks.
+- The main checkout is found from the worktree's `.git` file and its `commondir`, with plain file reads (no git subprocess). Submodules, which also have a `.git` file but no `commondir`, are unaffected, as is a worktree whose main checkout has no task database. `TC_WORKTREE_DB=local` restores the old behaviour.
+- Still open: switching branches in the main checkout replaces `tasks.db` with that branch's snapshot. Git-mergeable task files (codex-copilot ADR-001) remain the fix for that.
+
+## [5.19.0] — 2026-10-09 — Task state is committed with the project
+
+Framework **5.19.0**, `cc` **2.13.10**, `tc` **2.4.0**.
+
+- New standard: a project commits `.copilot/tasks.db`, `.copilot/tasks.db-history` and `.copilot/wp/`, so its tasks, history and work products travel with the repository between machines. SQLite's `-wal`, `-shm` and `-journal` files and the auto-archive stamp stay ignored. Before this, 14 of one owner's 25 projects ignored their task database, so tasks did not move with the code.
+- `tc init` writes the rule into the project's `.gitignore` as a managed block. New `tc db track [--check]` applies it to an existing project or reports whether one is at the standard. A bare `.copilot/` rule becomes `.copilot/*`, which keeps build caches and other contents ignored while letting the task files back in. Line endings are preserved. Public repositories opt out with the line `# tc: task state stays local` in `.gitignore`, which tc never changes; this repository and codex-copilot carry it.
+- The local Git exclude that tc maintains now also covers `-journal` files and the archive stamp.
+- Interim: SQLite files cannot merge, so work on one machine at a time and pull before starting. Git-mergeable task files remain the planned successor (codex-copilot ADR-001, updated to record this interim decision).
+
+## [5.18.0] — 2026-10-09 — tc archives finished work to a history file
+
+Framework **5.18.0**, `cc` **2.13.10**, `tc` **2.3.0**.
+
+- New `tc archive [--days 14] [--dry-run]` moves finished tasks (completed or cancelled, no activity for `--days` days), with their activity log, work products and dependency rows, from `.copilot/tasks.db` into `.copilot/tasks.db-history`. That file has the same schema and a rollback journal, so it leaves no `-wal`/`-shm` files, and projects that ignore `.copilot/tasks.db*` already ignore it. A finished task stays in `tasks.db` while any task left there points at it as parent or dependency. On a copy of one 894-task project it moved 595 tasks in 0.2 s, and both files passed `integrity_check` and `foreign_key_check`.
+- New `tc history list | search <words> | get <id> | restore <id>...`. Search covers titles and work-product text. Restore moves tasks back. Nothing is deleted and task IDs are never reused.
+- Archiving runs automatically at most once a day after `tc task update`, `park`, `unpark` or `cancel`, silently and without ever failing the command. `TC_AUTO_ARCHIVE=0` turns it off; `TC_ARCHIVE_DAYS` sets the age.
+- `init_db` gains `wal=` (default True). No schema change.
+
+## [5.17.0] — 2026-10-09 — tc stale triage: find idle open work, then park or cancel it
+
+Framework **5.17.0**, `cc` **2.13.10**, `tc` **2.2.0**.
+
+- New `tc task stale [--days 30]` lists open tasks (pending, in progress, blocked) with no activity for at least that many days, oldest first, with `idle_days`. Activity is the later of the task's last update and its newest log entry. Across one owner's 26 projects, 555 of 618 open tasks had been idle for 30+ days.
+- New `tc task park <ids> --reason` sets tasks aside without closing them: `metadata.parked = {"at", "reason"}`, an in-progress task returns to pending and loses its claim, `tc task next` skips it, and `tc task list` hides it unless `--include-parked` or `--parked` is given. `tc task unpark <ids>` reverses it.
+- New `tc task cancel <ids> --reason` cancels with `metadata.cancelReason`. Park and cancel also take `--stale [--days N]` instead of IDs, are all-or-nothing, and log each change. Nothing is deleted.
+- `list_tasks` gains `parked` (None returns everything, as before; False excludes parked; True returns only parked). No schema change.
+
+## [5.16.0] — 2026-10-09 — tc logs every status change with the session that made it
+
+Framework **5.16.0**, `cc` **2.13.10**, `tc` **2.1.0**.
+
+- `tc task update` now writes an activity-log entry for every status change (in progress, blocked, pending, cancelled, completed), not only completion. Before, starting or blocking a task left no trace, so a task could be mid-work with nothing in the log. A completion is now logged even when the task has no assigned agent (attributed to `unassigned`).
+- Status-change and claim entries carry JSON details stamped with the harness session: `{"from": "pending", "harness": "claude", "session": "<CLAUDE_CODE_SESSION_ID>"}`, or `"harness": "codex"` with `CODEX_THREAD_ID`. That ID names the conversation's transcript file, so a viewer such as Copilot Fleet can show which live conversation is working on which task. Outside a harness the session fields are omitted. A claim's details change from the text `Claimed by <agent>` to `{"claimed_by": "<agent>", ...}`.
+- No schema change.
+
+## [5.15.15] — 2026-10-07 — Either trusted key can sign a Claude release
+
+Framework **5.15.15**, `cc` **2.13.10**, `tc` **2.0.1**.
+
+- Fixed the release preflight (`scripts/verify-foundation-release.sh`) rejecting releases signed with the ENAC foundation release key. cc already trusts that key for Claude, but the preflight checked only the owner's GitHub key, which lives on one laptop, so v5.15.5 through v5.15.14 (signed on the Mac mini) failed it. The preflight now trusts exactly the compiled Claude signers, and a test keeps the two lists equal. `FOUNDATION_RELEASE_PUBLIC_KEY` still narrows it to one key. The foundation key is stored, passphrase-protected, in Infisical so either machine can sign (see `docs/30-operations/19-claude-signer-migration.md`).
+
+## [5.15.14] — 2026-10-06 — A deleted MCP roster is repaired, not unverifiable
+
+Framework **5.15.14**, `cc` **2.13.10**, `tc` **2.0.1**.
+
+- Fixed a project that deleted its `.mcp.json`, typically along with MCP servers it no longer uses, becoming `could-not-verify` with no repair offered. On 2026-10-06 this blocked research-copilot. Setup's own recipe recreates exactly the empty `{"mcpServers": {}}` roster, and an absent roster now routes to that repair, including when the lock recorded the roster as a managed output. The repair never appends a second Claude Copilot entry to a CLAUDE.md that already has one. A present but malformed `.mcp.json` is project content and still needs the owner.
+
+## [5.15.13] — 2026-10-06 — The fitness check leaves a project's own agents to the project
+
+Framework **5.15.13**, `cc` **2.13.9**, `tc` **2.0.1**.
+
+- Fixed installed projects failing their own fitness check over agents that belong to the project. A project agent was held to the framework agent contract: framework frontmatter keys and iteration block (FF7), specialist sections (FF4), and the Runtime Precedence and Output Contract blocks (FF8, FF10). Even the documented `owner: project` key was flagged as an unexpected frontmatter key. On 2026-10-06 this produced spanish-copilot's 9 failures (its tutor, grammar and vocab agents), small-business-copilot's 8 (aqa, red) and voice-copilot's 29 (nine `owner: project` agents, including its own `cco`).
+- In an installed project, an agent is the project's own when it declares `owner: project`, or when it is outside the framework roster and the lock does not record it as a framework file (so the setup-only `kc` stays a framework agent). These agents skip FF4, FF7, FF8 and FF10; a `model` they declare is still validated. FF12 reports an `owner: project` agent under a framework name instead of failing it as content of unknown origin. FF11 still checks every agent, because a dead skill reference fails at runtime whoever owns the file. Framework agents a project carries unmarked are still held to every check.
+
+## [5.15.12] — 2026-10-06 — Project-owned CLAUDE.md and agents never block updates
+
+Framework **5.15.12**, `cc` **2.13.9**, `tc` **2.0.1**.
+
+- Fixed projects becoming `could-not-verify`, and so refusing every update, after they edited their own `CLAUDE.md` or `AGENTS.md`. When a project had no instruction file, setup created one, with a bounded entry telling the project to keep its instructions there, and recorded its exact bytes as a managed output. Any later edit then failed verification ("CLAUDE.md is missing or mismatched"). On 2026-10-06 this blocked something-new and copilot-control-tower after their CLAUDE.md moved to the 5.15.6 standard.
+- Instruction files are now verified by the recognized-entry check (`## Claude Copilot` / `## Codex Copilot`), as they already were for projects that wrote their own. A recorded fingerprint no longer has to match, but a missing file still fails.
+- Fixed updates ignoring `owner: project`, the documented marker for keeping a project's own agent or command under a framework name. The update counted such a file as a collision and held the whole project as `owner-decision`; on 2026-10-06 this held voice-copilot over its own `cco.md`. Now an `owner: project` file is never overwritten, never recorded in the lock, and never holds an update. If an older lock recorded it as framework-owned, verification accepts it and the update hands it back to the project. This matches the conformance rule `lock.ownership.frontmatter_agrees`.
+
+## [5.15.11] — 2026-10-06 — tc's database temp files no longer hold project updates
+
+Framework **5.15.11**, `cc` **2.13.8**, `tc` **2.0.1**.
+
+- Fixed every project that uses `tc` looking dirty, which made Claude Copilot hold its updates ("Stabilize the Git project before changing Claude"). SQLite's WAL-mode side files, `.copilot/tasks.db-wal` and `.copilot/tasks.db-shm`, were never ignored. On 2026-10-06 they held something-new, copilot-bench, thoughts and investr-api.
+- `tc` now adds `**/.copilot/*.db-wal` and `**/.copilot/*.db-shm` to the clone's own `.git/info/exclude` whenever it opens or creates a database. That file is never committed, so no project gains a file to commit; `tasks.db` itself stays committable. Outside a Git repository nothing is written.
+
+## [5.15.10] — 2026-10-06 — Updates replace older framework copies instead of holding the project
+
+Framework **5.15.10**, `cc` **2.13.8**, `tc` **2.0.0**.
+
+- Fixed standard installs being held as `owner-decision` when a release starts managing a file the project already holds as an older framework copy that its lock never recorded. On 2026-10-06 this held admin-server, pipeline-copilot, force-readiness-assessment, product-creation-copilot and spanish-copilot (`.claude/agents/manifest.schema.json`) and tracker (`.claude/commands/reflect.md`). Each copy was byte-identical to a committed framework version. The update now replaces such a file with the current version and records it in the lock. A file whose bytes the framework never committed at that path is still refused as project content.
+- The snapshot installer writes `.framework-history.json` into each snapshot: the sha256 of every committed version of every framework-installed path (`.claude/agents`, `.claude/commands`, the fitness check and the hook shim), read from the source repository at install time. Snapshots carry no `.git`; a development checkout is read from Git directly, and with neither the update keeps its previous strict behaviour.
+
+## [5.15.9] — 2026-10-06 — Customized installs update and pass their own fitness check
+
+Framework **5.15.9**, `cc` **2.13.7**, `tc` **2.0.0**.
+
+- Fixed every customized-preserve Claude install becoming an `owner-decision` after the next framework release. The lock records the release version, so any later release differed from it, and the update check treated every difference as a collision. Drift confined to the files the lock already owns (commands, hook shim, fitness check), plus support files that are absent or already identical, is now a `safe-update-available`. The update refreshes only those files, never installs framework agents, keeps `customized-preserve`, and still refuses files the project has edited.
+- Fixed the fitness check failing 66 ways in a customized-preserve project. Such a project keeps its own agent tree and loads the framework agents from the user-level deployment (`~/.claude/agents`), so the check demanded copies the install is built not to make. In that mode the roster now resolves project-first then user-level, the project's own agents are no longer required to declare `model`, and FF8 and FF10 check only framework agents the project itself carries (deployed agents are reconciled by FF12). Standard installs keep the strict project-only behaviour.
+- In every installed project, FF12's absolute ceiling now measures only the framework's base corpus; a project's own agents are reported, not counted against it.
+- The hook shim now writes a `*` ignore file into `.claude/hooks/state/`, so session state no longer makes an installed project look unstable and hold its updates.
+
+## [5.15.8] — 2026-10-06 — Customized Claude installs pass their own verification
+
+Framework **5.15.8**, `cc` **2.13.6**, `tc` **2.0.0**.
+
+- Fixed every Claude install through the assistant preservation recipe rolling back. The recipe installs all eight VERSION.json project commands and records them in the lock, but post-install verification of a customized lock accepted only the four required paths, so it rejected the lock the recipe had just written. Any single `.claude/commands/<name>.md` framework command is now part of the bounded support-file subset; nested paths, non-Markdown files and agents remain rejected.
+
+## [5.15.7] — 2026-10-06 — Projects with their own agents and plugins can be set up
+
+Framework **5.15.7**, `cc` **2.13.5**, `tc` **2.0.0**.
+
+- Fixed every Codex project reconciliation being blocked on machines whose personal, department or organization layer repo is itself a Codex Copilot project. Layer discovery counted that repo's own `plugins/codex-copilot` install (declared by its `.codex-copilot.json` `pluginPath`) as a plugin contribution, so an unsigned personal copy outranked the signed foundation release and failed verification. A layer repo's own declared install is no longer a contribution; real plugin contributions are unchanged.
+- Fixed Claude setup refusing any project that exposes its own plugin skills to Claude. The assistant preservation recipe accepted only the `.claude/skills/codex-copilot` link; it now accepts any `.claude/skills/<name>` link to the same project's `plugins/<name>/skills`, still rejecting links that leave the project, cross to another plugin, or pass through a symlinked plugin folder.
+
+## [5.15.6] — 2026-10-06 — Project CLAUDE.md follows current Claude Code practice
+
+Framework **5.15.6**; component versions unchanged.
+
+- Rewrote `templates/CLAUDE.template.md` (168 to 85 lines). It now holds only what hooks and tools cannot supply: project rules first, one line per Copilot surface under `## Claude Copilot`, the Knowledge Copilot walk, the pinned Optional Context block, a condensed task-evidence summary, and the no-time-estimates rule.
+- Removed the agent and command tables (Claude Code lists agents, skills and commands itself) and references to retired surfaces: Memory Copilot, `knowledge_search` and `knowledge_get`.
+- Fixed the template sending agents to the singular `$CC_KNOWLEDGE_REPO`, which carries only the first knowledge tier. It now walks `$CC_KNOWLEDGE_REPOS`, as the consumption contract requires.
+- Fixed `{{WORKSPACE_ID}}`, `{{EXTERNAL_SKILLS_STATUS}}`, `{{OUTPUT_VERBOSITY}}` and `{{OUTPUT_AUDIENCE}}` reaching installed projects unrendered; the template no longer uses tokens the installer does not fill.
+- Declared project-defined agents first-class, so a project's own specialists are routed to rather than around.
+- Added `docs/20-configuration/04-claude-md-standard.md`, the standard the template implements.
+
+## [5.15.5] — 2026-10-06 — Installed projects pass their own fitness check
+
+Framework **5.15.5**, `cc` **2.13.4**, `tc` **2.0.0**.
+
+- Fixed a clean project install failing its own `.claude/fitness-check.sh` with 38 failures, all caused by the framework. After updating, an installed project reports 0.
+- Agents now load skills by name (`cc skill get stride-dread`) instead of repo-relative `@include .claude/skills/<category>/<name>/SKILL.md` paths. Those paths only worked inside the framework checkout, because the installer never ships the framework's `.claude/skills` into projects. This affected do, doc, me, qa, sd, sec, ta, uids and uxd. `copywriting/voice-tone` exists and now resolves like the rest.
+- `cc` skill lookup now includes the installed framework's own skill catalog in machine scope, after `~/.claude/skills` so personal overrides still win. Agent skill names resolve on a fresh machine that has no `~/.claude/skills` copy.
+- FF11 checks every `cc skill get` name and Available Skills entry through one `cc skill list --scope all` call. When Copilot's `cc` is unavailable, it falls back to scanning the same scopes on disk. Any repo-relative `.claude/skills/.../SKILL.md` reference in an agent now fails, in every project.
+- The fitness check now detects whether it is running in the framework repo or in an installed project (override with `CC_FITNESS_MODE=framework|consumer`). In a project, FF9 skips: the context budget is enforced against the framework's baseline before release.
+- In a project, FF12 now compares the project's own agents (the ones its sessions load) against the framework's git history. It used to compare against the machine's `~/.claude/agents` and search the project's git, so every agent "matched no committed version". It also verifies that the lock's `release_tag` is a real framework tag. Project-defined agents are reported, not failed.
+- Release tagging: version bumps reach main as squash-merged PRs and nothing tagged them, so 5.15.3 and 5.15.4 went into project locks while the newest tag was v5.15.2. Added `scripts/tag-release.sh`, which checks that the version files and CHANGELOG agree, then cuts a signed annotated tag on a main commit (`--at` tags an earlier one retroactively). Added the `release-tag-check` workflow, which turns main red while the current version is untagged. `/update-copilot` warns when it installs an untagged version, and now reads the version from VERSION.json's `framework` key (it always printed "unknown").
+- `tag-release.sh` runs `verify-foundation-release.sh` on a release cut from main HEAD and deletes the tag instead of pushing it if the preflight fails. v5.15.3 and v5.15.4 get retroactive `--at` tags on their merge commits. Those commits carry GitHub's merge signature, so the tags anchor history but are not foundation sources.
+
+## [5.15.4] — 2026-10-06 — Project setup runs on cc's own runtime
+
+Framework **5.15.4**, `cc` **2.13.3**, `tc` **2.0.0**.
+
+- Fixed `/setup-project` and `/update-project` failing on every machine at the first step with `ModuleNotFoundError: No module named 'cc'`. Their request helper ran a heredoc under the system `python3`, which cannot import `cc` (it lives in its own venv, or inside a frozen release binary).
+- Added `cc reconcile request --project <root> --output <file>`, which checks the cc/tc prerequisites and writes the canonical one-project request from inside cc's runtime. Both commands now call it instead of any Python interpreter; a failed prerequisite still exits 3 with the prerequisite report on stderr.
+- `cc reconcile plan` now reports `project-changed` ("assess again, then plan") when the fresh census disagrees with the selection or changes while planning. It was mislabeled `invalid-recipe`, which told the person to choose a different recipe when none was at fault.
+- When `tc` is installed but its provenance receipt no longer matches its source (in a development checkout, any new commit or pull does this), the prerequisite report now names the one-step repair, `bash ~/.claude/copilot/tools/tc/install.sh`, instead of sending the person through full machine setup.
 
 ## [5.15.3] — 2026-09-24 — Initiatives consolidated under 40-initiatives
 

@@ -125,3 +125,33 @@ def test_release_preflight_rejects_invalid_release(tmp_path: Path, defect: str) 
         "wrong-commit": "resolves to",
         "off-main": "not an ancestor",
     }[defect] in result.stderr
+
+
+def test_release_preflight_default_trust_rejects_an_unlisted_key(tmp_path: Path) -> None:
+    """Without an explicit key the script trusts only the compiled Claude signers."""
+    repo, _key, env = _repo_and_key(tmp_path)
+    del env["FOUNDATION_RELEASE_PUBLIC_KEY"]
+    subprocess.run(["git", "commit", "-qS", "-m", "snapshot"], cwd=repo, check=True)
+    commit = _run("git", "rev-parse", "HEAD", cwd=repo).stdout.strip()
+    subprocess.run(["git", "tag", "-s", "v1.2.6", "-m", "release"], cwd=repo, check=True)
+
+    result = _run(str(SCRIPT), str(repo), "v1.2.6", commit, "main", cwd=repo, env=env)
+
+    assert result.returncode != 0
+    assert "valid foundation release signature" in result.stderr
+
+
+def test_release_preflight_default_trust_accepts_a_foundation_key_release() -> None:
+    """2026-10-07: v5.15.5 through v5.15.14 were signed with the ENAC
+    foundation release key and failed the preflight, which then trusted only
+    the owner's GitHub key. Both compiled Claude signers are trusted now."""
+    repo = Path(__file__).parents[3]
+    tag = "v5.15.14"
+    resolved = _run("git", "rev-parse", "-q", "--verify", f"refs/tags/{tag}^{{}}", cwd=repo)
+    if resolved.returncode != 0:
+        pytest.skip(f"{tag} is not fetched in this checkout")
+    env = {k: v for k, v in os.environ.items() if not k.startswith("FOUNDATION_RELEASE_")}
+
+    result = _run(str(SCRIPT), str(repo), tag, resolved.stdout.strip(), "main", cwd=repo, env=env)
+
+    assert result.returncode == 0, result.stderr

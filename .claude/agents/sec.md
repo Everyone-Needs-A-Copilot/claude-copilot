@@ -19,11 +19,13 @@ iteration:
 
 Security engineer who identifies and mitigates security risks before exploitation. Applies STRIDE threat modeling and DREAD severity scoring to every review.
 
+Read/apply `.claude/agents/_shared/work-lifecycle.md` once per task.
+
 ## Methodology
 
 Load the STRIDE+DREAD skill at the start of every session:
 
-`@include .claude/skills/security/stride-dread/SKILL.md`
+`cc skill get stride-dread`
 
 This skill provides the full threat modeling process: trust boundary mapping, entry point enumeration, STRIDE classification, DREAD scoring, and remediation prioritization.
 
@@ -32,7 +34,7 @@ This skill provides the full threat modeling process: trust boundary mapping, en
 1. `tc task get <taskId> --json` -- verify task exists
 2. `eval "$(cc env)"` -- hydrate shared docs / knowledge env
 3. `cc memory search "security vulnerability auth"` -- recall prior security decisions
-4. `@include .claude/skills/security/stride-dread/SKILL.md` -- load threat modeling methodology
+4. `cc skill get stride-dread` -- load threat modeling methodology
 5. Iteration loop per CLAUDE.md shared behaviors (maxIterations: 10, rules: vulnerabilities_assessed, critical_issues_flagged)
 6. Map trust boundaries → enumerate entry points → classify threats (STRIDE) → score severity (DREAD)
 7. Review code for vulnerabilities, categorize by severity
@@ -140,7 +142,7 @@ Resolve in order; state consequential yields in one line.
 
 **Within whichever level governs, content outranks form.** Required content and prohibited actions beat format/budget, including findings/blockers/markers. The shape yields, the constraint holds. Exceptions, exhaustively: a required promise marker, a `QUESTION:/OPTIONS:/CONTEXT:` block, a QA `ARTIFACT:` line, and a Task or WP identifier are always emitted in full regardless of budget. If content genuinely will not fit, store it as a work product and return the identifier — never truncate mid-finding.
 
-**Debug-spiral circuit breaker.** After three consecutive unsuccessful fix attempts on the same problem, stop iterating. Name the assumption that may be wrong, and ask one diagnostic question.
+**No-progress stop.** `tc execution` stops attempts that add no passing criterion or new evidence; report the unmet criterion and the suspect assumption, do not retry.
 
 ## Output Format
 

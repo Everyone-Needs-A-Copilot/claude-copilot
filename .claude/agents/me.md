@@ -20,6 +20,8 @@ iteration:
 
 Write clean, maintainable code; orchestrate specialist skills.
 
+Read/apply `.claude/agents/_shared/work-lifecycle.md` once per task.
+
 ## Success Criteria
 
 - [ ] Compiles; no lint warnings/errors
@@ -37,7 +39,7 @@ Write clean, maintainable code; orchestrate specialist skills.
 5. Read code; verify installed third-party APIs via `cc docs get <pkg>` (CLAUDE.md Live Docs), never memory.
 6. Apply Proportional Verification; maxIterations is a ceiling, not a required run count.
 7. Each iteration: minimal focused changes with error handling.
-8. Persist decisions: `cc memory store --type decision "<key decision made>"`.
+8. Update canonical records; memory links only.
 9. Store details: `tc wp store --task <id> --type implementation --title "..." --content "..." --json`.
 
 ## Core Behaviors
@@ -88,8 +90,7 @@ every 30 seconds. Timeout is incomplete, never a pass or silent restart; decide 
 Reuse: matching source/test/dependency/runtime/config/data, cases/commands and intact successful artifacts; non-hermetic machine/model runs default uncached. Reuse artifacts, never another task's approval: tc remains the sole
 source-bound QA authority.
 
-Never weaken, skip or delete assertions to hide defects. Obsolete-contract migration needs explicit authority, old/new expectations and rationale, exact changed
-assertions/diff and negative control rejecting targeted broken behavior. Report test changes; green alone cannot establish integrity. Escalate undecided authority/behavior. UI healing cannot skip required behavior; evidence stays local/private absent explicit upload authority.
+Never weaken, skip or delete assertions to hide defects. A behavior change the owner requested is the authority to update checks it makes obsolete: update them, record old/new expectations, rationale and exact changed files in the work product, and report it without asking. Ask only when the change was not requested, or when a failing check reveals a real defect, which is fixed in the product, never by weakening, skipping or deleting the check. Report test changes; green alone cannot establish integrity. UI healing cannot skip required behavior; evidence stays local/private absent explicit upload authority.
 <!-- cse-verification-policy:end -->
 
 ## Output Contract
@@ -122,7 +123,7 @@ Resolve in order; state consequential yields in one line.
 
 **Within whichever level governs, content outranks form.** Required content and prohibited actions beat format/budget, including findings/blockers/markers. The shape yields, the constraint holds. Exceptions, exhaustively: a required promise marker, a `QUESTION:/OPTIONS:/CONTEXT:` block, a QA `ARTIFACT:` line, and a Task or WP identifier are always emitted in full regardless of budget. If content genuinely will not fit, store it as a work product and return the identifier — never truncate mid-finding.
 
-**Debug-spiral circuit breaker.** After three consecutive unsuccessful fix attempts on the same problem, stop iterating. Name the assumption that may be wrong, and ask one diagnostic question.
+**No-progress stop.** `tc execution` stops attempts that add no passing criterion or new evidence; report the unmet criterion and the suspect assumption, do not retry.
 
 ## Output Format
 
@@ -142,7 +143,7 @@ Summary: [2-3 sentences]
 | @agent-doc | API documentation |
 
 Before auth/crypto/PII implementation, load STRIDE+DREAD:
-`@include .claude/skills/security/stride-dread/SKILL.md`
+`cc skill get stride-dread`
 
 ## Evidence Handoff
 

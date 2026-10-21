@@ -20,11 +20,14 @@ import stat
 from pathlib import Path, PurePosixPath
 from typing import Any, Optional
 
+from cc.core.ecosystem.project_ownership import declares_project_owner
 from cc.core.config import resolve_key
-from cc.core.ecosystem.canonical_transaction import claude_reference_roster
+from cc.core.ecosystem.canonical_transaction import (
+    claude_reference_roster,
+    claude_support_files,
+)
 from cc.core.ecosystem.project_locking import (
     fingerprint_file_payload,
-    fingerprint_managed_block_payload,
     fingerprint_symlink,
 )
 from cc.core.ecosystem.project_sources import resolve_claude_content
@@ -68,11 +71,32 @@ _CODEX_REQUIRED_LOCK_PATHS = (
 
 def _customized_framework_path_allowed(component: str, relative: str) -> bool:
     if component == "claude":
-        return relative in _CLAUDE_REQUIRED_LOCK_PATHS
+        # The preservation recipe installs every VERSION.json project command,
+        # not only the required ones, so any single framework command file is
+        # part of the bounded support-file subset.
+        parts = PurePosixPath(relative).parts
+        return relative in (*_CLAUDE_REQUIRED_LOCK_PATHS,
+            ".claude/agents/_shared/work-lifecycle.md",
+            ".claude/skills/cleanup/SKILL.md",
+        ) or (
+            len(parts) == 3
+            and parts[:2] == (".claude", "commands")
+            and parts[2].endswith(".md")
+            and parts[2] not in {".md", "..md"}
+        )
     return relative == "scripts/copilot-gate.sh" or relative.startswith(
         "plugins/codex-copilot/"
     )
 
+
+# Project instruction files belong to the project. The installer may create
+# one (a bounded entry that itself says to keep project instructions there) and
+# record its fingerprint, but every later edit the project makes is expected,
+# not drift. Their compatibility is proven by the recognized-entry check
+# (`## Claude Copilot` / `## Codex Copilot`), never by byte equality; requiring
+# equality made every project that edited its CLAUDE.md unverifiable and
+# blocked its updates.
+PROJECT_INSTRUCTION_FILES = frozenset({"CLAUDE.md", "AGENTS.md"})
 
 _MANAGED_OUTPUT_TARGET_KINDS = {
     "claude": {
@@ -100,13 +124,12 @@ _CLAUDE_RELEVANT_PATHS = (
     ".claude/hooks/copilot-hook.sh",
     ".claude/settings.json",
     ".claude/agents",
+    ".claude/skills/cleanup",
     ".claude/evals",
     ".claude/cc/config.json",
     ".claude/memory/entries/.gitkeep",
     ".claude/memory/.gitignore",
 )
-
-_PROJECT_INSTRUCTION_FILES = frozenset({"CLAUDE.md", "AGENTS.md"})
 
 _CODEX_RELEVANT_PATHS = (
     "AGENTS.md",
@@ -159,30 +182,6 @@ def _checksum(path: Path) -> str:
     else:
         payload = path.read_bytes()
     return "sha256:" + hashlib.sha256(payload).hexdigest()
-
-
-def _managed_output_matches(
-    root: Path, relative: str, kind: str, expected: str
-) -> bool:
-    if _managed_output_fingerprint(root, relative) == expected:
-        return True
-    if kind != "managed-text" or relative not in _PROJECT_INSTRUCTION_FILES:
-        return False
-    target, _ = _safe_relative_target(root, relative)
-    if target is None:
-        return False
-    try:
-        metadata = target.lstat()
-        if not stat.S_ISREG(metadata.st_mode):
-            return False
-        return (
-            fingerprint_managed_block_payload(
-                target.read_bytes(), mode=stat.S_IMODE(metadata.st_mode)
-            )
-            == expected
-        )
-    except OSError:
-        return False
 
 
 def _managed_output_fingerprint(root: Path, relative: str) -> Optional[str]:
@@ -378,6 +377,7 @@ def _framework_root(component: str, supplied: Optional[Path | str]) -> Optional[
 def _claude_source_files(source: Path) -> Optional[dict[str, Path]]:
     try:
         commands, roster = claude_reference_roster(source)
+        support_files = claude_support_files(source, commands)
         resolved = resolve_claude_content(
             foundation_root=source,
             items={
@@ -403,6 +403,7 @@ def _claude_source_files(source: Path) -> Optional[dict[str, Path]]:
             for agent in roster
         }
     )
+    files.update(support_files)
     # Eval cases travel with the framework like every other owned dimension
     # (agents, commands, hooks). Globbed rather than roster-driven because
     # the case set per agent is not fixed cardinality the way the agent
@@ -598,7 +599,11 @@ def _verify_lock_entry(
             actual = None
         expected = file_info["checksum"]
         fingerprint.append([rel_path, expected, actual])
-        if actual != expected:
+        # A file the project has since claimed (`owner: project`) is not drift;
+        # the next update re-records the lock without it.
+        if actual != expected and not (
+            actual is not None and declares_project_owner(target)
+        ):
             state = "missing" if actual is None else "mismatch"
             evidence.append(
                 _evidence(
@@ -654,12 +659,12 @@ def _verify_lock_entry(
         managed_paths.add(rel_path)
         actual = _managed_output_fingerprint(root, rel_path)
         expected = str(output["fingerprint"])
-        if _managed_output_matches(root, rel_path, str(output["kind"]), expected):
-            actual = expected
         fingerprint.append(
             ["managed-output", rel_path, output["kind"], expected, actual]
         )
-        if actual != expected:
+        if actual != expected and not (
+            rel_path in PROJECT_INSTRUCTION_FILES and actual is not None
+        ):
             evidence.append(
                 _evidence(
                     "managed-output",
@@ -1263,7 +1268,10 @@ def _missing_action_targets(
 ) -> list[str]:
     targets = _CLAUDE_ACTION_TARGETS if component == "claude" else _CODEX_ACTION_TARGETS
     if component == "claude":
-        targets = (*targets, *sorted(p for p in source_files if p.startswith(".claude/commands/")))
+        targets = (*targets, *sorted(
+            p for p in source_files
+            if p.startswith((".claude/commands/", ".claude/skills/cleanup/"))
+        ))
     missing = [path for path in targets if not (root / path).exists()]
     if component == "claude":
         if (
@@ -1648,12 +1656,39 @@ def _component_draft(
             and entry_requirement_ids <= {"valid-mcp-marker"}
             and all(item.get("state") != "unreadable" for item in entry_evidence)
         )
+        # An absent `.mcp.json` (a project that dropped its MCP servers and the
+        # empty roster with them) is repairable: setup recreates exactly the
+        # empty `{"mcpServers": {}}` roster. A present but malformed file is
+        # project content and stays could-not-verify.
+        mcp_roster_absent = any(
+            item.get("path") == ".mcp.json" and item.get("state") == "missing"
+            for item in entry_evidence
+        )
+        # ...including when the lock recorded that roster as a managed output.
+        mcp_only_lock_gap = (
+            mcp_roster_absent
+            and bool(lock_missing)
+            and all(
+                item["id"] == "verified-managed-output"
+                and item["detail"].startswith(".mcp.json ")
+                for item in lock_missing
+            )
+        )
         if (
             component == "claude"
-            and (lock_ok or legacy_claude_lock or repairable_claude_lock)
+            and (
+                lock_ok
+                or legacy_claude_lock
+                or repairable_claude_lock
+                or mcp_only_lock_gap
+            )
             and entry_requirement_ids
             <= {"compatible-claude-entry"}
-            | ({"valid-mcp-marker"} if repairable_claude_lock else set())
+            | (
+                {"valid-mcp-marker"}
+                if repairable_claude_lock or mcp_roster_absent
+                else set()
+            )
             and all(item["state"] != "unreadable" for item in entry_evidence)
             and (lock_missing or entry_missing)
         ):
@@ -1661,8 +1696,14 @@ def _component_draft(
                 "claude-legacy-lock-v1"
                 if legacy_claude_lock
                 else (
+                    # Missing files with a compatible entry (including only an
+                    # absent MCP roster) are a repair, never an entry append.
                     "claude-missing-framework-files-v1"
                     if repairable_claude_lock
+                    or (
+                        (mcp_roster_absent or mcp_only_lock_gap)
+                        and "compatible-claude-entry" not in entry_requirement_ids
+                    )
                     else "claude-legacy-entry-v1"
                 )
             )

@@ -2,6 +2,10 @@
 
 Resume a conversation by loading context from Memory Copilot and Task Copilot.
 
+## Work lifecycle
+
+Read `.claude/agents/_shared/work-lifecycle.md` once per task and apply its proportional start/resume, during-work, handoff, finish and later-use checkpoints, including direct invocation. Use the existing task and maintained narrative; selective memory pointers must not duplicate them. Preserve exact destructive approval and recovery, original authority and required assets. Substantial QA-required work needs an observable `WORK-LIFECYCLE` criterion before acceptance freezes; cleanup status and product acceptance remain separate.
+
 ## Command Argument Handling
 
 This command supports an optional stream name argument for resuming work on specific parallel streams:
@@ -171,10 +175,7 @@ Load minimal context to preserve token budget:
    - If exists: Inject into context, note `[Constitution: Active]`
    - If missing: Continue without it (graceful fallback), note `[Constitution: Not Found]`
 
-4. If no context exists, ask user what they're working on and store the focus:
-   ```bash
-   cc memory store --type context "Focus: <what user described>"
-   ```
+4. If no context exists, establish the current work with the user. Record focus in its existing task when one is needed; add a memory locator only if future retrieval requires it.
 
 **Important:** Do NOT load full task lists. Use `tc progress` for compact status.
 
@@ -441,29 +442,8 @@ git stash push -m "Stream-B checkpoint"
 2. **Keep streams focused** - avoid modifying shared files across streams
 3. **Merge foundation first** - ensure parallel streams branch from latest foundation
 4. **Test after merge** - run tests in main worktree after merging streams
-5. **Clean up promptly** - remove worktrees after successful merge to avoid confusion
+5. **Retire verified worktrees** — inspect unique commits, dirty work and consumers, prepare recovery, then obtain exact destructive approval before removal.
 
 ## End of Session
 
-Update Memory Copilot with **slim context only**:
-
-```bash
-# Store current focus and next action (100 chars max each)
-cc memory store --type context "Focus: <brief description of current focus>. Next: TASK-xxx — <specific next step>"
-
-# Store strategic decisions (one entry per decision)
-cc memory store --type decision "<decision>: <rationale>"
-
-# Store key learnings (one entry per lesson)
-cc memory store --type lesson "<lesson> [context: <where it applies>]"
-```
-
-**Do NOT store in Memory Copilot:**
-- `completed` - Lives in Task Copilot (task status = completed)
-- `inProgress` - Lives in Task Copilot (task status = in_progress)
-- `blocked` - Lives in Task Copilot (task status = blocked)
-- `resumeInstructions` - Replaced by a context entry with current focus and next action
-
-### Memory is Self-Trimming
-
-Memory entries are stored as individual files (one per entry). There is no "bloated initiative" to slim — each `cc memory store` call creates a discrete file. Old or superseded context entries can be removed with `cc memory delete <uuid>` if needed. The next session's `cc memory search` naturally surfaces the most relevant recent entries.
+Apply the canonical pause/handoff or finish checkpoint to the existing task and maintained narrative. Memory is not self-trimming: review relevance and consumers, and obtain exact destructive approval and recovery before removing an entry. A selective source pointer is sufficient; do not produce a fresh summary on every resume.

@@ -74,6 +74,11 @@ LOCK_FILE="${STATE_DIR}/qa-gate.lock"
 LOG_FILE="${STATE_DIR}/qa-gate.log"
 JQ="/usr/bin/jq"
 
+# TC executable. COPILOT_TC_BIN (command name or absolute path) overrides
+# plain `tc`, e.g. when QA evidence is recorded through a wrapper runtime
+# whose runtime identity differs from the default tc.
+TC_BIN="${COPILOT_TC_BIN:-tc}"
+
 MAX_RETRIES=3
 STALE_SECONDS=259200  # 72 hours
 
@@ -298,8 +303,8 @@ prune_stale() {
 get_session() {
   local state="$1"
   printf '%s' "$state" | "$JQ" -r --arg sid "$SESSION_ID" '
-    .[$sid] // {"pending_tasks":[],"retries":{},"history":[],"lastSeen":""}
-  ' 2>/dev/null || echo '{"pending_tasks":[],"retries":{},"history":[],"lastSeen":""}'
+    .[$sid] // {"pending_tasks":[],"rework_tasks":[],"retries":{},"history":[],"lastSeen":""}
+  ' 2>/dev/null || echo '{"pending_tasks":[],"rework_tasks":[],"retries":{},"history":[],"lastSeen":""}'
 }
 
 # ---------------------------------------------------------------------------
@@ -332,7 +337,7 @@ get_session() {
 extract_task_id() {
   local msg="$1"
   local line
-  line="$(printf '%s\n' "$msg" | grep -oE '^[[:space:]]*Task:[[:space:]]*TASK-[0-9]+' | head -1 2>/dev/null)" || line=""
+  line="$(printf '%s\n' "$msg" | grep -oE '^[[:space:]>*_-]*Task:[[:space:]*_]*TASK-[0-9]+' | head -1 2>/dev/null)" || line=""
   printf '%s' "$line" | grep -oE 'TASK-[0-9]+' 2>/dev/null || echo ""
 }
 
@@ -373,10 +378,10 @@ task_id_valid_in_project() {
   local num="${task_id#TASK-}"
   [[ "$num" =~ ^[0-9]+$ ]] || return 1
 
-  command -v tc &>/dev/null || return 1
+  command -v "$TC_BIN" &>/dev/null || return 1
 
   local project_dir="${CLAUDE_PROJECT_DIR:-$PWD}"
-  ( cd "$project_dir" 2>/dev/null && tc task get "$num" --json >/dev/null 2>&1 )
+  ( cd "$project_dir" 2>/dev/null && "$TC_BIN" task get "$num" --json >/dev/null 2>&1 )
 }
 
 # ---------------------------------------------------------------------------
@@ -413,6 +418,10 @@ task_id_valid_in_project() {
 #
 # Echoes one of:
 #   pass        — `tc task check-qa` exited 0 (task-bound evidence approved).
+#   rejected    — `tc task check-qa` reported exactly "VERDICT is REJECTED":
+#                 QA recorded a clean, well-formed rejection. NEVER approval;
+#                 the caller moves the task to rework (see
+#                 handle_qa_completion), it does not count a retry.
 #   fail        — `tc task check-qa` ran and reported not-approved, or a
 #                 real per-task error (not found / invalid task id).
 #   unavailable — `tc` is not on PATH, or the ID doesn't parse. Logged
@@ -432,15 +441,15 @@ check_qa_verdict() {
     echo "unavailable"
     return
   fi
-  if ! command -v tc &>/dev/null; then
-    log_warn "tc not on PATH — cannot check task-bound QA evidence for ${task_id}; treating as unverified, not approved (session: ${SESSION_ID})"
+  if ! command -v "$TC_BIN" &>/dev/null; then
+    log_warn "${TC_BIN} not on PATH — cannot check task-bound QA evidence for ${task_id}; treating as unverified, not approved (session: ${SESSION_ID})"
     echo "unavailable"
     return
   fi
 
   local project_dir="${CLAUDE_PROJECT_DIR:-$PWD}"
   local output exit_code=0
-  output="$(cd "$project_dir" 2>/dev/null && tc task check-qa "$num" --json 2>&1)" || exit_code=$?
+  output="$(cd "$project_dir" 2>/dev/null && "$TC_BIN" task check-qa "$num" --json 2>&1)" || exit_code=$?
 
   if [[ "$exit_code" -eq 0 ]]; then
     echo "pass"
@@ -450,7 +459,15 @@ check_qa_verdict() {
     local reason
     reason="$(printf '%s' "$output" | "$JQ" -r '.reason // empty' 2>/dev/null)"
     log_warn "tc task check-qa ${num}: not approved${reason:+ (${reason})} (session: ${SESSION_ID})"
-    echo "fail"
+    # A clean, well-formed rejection: tc's FIRST validation error is the
+    # REJECTED verdict itself, so nothing else (identity, coverage, missing
+    # fields, conflicting verdicts) is wrong with the packet. Anything else
+    # stays "fail" and keeps blocking.
+    if [[ "$reason" == "VERDICT is REJECTED" ]]; then
+      echo "rejected"
+    else
+      echo "fail"
+    fi
     return
   fi
 
@@ -527,6 +544,7 @@ handle_me_completion() {
       else .pending_tasks + [$tid]
       end
     ) |
+    .rework_tasks = ((.rework_tasks // []) | map(select(. != $tid))) |
     .history = .history + [{"taskId": $tid, "event": $event, "ts": $now}] |
     .lastSeen = $now
   ' 2>/dev/null)"
@@ -555,18 +573,116 @@ handle_me_completion() {
 # ---------------------------------------------------------------------------
 # Handle @agent-qa completion
 # ---------------------------------------------------------------------------
-handle_qa_completion() {
-  local task_id verdict
-  task_id="$(extract_task_id "$LAST_MSG")"
+# Apply one task's verdict to the session entry held in the global
+# UPDATED_ENTRY. Also sets QA_ADVISORY_MSG / QA_REWORK_MSG, so it must be
+# called directly, never inside a command-substitution subshell.
+apply_qa_verdict_to() {
+  local task_id="$1" verdict="$2" now="$3"
+  local entry="$UPDATED_ENTRY"
 
-  if [[ -z "$task_id" ]]; then
-    log_warn "agent-qa completed but no TASK-N found in last_assistant_message (session: ${SESSION_ID}) — cannot look up a task-bound verdict"
-    exit 0
+  if [[ "$verdict" == "pass" ]]; then
+    # Targeted clear ONLY (closes weakness b): this task's approval clears
+    # this task, and only this task.
+    UPDATED_ENTRY="$(printf '%s' "$entry" | "$JQ" \
+      --arg tid "$task_id" \
+      --arg now "$now" \
+      --arg event "qa_passed" '
+      .pending_tasks = (.pending_tasks | map(select(. != $tid))) |
+      .rework_tasks = ((.rework_tasks // []) | map(select(. != $tid))) |
+      .retries = (.retries | del(.[$tid])) |
+      .history = .history + [{"taskId": $tid, "event": $event, "ts": $now}] |
+      .lastSeen = $now
+    ' 2>/dev/null)"
+    log_info "qa_passed: cleared ${task_id} from pending_tasks (session: ${SESSION_ID}, tc task check-qa approved)"
+    return
   fi
 
-  verdict="$(check_qa_verdict "$task_id")"
-  # "unavailable" is handled identically to "fail" from here down — see
-  # check_qa_verdict's docstring for why it must never be treated as pass.
+  if [[ "$verdict" == "rejected" ]]; then
+    # Clean rejection -> rework. The task leaves pending_tasks so the
+    # implementer can be dispatched to fix it, but it is NOT verified: it is
+    # re-armed as pending when @agent-me stops, and only check-qa approval
+    # clears it. A rejection is not a retry-counted failure.
+    UPDATED_ENTRY="$(printf '%s' "$entry" | "$JQ" \
+      --arg tid "$task_id" \
+      --arg now "$now" \
+      --arg event "qa_rejected_rework" '
+      .pending_tasks = (.pending_tasks | map(select(. != $tid))) |
+      .rework_tasks = (
+        ((.rework_tasks // []) | map(select(. != $tid))) + [$tid]
+      ) |
+      .retries = (.retries | del(.[$tid])) |
+      .history = .history + [{"taskId": $tid, "event": $event, "ts": $now}] |
+      .lastSeen = $now
+    ' 2>/dev/null)"
+    QA_REWORK_MSG="${QA_REWORK_MSG:+${QA_REWORK_MSG} }QA rejected ${task_id}: dispatch @agent-me to fix it; ${task_id} is NOT verified and @agent-qa must approve it after the fix."
+    log_info "qa_rejected_rework: ${task_id} moved to rework (session: ${SESSION_ID})"
+    return
+  fi
+
+  # Fail path (also covers "unavailable" -- see check_qa_verdict).
+  local current_retries new_retries
+  current_retries="$(printf '%s' "$entry" | "$JQ" -r --arg tid "$task_id" \
+    '.retries[$tid] // 0' 2>/dev/null || echo 0)"
+  new_retries=$(( current_retries + 1 ))
+
+  if [[ "$new_retries" -ge "$MAX_RETRIES" ]]; then
+    # Auto-unblock: SESSION recovery, never TASK verification (closes
+    # weakness c).
+    UPDATED_ENTRY="$(printf '%s' "$entry" | "$JQ" \
+      --arg tid "$task_id" \
+      --arg now "$now" \
+      --arg event "qa_failed_advisory_unblock" \
+      --argjson retries "$new_retries" '
+      .pending_tasks = (.pending_tasks | map(select(. != $tid))) |
+      .retries[$tid] = $retries |
+      .history = .history + [{"taskId": $tid, "event": $event, "ts": $now}] |
+      .lastSeen = $now
+    ' 2>/dev/null)"
+    QA_ADVISORY_MSG="${QA_ADVISORY_MSG:+${QA_ADVISORY_MSG} }QA gate degraded to advisory: ${task_id} did not pass tc's task-bound evidence check ${new_retries} consecutive times. The SESSION is unblocked so work can continue, but ${task_id} is NOT verified -- it still requires \`tc task check-qa\` to approve, or human review, before it should be treated as done."
+    log_warn "qa_failed_advisory_unblock: ${task_id} failed ${new_retries}x (verdict=${verdict}), auto-unblocking SESSION only -- task remains unverified (session: ${SESSION_ID})"
+  else
+    UPDATED_ENTRY="$(printf '%s' "$entry" | "$JQ" \
+      --arg tid "$task_id" \
+      --arg now "$now" \
+      --arg event "qa_failed_retry_${new_retries}" \
+      --argjson retries "$new_retries" '
+      .retries[$tid] = $retries |
+      .history = .history + [{"taskId": $tid, "event": $event, "ts": $now}] |
+      .lastSeen = $now
+    ' 2>/dev/null)"
+    log_info "qa_failed: ${task_id} retry ${new_retries}/${MAX_RETRIES} (verdict=${verdict}, session: ${SESSION_ID})"
+  fi
+}
+
+handle_qa_completion() {
+  local task_id
+  task_id="$(extract_task_id "$LAST_MSG")"
+
+  # Candidate tasks to check. Normally the "Task:" header's task. When QA's
+  # final message carries no parseable header (the cause of retries silently
+  # not advancing), fall back to this session's own pending tasks rather than
+  # exiting unrecorded. tc check-qa stays the sole verdict authority per task.
+  local candidates=()
+  if [[ -n "$task_id" ]]; then
+    candidates=("$task_id")
+  else
+    local pending_list
+    pending_list="$(read_gate_state | "$JQ" -r --arg sid "$SESSION_ID" \
+      '(.[$sid].pending_tasks // [])[]' 2>/dev/null)"
+    while IFS= read -r t; do
+      [[ -n "$t" ]] && candidates+=("$t")
+    done <<< "$pending_list"
+    if [[ "${#candidates[@]}" -eq 0 ]]; then
+      log_warn "agent-qa completed but no TASK-N found in last_assistant_message and no pending task (session: ${SESSION_ID}) -- cannot look up a task-bound verdict"
+      exit 0
+    fi
+    log_warn "agent-qa completed with no 'Task: TASK-N' header; checking pending task(s) ${candidates[*]} (session: ${SESSION_ID})"
+  fi
+
+  local verdicts=() t
+  for t in "${candidates[@]}"; do
+    verdicts+=("$(check_qa_verdict "$t")")
+  done
 
   acquire_lock
   trap 'release_lock' EXIT
@@ -576,67 +692,16 @@ handle_qa_completion() {
   state="$(read_gate_state)"
   session_entry="$(get_session "$state")"
 
-  local updated_entry advisory_msg=""
-
-  if [[ "$verdict" == "pass" ]]; then
-    # Targeted clear ONLY (closes weakness b): this task's approval clears
-    # this task, and only this task. A different pending task in the same
-    # session — even one QA's message happens to also mention — is left
-    # untouched; there is no "message mentioned unrelated IDs, clear
-    # everything" fallback left, because the checked task IS the matched
-    # task by construction (check_qa_verdict is scoped to $task_id).
-    updated_entry="$(printf '%s' "$session_entry" | "$JQ" \
-      --arg tid "$task_id" \
-      --arg now "$now" \
-      --arg event "qa_passed" '
-      .pending_tasks = (.pending_tasks | map(select(. != $tid))) |
-      .retries = (.retries | del(.[$tid])) |
-      .history = .history + [{"taskId": $tid, "event": $event, "ts": $now}] |
-      .lastSeen = $now
-    ' 2>/dev/null)"
-    log_info "qa_passed: cleared ${task_id} from pending_tasks (session: ${SESSION_ID}, tc task check-qa approved)"
-  else
-    # Fail path (also covers "unavailable" — see check_qa_verdict):
-    # track retries by task_id.
-    local current_retries
-    current_retries="$(printf '%s' "$session_entry" | "$JQ" -r --arg tid "$task_id" \
-      '.retries[$tid] // 0' 2>/dev/null || echo 0)"
-    local new_retries=$(( current_retries + 1 ))
-
-    if [[ "$new_retries" -ge "$MAX_RETRIES" ]]; then
-      # Auto-unblock: remove from pending_tasks after 3 failures. This is
-      # SESSION recovery, never TASK verification (closes weakness c) —
-      # only `tc task check-qa` approving can ever mark ${task_id} verified;
-      # this path exists so a wedged gate does not block the session
-      # forever when QA genuinely cannot produce passing evidence (or tc
-      # itself is unavailable).
-      local event="qa_failed_advisory_unblock"
-      updated_entry="$(printf '%s' "$session_entry" | "$JQ" \
-        --arg tid "$task_id" \
-        --arg now "$now" \
-        --arg event "$event" \
-        --argjson retries "$new_retries" '
-        .pending_tasks = (.pending_tasks | map(select(. != $tid))) |
-        .retries[$tid] = $retries |
-        .history = .history + [{"taskId": $tid, "event": $event, "ts": $now}] |
-        .lastSeen = $now
-      ' 2>/dev/null)"
-      advisory_msg="QA gate degraded to advisory: ${task_id} did not pass tc's task-bound evidence check ${new_retries} consecutive times. The SESSION is unblocked so work can continue, but ${task_id} is NOT verified -- it still requires \`tc task check-qa\` to approve, or human review, before it should be treated as done."
-      log_warn "qa_failed_advisory_unblock: ${task_id} failed ${new_retries}x (verdict=${verdict}), auto-unblocking SESSION only — task remains unverified (session: ${SESSION_ID})"
-    else
-      local event="qa_failed_retry_${new_retries}"
-      updated_entry="$(printf '%s' "$session_entry" | "$JQ" \
-        --arg tid "$task_id" \
-        --arg now "$now" \
-        --arg event "$event" \
-        --argjson retries "$new_retries" '
-        .retries[$tid] = $retries |
-        .history = .history + [{"taskId": $tid, "event": $event, "ts": $now}] |
-        .lastSeen = $now
-      ' 2>/dev/null)"
-      log_info "qa_failed: ${task_id} retry ${new_retries}/${MAX_RETRIES} (verdict=${verdict}, session: ${SESSION_ID})"
-    fi
-  fi
+  UPDATED_ENTRY="$session_entry"
+  QA_ADVISORY_MSG=""
+  QA_REWORK_MSG=""
+  local i
+  for i in "${!candidates[@]}"; do
+    apply_qa_verdict_to "${candidates[$i]}" "${verdicts[$i]}" "$now"
+    [[ -z "$UPDATED_ENTRY" ]] && break
+  done
+  local updated_entry="$UPDATED_ENTRY"
+  local advisory_msg="$QA_ADVISORY_MSG"
 
   if [[ -z "$updated_entry" ]]; then
     log_warn "Failed to compute updated entry for qa completion (task: ${task_id:-unknown})"
@@ -656,7 +721,10 @@ handle_qa_completion() {
   release_lock
   trap - EXIT
 
-  # Emit advisory if needed (after lock released)
+  # Emit advisory / rework guidance if needed (after lock released)
+  if [[ -n "$QA_REWORK_MSG" ]]; then
+    advisory_msg="${advisory_msg:+${advisory_msg} }${QA_REWORK_MSG}"
+  fi
   if [[ -n "$advisory_msg" ]]; then
     printf '{"systemMessage":"%s"}\n' \
       "$(printf '%s' "$advisory_msg" | sed 's/"/\\"/g')"

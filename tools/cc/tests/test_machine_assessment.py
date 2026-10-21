@@ -543,3 +543,126 @@ def test_machine_assessment_is_strictly_read_only(tmp_path: Path) -> None:
         for path in paths
     }
     assert after == before
+
+
+# ---------------------------------------------------------------------------
+# Solo mode: no organization at all (no layer manifest, no organization config)
+# ---------------------------------------------------------------------------
+
+_MANIFEST_FAILURE = {
+    "id": "ecosystem-layer-manifest",
+    "severity": "fail",
+    "detail": "No ecosystem layer manifest is configured.",
+}
+
+
+def _solo_context(tmp_path: Path) -> dict[str, Any]:
+    """A stranger's Mac: nothing signed in, no manifest, no organization config."""
+    context = _healthy_context(tmp_path)
+    state = context["state"]
+    state["identity"] = {}
+    state["doctor"] = {
+        "schema_version": "1.0",
+        "status": "signed-out",
+        "offline": False,
+        "auth": [],
+        "checkers": [dict(_MANIFEST_FAILURE)],
+    }
+    state["connections"] = {
+        "schema_version": "1.0",
+        "result": "org-config-unavailable",
+        "detail": "The organization's inherited configuration was not found.",
+        "store": {"type": None, "reachable": False, "scope": None, "detail": None},
+        "connections": [],
+    }
+    return context
+
+
+def _codes(assessment: dict[str, Any]) -> set[str]:
+    return {blocker["code"] for blocker in assessment["blockers"]}
+
+
+_ORG_ONLY_CODES = {
+    "authentication-signed-out",
+    "layers-manifest-unavailable",
+    "organization-config-unavailable",
+}
+
+
+def test_solo_machine_is_ready_without_signin_manifest_or_org_config(
+    tmp_path: Path,
+) -> None:
+    context = _solo_context(tmp_path)
+
+    assessment = build_machine_assessment(**context["kwargs"])
+
+    _validate_machine(assessment)
+    assert assessment["state"] == "ready"
+    assert assessment["blockers"] == []
+    assert assessment["layers"]["state"] == "not-configured"
+    assert "no signed layer pins" in assessment["layers"]["detail"]
+    # The sign-in state is still reported honestly, it just cannot block.
+    assert assessment["authentication"]["state"] == "signed-out"
+
+
+def test_solo_machine_still_reports_unrelated_blockers(tmp_path: Path) -> None:
+    context = _solo_context(tmp_path)
+    context["state"]["executables"]["git"] = None
+
+    assessment = build_machine_assessment(**context["kwargs"])
+
+    assert _codes(assessment) == {"dependency-git-missing"}
+    assert assessment["state"] == "action-required"
+
+
+def test_configured_manifest_keeps_the_organization_checks(tmp_path: Path) -> None:
+    context = _solo_context(tmp_path)
+    context["state"]["config"]["layers.manifest"] = str(tmp_path / "missing.yml")
+
+    assessment = build_machine_assessment(**context["kwargs"])
+
+    assert _codes(assessment) == _ORG_ONLY_CODES
+    assert assessment["state"] == "could-not-verify"
+    assert assessment["layers"]["state"] == "could-not-verify"
+
+
+def test_organization_config_without_manifest_is_not_solo(tmp_path: Path) -> None:
+    context = _solo_context(tmp_path)
+    context["state"]["connections"]["result"] = "ok"
+    context["state"]["connections"]["store"] = {
+        "type": "infisical",
+        "reachable": True,
+        "scope": "organization",
+        "detail": None,
+    }
+
+    assessment = build_machine_assessment(**context["kwargs"])
+
+    assert {"authentication-signed-out", "layers-manifest-unavailable"} <= _codes(
+        assessment
+    )
+    assert assessment["state"] == "could-not-verify"
+
+
+def test_unreadable_config_or_connections_never_count_as_solo(
+    tmp_path: Path,
+) -> None:
+    context = _solo_context(tmp_path)
+
+    def broken_config() -> dict[str, Any]:
+        raise OSError("config unreadable")
+
+    unreadable = build_machine_assessment(
+        **{**context["kwargs"], "config_reader": broken_config}
+    )
+    assert "layers-manifest-unavailable" in _codes(unreadable)
+    assert unreadable["state"] == "could-not-verify"
+
+    def broken_connections() -> dict[str, Any]:
+        raise OSError("connections unavailable")
+
+    no_connections = build_machine_assessment(
+        **{**context["kwargs"], "connections_builder": broken_connections}
+    )
+    assert "layers-manifest-unavailable" in _codes(no_connections)
+    assert no_connections["state"] == "could-not-verify"
