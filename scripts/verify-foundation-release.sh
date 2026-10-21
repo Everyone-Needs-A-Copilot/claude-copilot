@@ -39,7 +39,8 @@ die() {
     exit 1
 }
 
-[[ -d "${REPO}/.git" ]] || die "repository is missing: ${REPO}"
+[[ -e "${REPO}/.git" ]] && git -C "${REPO}" rev-parse --git-dir >/dev/null 2>&1 ||
+    die "repository is missing: ${REPO}"
 [[ "${SOURCE_REF}" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] ||
     die "foundation source ref must be an exact vMAJOR.MINOR.PATCH tag"
 [[ "${SOURCE_COMMIT}" =~ ^[0-9a-f]{40}$ ]] ||
