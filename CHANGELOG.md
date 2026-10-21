@@ -1,7 +1,12 @@
 # Changelog
 
-## [Unreleased]
+## [5.24.0] - 2026-10-21 - Setup interview and ecosystem maintenance
 
+Framework **5.24.0**, `cc` **2.15.1**, `tc` **2.7.1**, commands **5.8.0**.
+
+- Align native project instructions and retain current lifecycle rules.
+- Upgrade vulnerable Python dependencies, align all three CodeQL actions and group future updates.
+- Recognize Git worktrees during signed release verification without relaxing signature or ancestry checks.
 - `/setup-project` asks for optional project identity after a newly applied, verified setup, preserving existing descriptions and skipped answers. Current project-owned instruction behavior supersedes PR #99’s older byte-for-byte managed-block proposal.
 
 ## [5.23.3] - 2026-10-19 - `tc deploy wait` reaches the deploy CLI and reads Coolify's trigger response

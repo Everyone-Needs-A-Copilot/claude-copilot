@@ -1,6 +1,6 @@
 # CLAUDE.md
 
-This file provides guidance to Claude Code when working with the Claude Copilot framework.
+Claude Code guidance for the Claude Copilot framework.
 
 ---
 
@@ -333,12 +333,8 @@ Use dependency chains, phases, priority levels, and complexity ratings instead.
 
 ### Version Source of Truth
 
-**`VERSION.json` is the single canonical source for the framework version.**
-
-- `VERSION.json` → `framework` field is the authoritative framework version
-- `package.json` → `version` MUST match `VERSION.json.framework` (it is a mirror only)
-- Component versions (`cc`, `tc`, `agents`, `commands`, `skills`) are independent semver tracked inside `VERSION.json.components`
-- Do NOT update `package.json` independently — update `VERSION.json` first, then sync `package.json` to match
+- `VERSION.json.framework` is canonical; `package.json.version` is its mirror. Update VERSION first, then sync the package; never update the package independently.
+- `VERSION.json.components` tracks independent semver for `cc`, `tc`, `agents`, `commands`, and `skills`.
 
 ### When Modifying Agents
 
@@ -355,3 +351,8 @@ Use dependency chains, phases, priority levels, and complexity ratings instead.
 4. **Output format** — Deliverable templates
 5. **Route To Other Agent** — Handoff rules
 6. **Task Copilot Integration** — Work product storage
+
+## Project Rules
+
+- Before publishing/notarization, read `docs/30-operations/20-notarization-credentials.md`.
+- Keep shared rules consistent across CLAUDE.md and AGENTS.md; preserve scope and place tool-specific rules in their own entrypoint.

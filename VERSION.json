@@ -1,9 +1,9 @@
 {
-  "framework": "5.23.3",
-  "lastUpdated": "2026-10-19",
+  "framework": "5.24.0",
+  "lastUpdated": "2026-10-21",
   "components": {
     "cc": {
-      "version": "2.15.0",
+      "version": "2.15.1",
       "path": "tools/cc",
       "installScript": "tools/cc/install.sh",
       "provides": [
@@ -69,7 +69,7 @@
       ]
     },
     "commands": {
-      "version": "5.7.0",
+      "version": "5.8.0",
       "path": ".claude/commands",
       "projectCommands": [
         "protocol.md",
