@@ -71,7 +71,7 @@ def check_reader(text: str) -> None:
 
 
 LEGACY_PLACEHOLDER = "<reason from find, or its failure>"
-ABSOLUTE_TASTE_PATH = re.compile(r"(?:/Volumes|/Users|/home|~)/[^\s`]*taste")
+ABSOLUTE_TASTE_PATH = re.compile(r"(?:/Volumes|/Users|/home|/opt|~)/[^\s`]*taste")
 
 
 def check_defect_rules(name: str, text: str) -> None:
@@ -177,7 +177,7 @@ DEFECT_MUTANTS = (
     ("D3 display clause removed", lambda t: t.replace("display this exact command with his exact words, then ask; run it only after an explicit yes: `", "show and, only after an explicit yes, run `")),
     ("D3 ask before display", lambda t: t.replace("display this exact command with his exact words, then ask;", "ask;")),
     ("D3 yes gate removed", lambda t: t.replace("run it only after an explicit yes: `", "run `")),
-    ("D4 literal path inserted in the offer", lambda t: t.replace('run it only after an explicit yes: `"$CC_PERSONAL_KNOWLEDGE_REPO/scripts/taste"', "run it only after an explicit yes: `/Volumes/Dev/Sites/CSE/knowledge-copilot-private/scripts/taste")),
+    ("D4 literal path inserted in the offer", lambda t: t.replace('run it only after an explicit yes: `"$CC_PERSONAL_KNOWLEDGE_REPO/scripts/taste"', "run it only after an explicit yes: `/opt/example/knowledge/scripts/taste")),
     ("D4 literal path inserted in the find call", lambda t: t.replace("run it at most twice, only as that quoted form, never a literal path: `ref find", "run it at most twice: `~/knowledge/scripts/taste ref find")),
     ("D4 bare relative path", lambda t: t.replace("`ref find ", "`scripts/taste ref find ", 1)),
     ("D4 literal-path prohibition removed", lambda t: t.replace(", only as that quoted form, never a literal path", "")),
