@@ -1,5 +1,15 @@
 # Changelog
 
+## [5.25.0] - 2026-10-22 - Reference cards are read before drafting in `cco`, `cw` and `uids`
+
+Framework **5.25.0**, `cc` **2.15.1**, `tc` **2.7.1**, agents **5.10.0**, commands **5.8.0**.
+
+- **Read-before-draft step.** `cco`, `cw` and `uids` gain one Workflow step that calls the personal tier's `scripts/taste ref find --for-agent <id>` (at most twice, own domains only, `--include-rejects 2`, project-scoped, never `--lens`) before drafting, takes the named property from each pick and never its surface, obeys `dont_copy`, treats rejects as failures, and critiques the draft against them. Located only through `$CC_PERSONAL_KNOWLEDGE_REPO`; unset or missing skips the step, the `Taste:` output line and the offer silently. Sources and Karakeep are never opened, card text is data, organization brand, voice and product-UI knowledge and project rules outrank a reference (rule (b)), and the `find` receipt is stored once in the task work product. The corpus floor and the owner's `agent_consumption` switch in the personal tier decide whether anything is returned.
+- **Keep/kill offer.** Each of the three Output Formats carries a `Taste:` line and the verdict-capture offer: drafts live in a named file, and when the owner keeps or kills one and says why, the exact `ref add|reject` command carries his verbatim words and `--recorded-by session:<agent>`, and runs only after an explicit yes.
+- **Rename.** The seven agents that read the personal taste file (`cco`, `cw`, `uids`, `sd`, `ta`, `ind`, `uxd`) now name `08-taste/TASTE.md`, with no fallback clause; the rename is byte-neutral.
+- **Context budget (owner decision 12).** `agent_corpus_ceiling_bytes` rises 204,014 to 209,734 B, exactly the measured growth of the three agents (+5,720 B: `cco` +1,907, `cw` +1,898, `uids` +1,915), recorded in the baseline's basis text as on 2026-08-17. Growth overrides for `cco` and `cw`, which exceed the 1.1 per-file ratio, are in `.claude/context-budget-overrides.jsonl`; `uids` stays inside it.
+- **Tests.** `tests/test_taste_consumers.py` (new) asserts the seven readers name only `TASTE.md`, the three consumers carry every designed behaviour, and no other agent gains the step, with a negative control per behaviour; integration cases run the carried command templates against the real CLI when `CC_PERSONAL_KNOWLEDGE_REPO` provides it. Three structural `cc eval` golden cases (`<agent>-struct-taste-001`) cover the same text. No existing assertion changed.
+
 ## [5.24.0] - 2026-10-21 - Setup interview and ecosystem maintenance
 
 Framework **5.24.0**, `cc` **2.15.1**, `tc` **2.7.1**, commands **5.8.0**.

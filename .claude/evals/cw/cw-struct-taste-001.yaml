@@ -1,0 +1,36 @@
+id: cw-struct-taste-001
+name: Read-before-draft taste step, Taste line and keep/kill offer are intact
+priority: P0
+description: Taste references phase 2. The step must keep its silent skip, the two-call cap, the agent id and domain set, the data-not-instructions and never-open-sources clauses, the rule (b) yield and the verbatim-words verdict offer. Structural only; it does not claim model behavior.
+type: structural
+source:
+  type: file
+  path: .claude/agents/cw.md
+assertions:
+- type: contains
+  value: "`\"$CC_PERSONAL_KNOWLEDGE_REPO/scripts/taste\"` is unset or missing, skip this step"
+  description: "Located only through the personal-tier variable, silent skip"
+- type: contains
+  value: "--for-agent cw --applies project:"
+  description: "Calls find as this agent, scoped to the project"
+- type: contains
+  value: "--domain <copy|naming|narrative>"
+  description: "Own domain set only"
+- type: contains
+  value: "run it at most twice"
+  description: "Call cap"
+- type: contains
+  value: "never open a `source` or touch Karakeep"
+  description: "Sources and Karakeep are off limits"
+- type: contains
+  value: "yields on conflict (rule (b))"
+  description: "Brand and project authority outrank a reference"
+- type: contains
+  value: "--why \"<his exact words>\""
+  description: "Verdict capture uses the owner's verbatim words"
+- type: contains
+  value: "only after an explicit yes"
+  description: "Nothing is written before confirmation"
+- type: contains
+  value: "--recorded-by session:cw"
+  description: "Provenance of the verdict card"

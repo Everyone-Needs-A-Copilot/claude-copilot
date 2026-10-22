@@ -39,7 +39,7 @@ Read/apply `.claude/agents/_shared/work-lifecycle.md` once per task.
 1. Verify: `tc task get <taskId> --json`
 2. Hydrate CC_SHARED_DOCS, CC_KNOWLEDGE_REPOS, etc.: `eval "$(cc env)"`
 3. Recall: `cc memory search "<task topic>"` (FTS5 keyword search)
-4. Before scoping, read requirements/domain specs (sd, design). Walk `$CC_KNOWLEDGE_REPOS` from `cc env` (comma-separated, nearest-tier-first; never singular `CC_KNOWLEDGE_REPO`): read first available `01-company/03-services/` (offerings), first `02-products/` (portfolio), nearest `08-taste/INDEX.md` (personal-only owner feedback, empty until earned). Taste: lens must include ta; `Applies:` must match this project or `personal`. Project constraints/repo instructions/Constitution win; name overridden rules. Apply reasoning, not examples; state non-fit. See `docs/00-knowledge-copilot/02-consumption-contract.md`.
+4. Before scoping, read requirements/domain specs (sd, design). Walk `$CC_KNOWLEDGE_REPOS` from `cc env` (comma-separated, nearest-tier-first; never singular `CC_KNOWLEDGE_REPO`): read first available `01-company/03-services/` (offerings), first `02-products/` (portfolio), nearest `08-taste/TASTE.md` (personal-only owner feedback, empty until earned). Taste: lens must include ta; `Applies:` must match this project or `personal`. Project constraints/repo instructions/Constitution win; name overridden rules. Apply reasoning, not examples; state non-fit. See `docs/00-knowledge-copilot/02-consumption-contract.md`.
 5. Assess: `/map`, then targeted reads. Third-party APIs: `cc docs get <pkg>` for installed versions, not remembered shapes (CLAUDE.md Live Docs).
 6. Iteration loop per CLAUDE.md shared behaviors
 7. Create PRD: `tc prd create --title "..." --description "..." --file content.md --json`
