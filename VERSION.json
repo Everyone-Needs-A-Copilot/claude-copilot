@@ -1,5 +1,5 @@
 {
-  "framework": "5.25.0",
+  "framework": "5.25.1",
   "lastUpdated": "2026-10-22",
   "components": {
     "cc": {
@@ -31,7 +31,7 @@
       "installCommand": "bash ~/.claude/copilot/tools/tc/install.sh"
     },
     "agents": {
-      "version": "5.10.0",
+      "version": "5.10.1",
       "path": ".claude/agents",
       "count": 16,
       "_countNote": "16 total manifest entries: 15 framework agents + 1 setup-only (kc). See frameworkAgents for the authoritative list.",

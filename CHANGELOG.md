@@ -1,5 +1,16 @@
 # Changelog
 
+## [5.25.1] - 2026-10-22 - The taste step states exact rules (live-session QA fixes)
+
+Framework **5.25.1**, `cc` **2.15.1**, `tc` **2.7.1**, agents **5.10.1**, commands **5.8.0**.
+
+- **Reason is find's own.** The `Taste:` line in `cco`, `cw` and `uids` copies the `reason` field of `find --json` verbatim (`corpus-below-floor`, `agent-consumption-off`) or cites the card ids, never a paraphrase; a non-zero exit is `Taste: none (find-failed: <exit code>)`; `none fit` only when the selection is empty and `reason` is absent. Replaces the placeholder `<reason from find, or its failure>`.
+- **Silence is total.** Where `$CC_PERSONAL_KNOWLEDGE_REPO` is unset or the script is missing, the step leaves no `Taste:` line, no keep/kill offer and no note in the reply, the work product or any file (was: silent in the reply only).
+- **Show, then ask.** The keep/kill offer displays the exact `ref add|reject` command with the owner's words, then asks, and runs only after an explicit yes, as one instruction.
+- **One invocation form.** The script is invoked only as `"$CC_PERSONAL_KNOWLEDGE_REPO/scripts/taste"`, never a literal path.
+- **Context budget (owner decision 12).** `agent_corpus_ceiling_bytes` rises 209,734 to 210,478 B, exactly the measured growth (+744 B: +248 each in `cco`, `cw`, `uids`), recorded in the baseline basis text; growth overrides for `cco` and `cw` are re-recorded in `.claude/context-budget-overrides.jsonl` for their new sizes.
+- **Tests.** `tests/test_taste_consumers.py` pins the four rules on their specific lines with thirteen mutants per agent (placeholder reinstated, find-failed branch removed, silence clause removed or narrowed to the reply, display clause or yes gate removed, literal absolute, home and relative paths inserted, prohibition removed), and the integration test asserts an empty corpus has no `reason` field. Obsolete expectations updated: the "silent skip" needle `is unset or missing, skip this step, the `Taste:` line and the keep/kill offer silently` became the no-trace clause (the old wording left work products and files unaddressed); the "Taste line" needle `none (<reason from find, or its failure>)` became the exact-rule line (the old placeholder allowed paraphrase); the three `cc eval` golden cases gain four assertions and lose none.
+
 ## [5.25.0] - 2026-10-22 - Reference cards are read before drafting in `cco`, `cw` and `uids`
 
 Framework **5.25.0**, `cc` **2.15.1**, `tc` **2.7.1**, agents **5.10.0**, commands **5.8.0**.
