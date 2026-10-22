@@ -291,4 +291,5 @@ records remain readable, not current strict QA evidence. cc design review/report
 the named database's contract/source coverage; readiness never grants approval.
 CLI/API/native adapters share tc authority. Missing capabilities require verified tc;
 legacy artifact inspection cannot prove current completion.
+Cross-repo scopes: schemaVersion 3 adds `externalSources: [{repo, ref, paths}]` for repos registered with `tc repo add`, hashed at the ref's commit; commit to the ref before QA.
 <!-- cse-evidence-v2:end -->

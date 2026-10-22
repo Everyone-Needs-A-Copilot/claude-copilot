@@ -132,7 +132,21 @@ def _policy(conn, task_id):
 
 
 def _source(p):
-    return digest(source_manifest(Path(p["root"]), p["sources"]))
+    if not p.get("externalSources"):
+        return digest(source_manifest(Path(p["root"]), p["sources"]))
+    # schemaVersion 3: local and external scoped content digest together. Checkout
+    # locators live in the registry, so moving a checkout does not change the policy.
+    import sqlite3
+    from urllib.parse import quote
+    from tc.services.qa_contract import scoped_content
+    conn = sqlite3.connect(f"file:{quote(p['database'])}?mode=ro", uri=True)
+    try:
+        local, external, _ = scoped_content(
+            Path(p["root"]), {"sources": p["sources"], "externalSources": p["externalSources"]}, conn
+        )
+    finally:
+        conn.close()
+    return digest({"local": local, "external": external})
 
 
 def _artifact(path):
@@ -253,6 +267,8 @@ def register_limits(
             "timeout_seconds": timeout_seconds,
             "stale_seconds": stale_seconds,
         }
+        if contract["schemaVersion"] == 3:
+            p.update(externalSources=contract["externalSources"], database=str(database_path(conn)))
         if v2:
             p.update(
                 policy_version=2,

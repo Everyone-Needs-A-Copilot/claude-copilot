@@ -1141,4 +1141,5 @@ checks the named database's acceptance contract and source coverage; detector or
 report readiness still never grants task approval. CLI/API and native adapters
 share the same tc authority. Missing current capabilities require a verified tc
 installation; legacy artifact inspection is not a current completion proof.
+Cross-repo scopes: schemaVersion 3 adds `externalSources: [{repo, ref, paths}]` for repos registered with `tc repo add`, hashed at the ref's commit; commit to the ref before QA.
 <!-- cse-evidence-v2:end -->

@@ -19,6 +19,11 @@ from pathlib import Path, PurePosixPath
 from tc.db.exceptions import ValidationError
 
 CONTRACT_VERSION = 2
+EXTERNAL_CONTRACT_VERSION = 3
+_REPO_ID = re.compile(r"[A-Za-z0-9._-]{1,100}")
+_REF = re.compile(r"[A-Za-z0-9._/-]{1,200}")
+_MAX_SCOPES = 100
+_FILE_CAP = 20 * 1024 * 1024
 _IGNORED = {".git", ".copilot", "__pycache__", ".pytest_cache", ".venv", "node_modules"}
 _MAX_FILES = 10000
 _MAX_BYTES = 256 * 1024 * 1024
@@ -28,9 +33,46 @@ def digest(value) -> str:
     return hashlib.sha256(json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=True).encode()).hexdigest()
 
 
+def _validate_scope(name) -> None:
+    if not isinstance(name, str) or not name or len(name) > 1024 or any(c in name for c in "\0\n\r\\"):
+        raise ValidationError("Invalid source path")
+    path = PurePosixPath(name)
+    if path.is_absolute() or ".." in path.parts or any(p in _IGNORED for p in path.parts) or str(path) != name:
+        raise ValidationError("Source paths must be canonical project-relative paths outside runtime state")
+
+
+def _validate_external(entries, sources) -> None:
+    if not isinstance(entries, list):
+        raise ValidationError("externalSources must be a list of {repo, ref, paths} entries")
+    repos, scopes = set(), len(sources)
+    for entry in entries:
+        if not isinstance(entry, dict) or set(entry) != {"repo", "ref", "paths"}:
+            raise ValidationError("Each external source needs exactly repo, ref and paths")
+        repo, ref, paths = entry["repo"], entry["ref"], entry["paths"]
+        if not isinstance(repo, str) or not _REPO_ID.fullmatch(repo):
+            raise ValidationError("External repo ids use 1-100 letters, digits, dot, underscore or hyphen")
+        if repo in repos:
+            raise ValidationError("Duplicate external repo id")
+        repos.add(repo)
+        if not isinstance(ref, str) or not _REF.fullmatch(ref) or ref[0] in "-/" or ".." in ref:
+            raise ValidationError("External ref must be a plain branch, tag or remote-tracking name (no revision syntax)")
+        if not isinstance(paths, list) or not paths:
+            raise ValidationError("Each external source needs at least one path")
+        for name in paths:
+            _validate_scope(name)
+        if len(set(paths)) != len(paths):
+            raise ValidationError("Duplicate source paths")
+        scopes += len(paths)
+    if not 1 <= scopes <= _MAX_SCOPES:
+        raise ValidationError("Acceptance contract requires 1–100 source files/directories")
+
+
 def validate_contract(contract: dict) -> dict:
-    if not isinstance(contract, dict) or contract.get("schemaVersion") != CONTRACT_VERSION:
-        raise ValidationError("Register a schemaVersion 2 acceptanceContract with tc task contract")
+    version = contract.get("schemaVersion") if isinstance(contract, dict) else None
+    if version not in (CONTRACT_VERSION, EXTERNAL_CONTRACT_VERSION):
+        raise ValidationError("Register a schemaVersion 2 or 3 acceptanceContract with tc task contract")
+    if version == CONTRACT_VERSION and "externalSources" in contract:
+        raise ValidationError("externalSources requires a schemaVersion 3 acceptanceContract")
     criteria, sources = contract.get("criteria"), contract.get("sources")
     if not isinstance(criteria, list) or not 1 <= len(criteria) <= 100:
         raise ValidationError("Acceptance contract requires 1–100 criteria")
@@ -46,16 +88,14 @@ def validate_contract(contract: dict) -> dict:
         if expected != expected.strip():
             raise ValidationError("Expected behavior must not contain surrounding whitespace")
         ids.add(cid)
-    if not isinstance(sources, list) or not 1 <= len(sources) <= 100:
+    if not isinstance(sources, list) or len(sources) > _MAX_SCOPES or (version == CONTRACT_VERSION and not sources):
         raise ValidationError("Acceptance contract requires 1–100 source files/directories")
     for name in sources:
-        if not isinstance(name, str) or not name or len(name) > 1024 or any(c in name for c in "\0\n\r\\"):
-            raise ValidationError("Invalid source path")
-        path = PurePosixPath(name)
-        if path.is_absolute() or ".." in path.parts or any(p in _IGNORED for p in path.parts) or str(path) != name:
-            raise ValidationError("Source paths must be canonical project-relative paths outside runtime state")
+        _validate_scope(name)
     if len(set(sources)) != len(sources):
         raise ValidationError("Duplicate source paths")
+    if version == EXTERNAL_CONTRACT_VERSION:
+        _validate_external(contract.get("externalSources"), sources)
     return contract
 
 
@@ -80,7 +120,7 @@ def _safe_path(root: Path, name: str) -> Path:
     return path
 
 
-def source_manifest(root: Path, scopes: list[str]) -> list[dict]:
+def source_manifest(root: Path, scopes: list[str], budget=None) -> list[dict]:
     """Capture explicit scopes, including tracked deletions and new files.
 
     Git supplies ignored-file semantics when the project is its own repository.
@@ -146,6 +186,8 @@ def source_manifest(root: Path, scopes: list[str]) -> list[dict]:
         records.append({"path": name, "kind": "file", "sha256": hashlib.sha256(payload).hexdigest(), "executable": bool(before.st_mode & 0o111)})
     if not any(r["kind"] == "file" for r in records):
         raise ValidationError("QA source scope contains no materialized files")
+    if budget is not None:
+        budget.add(len(records), total)
     return records
 
 
@@ -155,16 +197,41 @@ def bound_contract(task: dict, conn) -> dict:
     return {"database": str(database_path(conn)), "task_id": task["id"], "title": task["title"], "description": task["description"], "contract": contract}
 
 
+def scoped_content(root: Path, contract: dict, conn) -> tuple[list[dict], list[dict], list[dict]]:
+    """Local manifest, identity blocks and receipts (one each per external repo, schemaVersion 3).
+
+    Local and external scopes share the file and byte caps. The receipt alone
+    carries the resolved commit and checkout path; neither enters the identity.
+    """
+    from tc.services import external_sources as ext
+    budget = ext.Budget()
+    local = source_manifest(root, contract["sources"], budget) if contract["sources"] else []
+    blocks, receipts = [], []
+    for entry in sorted(contract.get("externalSources") or [], key=lambda e: e["repo"]):
+        found = ext.resolve(conn, entry)
+        records = ext.manifest(found["path"], found["commit"], entry["paths"], budget)
+        block = {"repo": entry["repo"], "remote": found["remote"], "ref": entry["ref"], "source_sha256": digest(records), "source_count": len(records)}
+        blocks.append(block)
+        receipts.append({**block, "path": str(found["path"]), "commit": found["commit"]})
+    return local, blocks, receipts
+
+
 def capture_for_task(task: dict, conn) -> dict:
     bound = bound_contract(task, conn)
     root = database_path(conn).parent.parent
-    sources = source_manifest(root, bound["contract"]["sources"])
+    contract = bound["contract"]
+    sources, external, receipts = scoped_content(root, contract, conn)
     package = Path(__file__).resolve().parents[1]
     runtime = {p.relative_to(package).as_posix(): hashlib.sha256(p.read_bytes()).hexdigest() for p in sorted(package.rglob("*.py"))}
-    identity = {"schemaVersion": CONTRACT_VERSION, "database": bound["database"], "task_id": task["id"],
+    identity = {"schemaVersion": contract["schemaVersion"], "database": bound["database"], "task_id": task["id"],
                 "contract_sha256": digest(bound), "source_sha256": digest(sources), "source_count": len(sources),
                 "runtime": {"python": sys.version, "executable": str(Path(sys.executable).absolute()), "tc_sha256": digest(runtime)}}
-    return {"identity": identity, "sources": sources, "identity_line": "IDENTITY: " + json.dumps(identity, sort_keys=True, separators=(",", ":"))}
+    result = {"identity": identity, "sources": sources}
+    if contract["schemaVersion"] == EXTERNAL_CONTRACT_VERSION:
+        identity["external"] = external
+        result["external"] = receipts
+    result["identity_line"] = "IDENTITY: " + json.dumps(identity, sort_keys=True, separators=(",", ":"))
+    return result
 
 
 def capture_qa_identity(*, task_id: int, conn=None, db_path=None) -> dict:

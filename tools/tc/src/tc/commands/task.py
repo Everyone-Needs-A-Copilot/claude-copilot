@@ -437,7 +437,7 @@ def deps_remove(
 @task_app.command("contract")
 def task_contract(
     task_id: int = typer.Argument(...),
-    file: str = typer.Option(..., "--file", help="JSON acceptance contract: schemaVersion=2, criteria, sources."),
+    file: str = typer.Option(..., "--file", help="JSON acceptance contract: schemaVersion 2 (criteria, sources) or 3 (adds externalSources: [{repo, ref, paths}] for registered repos; see tc repo add)."),
     json: bool = typer.Option(False, "--json"),
 ) -> None:
     """Register observable acceptance criteria before implementation/QA."""

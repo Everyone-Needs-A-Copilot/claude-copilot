@@ -339,6 +339,20 @@ receipts describe mutable checkouts; release installation uses verified source
 snapshots and publishes cc/tc together with rollback. Ambient PYTHONPATH and
 PYTHONHOME are removed during install verification to prevent checkout borrowing.
 
+## Cross-repo evidence: `externalSources` (schemaVersion 3, tc 2.8.0)
+
+Work whose deliverable lives in other git repositories is gated in the database that owns the task, with no mirror task in the other repo and no tc database needed there. A schemaVersion 3 contract adds `externalSources`; `sources` may be empty when `externalSources` is not (1-100 scopes in total, local and external together).
+
+```json
+{"schemaVersion":3,"criteria":[{"id":"M-1","expected":"The pack lists the new skill"}],"sources":[],"externalSources":[{"repo":"codex-copilot","ref":"origin/main","paths":["plugins/codex-copilot","tests"]}]}
+```
+
+**Register repos once per database** with `tc repo add <id> --path <checkout> [--json]` and inspect them with `tc repo list [--json]`. The path must be the top level of a git work tree (not a symlink) with an `origin` remote; the id and checkout location are stored in a `source_repos` table, not in the contract, so moving a checkout does not change the contract digest. Re-adding an id may repoint the path only when the origin URL is unchanged. Repo ids use `[A-Za-z0-9._-]`, at most 100 characters.
+
+**Ref semantics.** `ref` is a plain branch, tag or remote-tracking name (letters, digits, `.`, `_`, `/`, `-`; at most 200 characters; no leading `-` or `/`; no `..`, `@{`, `:`, `^`, `~` or whitespace). tc resolves it to a commit locally and hashes the scoped paths from git objects at that commit (sha256, executable bit; a scoped path absent at the commit is recorded as missing). `evidence-identity` adds `external: [{repo, remote, ref, source_sha256, source_count}]` to IDENTITY; the resolved commit and checkout path appear only in the `--json` receipt, so cite the commit in BASELINE/ARTIFACT lines. A later commit that changes scoped content, a deleted ref, a changed origin URL, an unregistered repo or a changed contract makes the evidence stale; commits outside the scopes, a different commit with identical scoped content and uncommitted edits in the checkout do not. Symlinks, submodules, blobs over 20 MiB and inventories beyond the file and byte caps fail closed. `check_task_qa` remains the only completion authority, and tc 2.7.1 and older reject schemaVersion 3, so mixed installations fail closed.
+
+**QA practice.** Commit the work to the named ref before QA, and name the delivery branch (for example `origin/main`), not a pull-request branch that will be deleted. tc only runs local `rev-parse`, `ls-tree`, `cat-file` and `remote get-url` with fsmonitor disabled; it never fetches, so run `git fetch` in the target repo first when the ref is remote-tracking. Run the target repo's checks in a detached worktree at the resolved commit and cite that commit. Execution limits registered on a v3 task digest local and external scoped content together. `cc design review` still reads only local `sources`, so design targets in another repo are unsupported and fail closed.
+
 ## Persistent execution limits
 
 Five rules replace the older pile of overlapping approval and stop rules. The

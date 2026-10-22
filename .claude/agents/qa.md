@@ -270,4 +270,5 @@ Pending v1: registered contract/fresh verification. Completed history: readable,
 labeled historical, not current strict QA. Design review/report: named DB contract/
 source coverage, not approval. CLI/API/native share tc authority. Missing capability:
 verified tc installation; legacy inspection is not current completion proof.
+Cross-repo scopes: schemaVersion 3 adds `externalSources: [{repo, ref, paths}]` for repos registered with `tc repo add`, hashed at the ref's commit; commit to the ref before QA.
 <!-- cse-evidence-v2:end -->

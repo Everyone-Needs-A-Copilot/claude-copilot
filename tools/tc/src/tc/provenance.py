@@ -27,7 +27,10 @@ def _capabilities() -> list[str]:
     commands = {command.name for command in task_app.registered_commands}
     if not expected <= commands or not callable(api.capture_qa_identity) or not callable(api.check_task_qa):
         raise ValidationError("Installed tc lacks required task-evidence enforcement capabilities")
-    return sorted(expected)
+    from tc.commands.repo import repo_app
+    if "add" not in {command.name for command in repo_app.registered_commands} or not callable(api.add_repo):
+        raise ValidationError("Installed tc lacks required task-evidence enforcement capabilities")
+    return sorted(expected | {"external-sources"})
 
 
 def capture() -> dict:
