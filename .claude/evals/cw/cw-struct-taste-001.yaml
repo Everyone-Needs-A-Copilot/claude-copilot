@@ -34,3 +34,6 @@ assertions:
 - type: contains
   value: "--recorded-by session:cw"
   description: "Provenance of the verdict card"
+- type: contains
+  value: "--origin agent --agent cw --project"
+  description: "The verdict offer records the drafting agent's own id"

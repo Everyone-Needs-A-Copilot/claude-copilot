@@ -72,7 +72,9 @@ def check_consumer(name: str, text: str) -> None:
     for label, needle in BEHAVIOURS:
         assert needle in text, f"{name}: missing {label}: {needle}"
     assert f"--for-agent {name} " in text
-    assert f"--agent {name} " in text
+    offer = [line for line in text.splitlines() if line.startswith("Keep/kill (if step 5 ran)")]
+    assert len(offer) == 1, f"{name}: exactly one keep/kill offer line"
+    assert f"--origin agent --agent {name} --project" in offer[0], f"{name}: the offer must name its own id"
     assert f"--recorded-by session:{name}" in text
     assert f"--domain <{CONSUMERS[name]}>" in text
     assert text.count("ref find") == 1, f"{name}: the step must appear once"
@@ -205,3 +207,12 @@ def test_verdict_templates_are_accepted_by_ref_add_and_reject(name, tmp_path):
         card = json.loads(done.stdout)
         assert "tighter and more concrete" in json.dumps(card)
         assert f"session:{name}" in json.dumps(card)
+
+
+@pytest.mark.parametrize("name", CONSUMERS)
+def test_verdict_offer_must_name_its_own_agent_id(name):
+    other = next(n for n in CONSUMERS if n != name)
+    mutant = read(name).replace(f"--origin agent --agent {name} --project", f"--origin agent --agent {other} --project")
+    assert mutant != read(name)
+    with pytest.raises(AssertionError):
+        check_consumer(name, mutant)
