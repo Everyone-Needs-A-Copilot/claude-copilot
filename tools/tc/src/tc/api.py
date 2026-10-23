@@ -145,7 +145,7 @@ __all__ = [
     "search_wps",
     "render_wp_html",
     "register_limits", "begin_attempt", "consume_call", "settle_attempt",
-    "diagnosis_checkpoint", "execution_status", "succeed_limits",
+    "diagnosis_checkpoint", "execution_status", "succeed_limits", "amend_contract",
     # handoff
     "handoff_task",
     # log
@@ -159,4 +159,4 @@ __all__ = [
 ]
 
 # Persistent execution controls, shared by CLI and runners.
-from tc.services.execution import (register_limits, begin_attempt, consume_call, settle_attempt, diagnosis_checkpoint, execution_status, succeed_limits)
+from tc.services.execution import (register_limits, begin_attempt, consume_call, settle_attempt, diagnosis_checkpoint, execution_status, succeed_limits, amend_contract)
