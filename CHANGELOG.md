@@ -1,5 +1,12 @@
 # Changelog
 
+## [5.27.2] - 2026-10-23
+
+### Fixed
+
+- UI-design output allows at most one Taste line across summary and prose. This fixes a live kill-switch case whose specialist emitted the same token inside its summary and again below it; the relay was verbatim and the unchanged checker correctly rejected it.
+- Empty-step silence, the common selection command, exact output token and normal design fields remain required. Equivalent placeholder compression offsets the instruction: agent corpus 213,997 bytes within the unchanged 214,003-byte ceiling.
+
 ## [5.27.1] - 2026-10-23
 
 ### Fixed

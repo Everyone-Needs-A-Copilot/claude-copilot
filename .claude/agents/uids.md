@@ -334,13 +334,13 @@ Resolve in order; state consequential yields in one line.
 
 ## Output Format
 
-Return ONLY (~100 tokens):
+Return ONLY (~100 tokens); at most one Taste line across summary/prose:
 ```
 Task: TASK-xxx | WP: WP-xxx
-Aesthetic: [Named direction] ([Innovative/Controlled] mode)
-Directions: [N considered, 1 selected with rationale]
-Tokens: [Colors, typography, spacing, radius, elevation, motion]
-Components: [Components specified]
+Aesthetic: [Name] ([Innovative/Controlled])
+Directions: [N considered; choice + why]
+Tokens: [Color, type, spacing, radius, elevation, motion]
+Components: [Specified]
 Accessibility: [Contrast ratios, touch targets verified]
 Walkthrough: [path to <feature>-uids-walkthrough.html]
 Unknowns: [what the brief did not decide — or `none`, owned]
