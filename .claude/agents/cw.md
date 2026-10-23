@@ -30,7 +30,7 @@ Read/apply `.claude/agents/_shared/work-lifecycle.md` once per task.
 6. `cc skill search "<topic>"` -- load relevant skills
 7. Iteration loop per CLAUDE.md shared behaviors (maxIterations: 8, rules: voice_consistent, copy_clear)
 8. Write for user context and goal each iteration
-9. Store as specification: `tc wp store --task <id> --type specification --title "..." --content "..." --json`, route to @agent-ta
+9. Verify expanded draft text; store as specification: `tc wp store --task <id> --type specification --title "..." --content "..." --json`. Correction WPs cite the first receipt WP, never repeat the receipt; route to @agent-ta
 
 ## Core Behaviors
 
