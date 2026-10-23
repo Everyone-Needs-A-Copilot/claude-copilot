@@ -216,3 +216,47 @@ def test_legacy_policy_caps_preserved(db_path):
     after = ex.execution_status(task_id=task['id'], db_path=db_path)
     assert after['remaining'] == before['remaining']
     assert 'policy_version' not in after['limits']
+
+
+def test_no_progress_stop_remains_after_amendment(db_path, scope):
+    for _ in range(4): attempt(db_path, scope, success=True)
+    before = ex.execution_status(task_id=scope[0], db_path=db_path)
+    assert before['state'] == 'no_progress'
+    apply(db_path, scope)
+    after = ex.execution_status(task_id=scope[0], db_path=db_path)
+    assert after['state'] == 'no_progress'
+    assert after['progress'] == before['progress']
+    with pytest.raises(ValidationError, match='STOPPED: no_progress'):
+        ex.begin_attempt(task_id=scope[0], criterion='DELIVERY', label='again', db_path=db_path)
+
+
+def test_paid_usage_checkpoints_dependencies_and_blocked_status_preserved(db_path, scope):
+    ex.set_budget(calls=10, cost_usd=5, authority=['Owner: five dollars'], db_path=db_path)
+    reservation = ex.begin_attempt(task_id=scope[0], criterion='DELIVERY', label='paid',
+                                   reserve_calls=2, reserve_usd=1, db_path=db_path)
+    artifact = scope[1] / 'paid.txt'; artifact.write_text('observed\n')
+    ex.settle_attempt(token=reservation['token'], succeeded=True, artifact=artifact,
+                      calls=2, cost_usd=1, db_path=db_path)
+    dependency = api.create_task(title='Dependency', db_path=db_path)
+    api.add_dependency(task_id=scope[0], depends_on=dependency['id'], db_path=db_path)
+    api.update_task(task_id=scope[0], status='blocked', db_path=db_path)
+    with get_db(db_path) as conn:
+        conn.execute("INSERT INTO execution_checkpoints (task_id,criterion,kind,source,artifact,artifact_hash,created,through_started) VALUES (?,?,?,?,?,?,?,?)",
+                     (scope[0], 'DELIVERY', 'regression', 'historical-source', str(artifact), 'historical-hash', 1, 0))
+    before = dump(db_path)
+    budget = ex.budget_status(db_path=db_path)
+    apply(db_path, scope)
+    after = dump(db_path)
+    for table in before.keys() - {'tasks', 'execution_rounds'}:
+        assert after[table] == before[table]
+    assert ex.budget_status(db_path=db_path) == budget
+    assert api.get_task(task_id=scope[0], db_path=db_path)['status'] == 'blocked'
+
+
+def test_unregistered_limits_refused_without_changing_task(db_path):
+    contract = {'schemaVersion': 2, 'sources': ['code.py'],
+                'criteria': [{'id': 'DELIVERY', 'expected': 'Install version one.'}]}
+    task = api.create_task(title='Unregistered', metadata={'acceptanceContract': contract}, db_path=db_path)
+    before = api.get_task(task_id=task['id'], db_path=db_path)
+    with pytest.raises(ValidationError): apply(db_path, (task['id'], db_path.parent.parent, contract))
+    assert api.get_task(task_id=task['id'], db_path=db_path) == before

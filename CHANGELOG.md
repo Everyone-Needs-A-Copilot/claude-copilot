@@ -1,5 +1,12 @@
 # Changelog
 
+## [5.27.0] - 2026-10-23
+
+### Added
+
+- **tc 2.9.0 audited contract corrections.** `tc execution amend` and `tc.api.amend_contract` append the owner-approved before/after contracts in one transaction with the task update. An expected current hash prevents stale or competing amendments. Criterion IDs and existing source coverage remain fixed; attempts, usage, budgets, limits, checkpoints and status remain intact. Fresh QA is required after an amendment; failure diagnosis and ceiling reopening remain separate.
+- **Amendment verification.** New real SQLite, CLI and Git tests cover atomic rollback, competing writers, refusal paths, retained execution stops and stale QA. Existing regression tests are unchanged.
+
 ## [5.26.1] - 2026-10-23 - The taste step is one command and the Taste line is copied (TASK-26 QA defects D5, D6, D7)
 
 Framework **5.26.1**, `cc` **2.15.1**, `tc` **2.8.0**, agents **5.11.1**, commands **5.8.1**.
