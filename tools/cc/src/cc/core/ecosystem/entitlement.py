@@ -600,7 +600,9 @@ def observe_layer(
             )
             current_decision = replace(
                 _cached_decision(
-                    layer, record, login=authoritative_login, now=current
+                    # A newer record can postdate this probe's start. Evaluate
+                    # it at completion, preserving an explicitly injected clock.
+                    layer, record, login=authoritative_login, now=_utc(now)
                 ),
                 superseded=True,
             )

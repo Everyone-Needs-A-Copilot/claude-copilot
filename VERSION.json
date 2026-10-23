@@ -3,7 +3,7 @@
   "lastUpdated": "2026-10-23",
   "components": {
     "cc": {
-      "version": "2.15.1",
+      "version": "2.15.2",
       "path": "tools/cc",
       "installScript": "tools/cc/install.sh",
       "provides": [

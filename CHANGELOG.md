@@ -2,6 +2,8 @@
 
 ## [5.27.3] - 2026-10-23 — UI persistence silence
 
+- Fix cc 2.15.2 superseded authorization observations using their stale request-start time against a newer authorization record. Re-evaluate the authoritative record at completion while preserving injected clocks, identity checks, revocation, future-record rejection and expiry. Existing tests are unchanged; five deterministic clock cases cover the regression and safety boundaries.
+- Correct the new UI byte-budget ledger fingerprint; preserve the failed entry and original CI evidence without changing thresholds.
 - Reinforce empty-output silence at the UI work-product storage step, including process notes. Live QA found a missing-TASTE note in a stored work product despite a correctly empty selection command; the final reply and spec body were otherwise silent.
 - Preserve the common taste command, existing behavior requirements and one-line reply rule. The storage-step edit adds three bytes and remains inside the unchanged corpus ceiling.
 
