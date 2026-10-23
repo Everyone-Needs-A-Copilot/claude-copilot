@@ -8,16 +8,16 @@ source:
   path: .claude/agents/uids.md
 assertions:
 - type: contains
-  value: "`\"$CC_PERSONAL_KNOWLEDGE_REPO/scripts/taste\"` is unset or missing, skip this step"
+  value: "Empty output means the personal tier is unset or missing: the step is over and leaves no trace"
   description: "Located only through the personal-tier variable, silent skip"
 - type: contains
-  value: "--for-agent uids --applies project:"
+  value: "--for-agent uids --applies \"project:$(basename \"$(git rev-parse --show-toplevel)\")\""
   description: "Calls find as this agent, scoped to the project"
 - type: contains
   value: "--domain <visual|illustration|motion>"
   description: "Own domain set only"
 - type: contains
-  value: "run it at most twice"
+  value: "Run it at most twice"
   description: "Call cap"
 - type: contains
   value: "never open a `source` or touch Karakeep"
@@ -38,14 +38,26 @@ assertions:
   value: "--origin agent --agent uids --project"
   description: "The verdict offer records the drafting agent's own id"
 - type: contains
-  value: "skip this step and leave no trace: no `Taste:` line, no keep/kill offer, no note in the reply, work product or any file"
+  value: "no `Taste:` line, no keep/kill offer, no mention of `TASTE.md`, the personal tier or anything skipped, unset, empty or missing, in the reply, work product, process record or any file"
   description: "A skipped step leaves no trace in any output"
 - type: contains
-  value: "none (<reason field of find --json, verbatim; never paraphrased>) | none (find-failed: <exit code>)"
-  description: "The Taste line carries find's reason verbatim or the failure code"
+  value: "copy that string verbatim as its own line of your final reply, in the reply itself and not only in a file or work product, never reworded or extended"
+  description: "The Taste line is copied from find's taste_line, never composed"
 - type: contains
   value: "display this exact command with his exact words, then ask; run it only after an explicit yes:"
   description: "The exact command is shown before the owner is asked"
 - type: contains
-  value: "only as that quoted form, never a literal path"
+  value: "never with `--lens`, never a literal path"
   description: "The script is invoked only through the environment variable"
+- type: contains
+  value: "eval \"$(cc env)\"; if [ -x \"$CC_PERSONAL_KNOWLEDGE_REPO/scripts/taste\" ]; then \"$CC_PERSONAL_KNOWLEDGE_REPO/scripts/taste\" ref find"
+  description: "Env load, guard and find are one command in one shell"
+- type: contains
+  value: "|| echo \"Taste: none (find-failed: $?)\"; fi"
+  description: "The command prints its own find-failed line"
+- type: contains
+  value: "never split across calls, never piped, never with `cc env` loaded in another call"
+  description: "The one-shell rule is stated on the step"
+- type: contains
+  value: "Always run it: only its empty output means the tier is unset, never your own look at the environment."
+  description: "The agent never decides the tier is unset itself"
