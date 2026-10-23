@@ -272,7 +272,7 @@ def test_one_command_runs_against_the_real_cli_on_a_synthetic_corpus(name, tmp_p
     receipt = json.loads(done.stdout)
     domain = CONSUMERS[name].split("|")[0]
     assert receipt["for_agent"] == name and receipt["domain"] == domain
-    assert receipt["applies"] == "project:claude-copilot" and receipt["include_rejects"] == 2
+    assert receipt["applies"] == f"project:{AGENTS.parent.parent.name}" and receipt["include_rejects"] == 2
     assert receipt["lens"] is None and receipt["selected"] == []
     for field in ("query", "domain", "corpus_revision", "excluded", "loaded_characters", "selected", "rejects"):
         assert field in receipt, f"receipt field the agents store is missing: {field}"
