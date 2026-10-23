@@ -260,3 +260,22 @@ def test_unregistered_limits_refused_without_changing_task(db_path):
     before = api.get_task(task_id=task['id'], db_path=db_path)
     with pytest.raises(ValidationError): apply(db_path, (task['id'], db_path.parent.parent, contract))
     assert api.get_task(task_id=task['id'], db_path=db_path) == before
+
+
+@pytest.mark.parametrize('case', ['narrow', 'missing', 'unknown_ref'])
+def test_external_scope_refusals_are_atomic(db_path, tmp_path, case):
+    repo = make_repo(tmp_path / 'external')
+    api.add_repo(repo_id='ext', path=repo, db_path=db_path)
+    contract = {'schemaVersion': 3, 'sources': [], 'criteria': [{'id': 'DELIVERY', 'expected': 'Install version one.'}],
+                'externalSources': [{'repo': 'ext', 'ref': 'delivery', 'paths': ['docs', 'tool.sh']}]}
+    task = api.create_task(title='External refusal', metadata={'acceptanceContract': contract}, db_path=db_path)
+    ex.register_limits(task_id=task['id'], db_path=db_path)
+    proposal = amended(contract)
+    entry = proposal['externalSources'][0]
+    if case == 'narrow': entry['paths'] = ['docs']
+    elif case == 'missing': entry['paths'].append('missing')
+    else: entry['ref'] = 'nonexistent'
+    before = dump(db_path)
+    with pytest.raises(ValidationError):
+        apply(db_path, (task['id'], db_path.parent.parent, contract), contract=proposal)
+    assert dump(db_path) == before
