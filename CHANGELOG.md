@@ -1,5 +1,10 @@
 # Changelog
 
+## [5.27.3] - 2026-10-23 — UI persistence silence
+
+- Reinforce empty-output silence at the UI work-product storage step, including process notes. Live QA found a missing-TASTE note in a stored work product despite a correctly empty selection command; the final reply and spec body were otherwise silent.
+- Preserve the common taste command, existing behavior requirements and one-line reply rule. The storage-step edit adds three bytes and remains inside the unchanged corpus ceiling.
+
 ## [5.27.2] - 2026-10-23
 
 ### Fixed

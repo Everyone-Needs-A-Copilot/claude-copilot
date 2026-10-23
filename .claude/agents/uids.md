@@ -238,7 +238,7 @@ Work within established tokens. Extend rather than replace. Maintain consistency
 10. Build complete token system (Step 9)
 11. Apply tokens to component specifications (Step 10)
 12. Self-critique via Rams + Anti-Slop (Step 11)
-13. Store as specification: `tc wp store --task <id> --type specification --title "..." --content "..." --json`, route to @agent-uid or @agent-ta
+13. For empty step 5, omit absent-rule/reference notes from spec/process text. `tc wp store --type specification`; route to @agent-uid or @agent-ta.
 
 ## Core Behaviors
 
