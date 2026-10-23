@@ -400,6 +400,22 @@ Timed-out running attempts that reserved and consumed nothing paid are settled
 lock and full charge. Spend is always computed from attempts, never stored as a
 counter, so no API can lower it.
 
+### Correcting a frozen acceptance contract
+
+After the owner approves the exact correction, use the full proposed contract and the current plain `limits.contract_sha256` from `tc execution status` (not the task-bound QA identity):
+
+```sh
+tc execution amend 42 --file corrected-contract.json \
+  --expected-contract-sha256 CURRENT_CONTRACT_SHA256 \
+  --decision 'verbatim owner approval of this correction'
+```
+
+The CLI and `tc.api.amend_contract` share one transaction: compare the current hash, append an audit round, and update only the task's acceptance contract. Status exposes both contracts, hashes, source digests, timestamp and exact decision. This records approval; it cannot verify who supplied it or whether a changed expectation is appropriate.
+
+Criterion IDs and order, existing local source paths and external repo/path coverage must remain. Expectations and external refs may change, and source coverage may expand. Missing paths, invalid refs, stale hashes, no-op requests, unsettled attempts and completed/cancelled tasks are refused. Ordinary task edits remain frozen. All attempts, checkpoints, budgets, limits, status and other metadata remain intact; amendments neither diagnose failures nor reopen ceilings nor grant QA. Existing QA becomes stale and the amended contract needs fresh verification.
+
+An external ref change alters the execution source digest even when file bytes match. A pin correction alone is not evidence that an execution failure was fixed; subsequent diagnosis must demonstrate the actual repair. Review both contracts and the retained failure history before continuing.
+
 ### Migrating existing ledgers
 
 `tc execution migrate --dry-run` lists every legacy (v1) task with its prior state

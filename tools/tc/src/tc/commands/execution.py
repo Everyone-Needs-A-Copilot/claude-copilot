@@ -67,6 +67,24 @@ def register(
     )
 
 
+@execution_app.command("amend")
+def amend(
+    task: int,
+    file: Path = typer.Option(..., help="The complete owner-approved acceptance contract JSON."),
+    expected_contract_sha256: str = typer.Option(
+        ..., help="Current limits.contract_sha256 from execution status (not QA identity)."
+    ),
+    decision: str = typer.Option(..., help="The verbatim owner decision approving this amendment."),
+):
+    """Audit a contract correction; preserve all history, limits and failure stops."""
+    try:
+        contract = json.loads(file.read_text())
+    except (OSError, ValueError) as exc:
+        error_exit(str(exc), EXIT_VALIDATION)
+    output_json(_call(ex.amend_contract, task_id=task, contract=contract,
+                      expected_contract_sha256=expected_contract_sha256, decision=decision))
+
+
 budget_app = typer.Typer(help="Per-project lifetime paid-call budget (append-only).")
 execution_app.add_typer(budget_app, name="budget")
 

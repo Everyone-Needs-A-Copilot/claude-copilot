@@ -389,6 +389,107 @@ def succeed_limits(
     return {**p, "round": number}
 
 
+def amend_contract(
+    *, task_id, contract, expected_contract_sha256, decision, db_path=None
+):
+    """Append an owner-approved scope correction without resetting execution.
+
+    The expected hash is the plain contract digest shown by execution status,
+    not the task-bound QA identity. This records authority; it does not establish
+    the truth of an approval, diagnose a failure, reopen a task or grant QA.
+    """
+    if not isinstance(decision, str) or not decision.strip():
+        raise ValidationError(DECISION + "record the owner's contract amendment decision")
+    if not isinstance(expected_contract_sha256, str) or not re.fullmatch(
+        r"[0-9a-f]{64}", expected_contract_sha256
+    ):
+        raise ValidationError("Expected contract hash must be a lowercase SHA-256 digest")
+    try:
+        contract = json.loads(json.dumps(validate_contract(contract)))
+    except (TypeError, ValueError) as exc:
+        raise ValidationError("Contract must be JSON serializable") from exc
+    with _db(db_path) as conn:
+        prior = _policy(conn, task_id)
+        task = get_task(task_id=task_id, conn=conn)
+        before = _contract(task)
+        before_hash, after_hash = digest(before), digest(contract)
+        if before_hash != expected_contract_sha256:
+            raise ValidationError("Contract changed since review; inspect the current contract")
+        if before_hash == after_hash:
+            raise ValidationError("Contract amendment is unchanged")
+        if task["status"] in ("completed", "cancelled"):
+            raise ValidationError("Cannot amend a completed or cancelled task")
+        rows = _rows(conn, task_id)
+        if any(r["state"] == "running" for r in rows):
+            raise ValidationError("An attempt is unsettled; settle it before amending")
+        if [c["id"] for c in before["criteria"]] != [c["id"] for c in contract["criteria"]]:
+            raise ValidationError("Amendment must preserve criterion IDs and order")
+        if not set(before["sources"]) <= set(contract["sources"]):
+            raise ValidationError("Amendment cannot narrow local source coverage")
+        external = {e["repo"]: e for e in contract.get("externalSources", [])}
+        for entry in before.get("externalSources", []):
+            if entry["repo"] not in external or not set(entry["paths"]) <= set(
+                external[entry["repo"]]["paths"]
+            ):
+                raise ValidationError("Amendment cannot narrow external source coverage")
+        previous = _rounds(conn, task_id)[-1]
+        policy = {**previous["policy"], "sources": contract["sources"],
+                  "contract_sha256": after_hash}
+        if contract["schemaVersion"] == 3:
+            from tc.services.qa_contract import database_path
+
+            policy.update(externalSources=contract["externalSources"],
+                          database=str(database_path(conn)))
+        else:
+            policy.pop("externalSources", None)
+            policy.pop("database", None)
+        # Resolve both manifests before either mutation. A new ref changes the
+        # execution digest even when its bytes match; this is not diagnosis.
+        before_source, after_source = _source(prior), _source(policy)
+        # Existing identity capture records missing paths for deletion evidence.
+        # An amendment must not introduce unresolved scope as a new contract.
+        from tc.services import external_sources as ext
+
+        manifests = []
+        if contract["sources"]:
+            manifests.extend(source_manifest(Path(policy["root"]), contract["sources"]))
+        budget = ext.Budget()
+        for entry in contract.get("externalSources", []):
+            found = ext.resolve(conn, entry)
+            manifests.extend(ext.manifest(found["path"], found["commit"], entry["paths"], budget))
+        if any(record["kind"] == "missing" for record in manifests):
+            raise ValidationError("Amended source scope contains missing paths")
+        created = time.time()
+        audit = {
+            "decision": decision, "created": created,
+            "before_contract": before, "after_contract": contract,
+            "before_contract_sha256": before_hash,
+            "after_contract_sha256": after_hash,
+            "before_source": before_source, "after_source": after_source,
+        }
+        policy.update(
+            kind="amendment", predecessor=previous["round"], amendment=audit,
+            authority=[*previous["policy"]["authority"], decision],
+            new_authority=[decision],
+        )
+        used = _usage(rows)
+        number = previous["round"] + 1
+        conn.execute(
+            "INSERT INTO execution_rounds VALUES (?,?,?,?,?,?,?,?,?)",
+            (task_id, number, json.dumps(policy), previous["round"],
+             previous["created"], created, used["attempts"], used["calls"], used["micros"]),
+        )
+        metadata = json.loads(task["metadata"]) if isinstance(task["metadata"], str) else dict(task["metadata"])
+        metadata["acceptanceContract"] = contract
+        # This narrowly scoped service owns the audited transaction. Ordinary
+        # update_task remains frozen; no caller-controlled bypass is introduced.
+        conn.execute(
+            "UPDATE tasks SET metadata=?, updated_at=datetime('now') WHERE id=?",
+            (json.dumps(metadata), task_id),
+        )
+    return {"task_id": task_id, "round": number, "amendment": audit, "usage": used}
+
+
 def protect_update(conn, task_id, old_metadata, new_metadata, old_status, new_status):
     """Shared task API/CLI mutation guard. Legacy tasks remain compatible."""
     if not conn.execute(
@@ -1176,6 +1277,8 @@ def snapshot(*, task_id, conn):
                 "cost_usd": r["policy"]["micros"] / 1_000_000,
             },
             "authority": r["policy"].get("new_authority", r["policy"]["authority"]),
+            **({"amendment": r["policy"]["amendment"]}
+               if r["policy"].get("kind") == "amendment" else {}),
         }
         for r in rounds
     ]
