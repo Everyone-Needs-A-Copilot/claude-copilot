@@ -4,9 +4,9 @@
 
 ### Fixed
 
-- Copywriter work-product corrections now cite the first receipt-owning work product without repeating the receipt. The workflow also verifies expanded draft text before storage. This addresses a live QA failure where a quoted heredoc stored literal shell substitution and a replacement work product duplicated its receipt.
+- Copywriter work-product corrections now cite the first receipt-owning work product without repeating any receipt fields. The workflow also verifies expanded draft text before storage. This addresses a live QA failure where a quoted heredoc stored literal shell substitution and a replacement work product duplicated its receipt.
 - The real-CLI consumer test now derives the checkout name for its project-scope assertion, so isolated worktrees validate the same command correctly. The original hard-coded assertion rejected correct receipts from differently named checkouts.
-- The correction adds 96 bytes; the agent corpus remains within its unchanged 214,003-byte ceiling. Existing behavior assertions and receipt-once checks remain unchanged.
+- The correction adds 95 bytes; the agent corpus remains within its unchanged 214,003-byte ceiling. Existing behavior assertions and receipt-once checks remain unchanged.
 
 ## [5.27.0] - 2026-10-23
 
