@@ -10,7 +10,7 @@ from tc.db.connection import get_db
 from tc.db.exceptions import ValidationError
 from tc.services import execution as ex
 from tc.services.qa_contract import digest
-from test_qa_external_sources import make_repo, git
+from .test_qa_external_sources import make_repo, git
 
 
 @pytest.fixture
