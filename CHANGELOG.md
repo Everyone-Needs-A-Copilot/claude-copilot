@@ -1,5 +1,16 @@
 # Changelog
 
+## [5.28.0] - 2026-10-28
+
+### Added
+
+- **`/new-product` foundation skill.** A facilitated zero-to-one product definition skill (`.claude/skills/new-product`) that sets up `docs/` and `SOUL.md` in an empty folder and runs a six-phase interview: vision, JTBD, journey maps, requirements, UX, UI, copy and voice, a design challenge brief and a prototype. It resumes from `docs/TODO-DESIGN-PACKAGE.md`. Ported from product-creation-copilot, with the template paths its instructions named now present and a runtime adapter reference that keeps it runtime-neutral (Codex invokes it as `$new-product`).
+- **Machine-wide skill install.** `VERSION.json` gains a `components.skills.machineSkills` roster. `scripts/install-framework-snapshot.py` publishes each listed top-level skill folder to `~/.claude/skills/<name>/` from the same snapshot as the machine commands, with rollback on failure, replacement of stale files and an idempotent repeat install. `/update-copilot` verifies the installed bytes, so `/new-product` is available in every project after an update, not only in projects set up with the framework.
+
+### Changed
+
+- Skills component version 3.5.0 to 3.6.0.
+
 ## [5.27.2] - 2026-10-23
 
 ### Fixed
