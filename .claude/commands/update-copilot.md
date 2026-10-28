@@ -118,13 +118,16 @@ mkdir -p ~/.claude/memory
 
 ---
 
-## Step 7: Verify Global Commands
+## Step 7: Verify Global Commands and Skills
 
 The immutable runtime installer already deployed every command in
-`VERSION.json`'s `machineCommands` roster from the same source snapshot.
+`VERSION.json`'s `machineCommands` roster, and every skill folder in its
+`machineSkills` roster (installed to `~/.claude/skills/<name>/`), from the same
+source snapshot.
 
 ```bash
 python3 - <<'PY'
+import hashlib
 import json
 from pathlib import Path
 
@@ -137,6 +140,16 @@ missing = [
 if missing:
     raise SystemExit("Missing global commands: " + ", ".join(missing))
 print(f"Verified {len(active['machine_commands'])} global commands")
+
+skills_missing = []
+for skill in active.get("machine_skills", []):
+    for relative, digest in skill["files"].items():
+        path = Path.home() / ".claude/skills" / skill["name"] / relative
+        if not path.is_file() or hashlib.sha256(path.read_bytes()).hexdigest() != digest:
+            skills_missing.append(f"{skill['name']}/{relative}")
+if skills_missing:
+    raise SystemExit("Missing or changed global skill files: " + ", ".join(skills_missing))
+print(f"Verified {len(active.get('machine_skills', []))} global skills")
 PY
 ```
 

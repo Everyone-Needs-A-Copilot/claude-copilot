@@ -4,7 +4,7 @@
 The source checkout is authoring state, never the installed runtime.  This
 installer archives an explicit commit, builds cc inside the commit-addressed
 snapshot, makes that snapshot read-only, and only then publishes the cc shim
-and VERSION.json's machineCommands.  Managed files are individually replaced
+VERSION.json's machineCommands and VERSION.json's machineSkills.  Managed files are individually replaced
 atomically under one lock and restored byte-for-byte if any publish step fails.
 
 This module intentionally uses only the Python standard library: it is the
@@ -48,6 +48,11 @@ validate_snapshot_plugin = _plugin_helper.validate_snapshot_plugin
 
 _OBJECT_ID = re.compile(r"[0-9a-f]{40}")
 _REQUIRED_MACHINE_COMMANDS = frozenset({"setup-project.md", "update-project.md"})
+# A machine skill is a top-level Agent Skills folder (.claude/skills/<name>/
+# SKILL.md) that must exist in ~/.claude/skills so it is discoverable as /<name>
+# from any directory.  Nested category skills are never machine skills.
+_MACHINE_SKILL_NAME = re.compile(r"[a-z0-9]+(?:-[a-z0-9]+)*")
+_SKILL_NAME_LINE = re.compile(r"^name:\s*(\S+)\s*$", re.MULTILINE)
 _REQUIRED_SNAPSHOT_FILES = (
     "VERSION.json",
     "tools/cc/install.sh",
@@ -91,6 +96,20 @@ class TrackedArtifact:
     executable: bool = False
     checksum: str = ""
     link_target: str = ""
+
+
+@dataclass(frozen=True)
+class SkillFile:
+    relative: str
+    payload: bytes
+    mode: int
+    checksum: str
+
+
+@dataclass(frozen=True)
+class SkillArtifact:
+    name: str
+    files: tuple[SkillFile, ...]
 
 
 CcInstaller = Callable[[Path, Path], None]
@@ -565,6 +584,76 @@ def _load_machine_commands(
     return tuple(artifacts)
 
 
+def _load_machine_skills(
+    snapshot: Path, *, readonly: bool = False
+) -> tuple[SkillArtifact, ...]:
+    """Read VERSION.json's optional machineSkills roster from the snapshot.
+
+    An absent roster means no machine skills.  Every listed entry must be a
+    top-level skill folder of regular files only (no symlinks) whose SKILL.md
+    declares the same name as its folder.
+    """
+
+    raw_version = _read_regular(snapshot / "VERSION.json", readonly=readonly)
+    try:
+        version = json.loads(raw_version.decode("utf-8"))
+        roster = version["components"].get("skills", {}).get("machineSkills", [])
+    except (UnicodeError, json.JSONDecodeError, KeyError, TypeError, AttributeError) as exc:
+        raise FrameworkInstallError("VERSION.json has no valid machineSkills roster") from exc
+    if not isinstance(roster, list):
+        raise FrameworkInstallError("VERSION.json machineSkills must be a list")
+
+    artifacts: list[SkillArtifact] = []
+    seen: set[str] = set()
+    for entry in roster:
+        if not isinstance(entry, str) or _MACHINE_SKILL_NAME.fullmatch(entry) is None:
+            raise FrameworkInstallError(
+                f"VERSION.json contains an unsafe machineSkills entry: {entry!r}"
+            )
+        if entry in seen:
+            raise FrameworkInstallError(
+                f"VERSION.json contains a duplicate machineSkills entry: {entry}"
+            )
+        seen.add(entry)
+        root = snapshot / ".claude" / "skills" / entry
+        try:
+            root_metadata = root.lstat()
+        except OSError as exc:
+            raise FrameworkInstallError(f"machine skill is unavailable: {entry}") from exc
+        if not stat.S_ISDIR(root_metadata.st_mode) or root.is_symlink():
+            raise FrameworkInstallError(f"machine skill must be a real directory: {entry}")
+
+        files: list[SkillFile] = []
+        for directory, subdirectories, names in os.walk(root, followlinks=False):
+            subdirectories.sort()
+            for name in sorted(names):
+                path = Path(directory) / name
+                payload = _read_regular(path, readonly=readonly)
+                mode = 0o755 if path.lstat().st_mode & stat.S_IXUSR else 0o644
+                files.append(
+                    SkillFile(
+                        path.relative_to(root).as_posix(), payload, mode, _sha256(payload)
+                    )
+                )
+            for name in subdirectories:
+                if (Path(directory) / name).is_symlink():
+                    raise FrameworkInstallError(
+                        f"machine skill contains a symlinked directory: {entry}/{name}"
+                    )
+        by_name = {item.relative: item for item in files}
+        skill_file = by_name.get("SKILL.md")
+        if skill_file is None:
+            raise FrameworkInstallError(f"machine skill has no SKILL.md: {entry}")
+        frontmatter = skill_file.payload.decode("utf-8", errors="replace").split("---", 2)
+        declared = _SKILL_NAME_LINE.search(frontmatter[1]) if len(frontmatter) == 3 else None
+        if declared is None or declared.group(1) != entry:
+            raise FrameworkInstallError(
+                f"machine skill SKILL.md name does not match its folder: {entry}"
+            )
+        artifacts.append(SkillArtifact(entry, tuple(files)))
+    return tuple(artifacts)
+
+
 def _make_tree_readonly(root: Path) -> None:
     paths = sorted(root.rglob("*"), key=lambda path: len(path.parts), reverse=True)
     for path in paths:
@@ -608,6 +697,7 @@ def _validate_snapshot(
     for relative in _REQUIRED_SNAPSHOT_FILES:
         _read_regular(snapshot / relative, readonly=True)
     commands = _load_machine_commands(snapshot, readonly=True)
+    _load_machine_skills(snapshot, readonly=True)
     cc_entrypoint = snapshot / "tools" / "cc" / ".venv" / "bin" / "cc"
     _read_regular(cc_entrypoint, readonly=True)
     if not os.access(cc_entrypoint, os.X_OK):
@@ -654,6 +744,7 @@ def _materialize_snapshot(
             mode=0o444,
         )
         _load_machine_commands(stage)
+        _load_machine_skills(stage)
         for relative in _REQUIRED_SNAPSHOT_FILES:
             _read_regular(stage / relative)
         os.replace(stage, snapshot)
@@ -763,9 +854,47 @@ def _install_lock(path: Path) -> Iterator[None]:
         os.close(descriptor)
 
 
+def _stale_skill_files(skills_root: Path, skill: SkillArtifact) -> list[Path]:
+    """Files under an installed managed skill folder that the roster no longer ships."""
+
+    root = skills_root / skill.name
+    try:
+        metadata = root.lstat()
+    except FileNotFoundError:
+        return []
+    except OSError as exc:
+        raise FrameworkInstallError(f"managed skill is unavailable: {root}") from exc
+    if not stat.S_ISDIR(metadata.st_mode) or root.is_symlink():
+        raise FrameworkInstallError(f"managed skill must be a real directory: {root}")
+    shipped = {item.relative for item in skill.files}
+    stale: list[Path] = []
+    for directory, subdirectories, names in os.walk(root, followlinks=False):
+        for name in subdirectories:
+            if (Path(directory) / name).is_symlink():
+                raise FrameworkInstallError(
+                    f"managed skill contains a symlinked directory: {Path(directory) / name}"
+                )
+        for name in names:
+            path = Path(directory) / name
+            if path.relative_to(root).as_posix() not in shipped:
+                stale.append(path)
+    return sorted(stale)
+
+
+def _prune_empty_directories(skills_root: Path, skill: SkillArtifact) -> None:
+    root = skills_root / skill.name
+    if not root.is_dir():
+        return
+    for directory, _subdirectories, _names in os.walk(root, topdown=False):
+        with contextlib.suppress(OSError):
+            Path(directory).rmdir()
+
+
 def _publish_runtime(
     *,
     commands: Sequence[CommandArtifact],
+    skills: Sequence[SkillArtifact] = (),
+    skills_root: Path | None = None,
     staged_shim: Path,
     commands_root: Path,
     shim: Path,
@@ -774,10 +903,28 @@ def _publish_runtime(
     fail_after_publish: int | None = None,
     tc_target: tuple[Path, bytes, int, str] | None = None,
 ) -> int:
-    targets: list[tuple[Path, bytes, int, str]] = [
+    targets: list[tuple[Path, bytes | None, int, str]] = [
         (commands_root / item.name, item.payload, 0o644, item.checksum)
         for item in commands
     ]
+    created_directories: list[Path] = []
+    if skills and skills_root is None:
+        raise FrameworkInstallError("machine skills need a skills root")
+    for skill in skills:
+        assert skills_root is not None
+        for item in skill.files:
+            targets.append(
+                (skills_root / skill.name / item.relative, item.payload, item.mode, item.checksum)
+            )
+        for stale in _stale_skill_files(skills_root, skill):
+            targets.append((stale, None, 0, ""))
+        # Directories this publish would create, so a rollback can remove them.
+        for item in skill.files:
+            parent = (skills_root / skill.name / item.relative).parent
+            while parent != skills_root and not parent.exists():
+                if parent not in created_directories:
+                    created_directories.append(parent)
+                parent = parent.parent
     shim_payload = _read_regular(staged_shim)
     targets.append((shim, shim_payload, 0o755, _sha256(shim_payload)))
     targets.append(
@@ -795,10 +942,15 @@ def _publish_runtime(
     published: list[Path] = []
     try:
         for index, (path, payload, mode, checksum) in enumerate(targets, start=1):
-            _atomic_write(path, payload, mode=mode)
-            published.append(path)
-            if _sha256(_read_regular(path)) != checksum:
-                raise FrameworkInstallError(f"published checksum mismatch: {path}")
+            if payload is None:
+                path.unlink()
+                _fsync_directory(path.parent)
+                published.append(path)
+            else:
+                _atomic_write(path, payload, mode=mode)
+                published.append(path)
+                if _sha256(_read_regular(path)) != checksum:
+                    raise FrameworkInstallError(f"published checksum mismatch: {path}")
             if fail_after_publish is not None and index == fail_after_publish:
                 raise FrameworkInstallError("injected publish failure")
     except BaseException as publish_error:
@@ -808,12 +960,18 @@ def _publish_runtime(
                 _restore_file(path, captured[path])
             except BaseException as rollback_error:  # noqa: BLE001
                 rollback_errors.append(f"{path}: {rollback_error}")
+        for directory in sorted(created_directories, key=lambda item: len(item.parts), reverse=True):
+            with contextlib.suppress(OSError):
+                directory.rmdir()
         if rollback_errors:
             raise FrameworkInstallError(
                 "publish failed and rollback was incomplete: "
                 + "; ".join(rollback_errors)
             ) from publish_error
         raise
+    for skill in skills:
+        assert skills_root is not None
+        _prune_empty_directories(skills_root, skill)
     return changed
 
 
@@ -841,8 +999,9 @@ def install_framework_snapshot(
     copilot_root = home_root / ".copilot"
     snapshots_root = copilot_root / "framework-snapshots"
     commands_root = home_root / ".claude" / "commands"
+    skills_root = home_root / ".claude" / "skills"
     shim_root = home_root / ".local" / "bin"
-    for directory in (copilot_root, snapshots_root, commands_root, shim_root):
+    for directory in (copilot_root, snapshots_root, commands_root, skills_root, shim_root):
         _ensure_real_directory(directory)
 
     lock_path = copilot_root / "framework-install.lock"
@@ -872,6 +1031,7 @@ def install_framework_snapshot(
                         raise install_error from cleanup_error
                     raise
 
+            skills = _load_machine_skills(snapshot, readonly=True)
             cc_verifier(staged_shim)
             runtime_tc = snapshot / "tools" / "cc" / ".venv" / "bin" / "tc"
             tc_payload = _read_regular(runtime_tc, readonly=True)
@@ -913,6 +1073,13 @@ def install_framework_snapshot(
                 "machine_commands": [
                     {"name": item.name, "sha256": item.checksum} for item in commands
                 ],
+                "machine_skills": [
+                    {
+                        "name": skill.name,
+                        "files": {item.relative: item.checksum for item in skill.files},
+                    }
+                    for skill in skills
+                ],
             }
             if plugin_transaction is not None:
                 plugin = plugin_transaction.receipt
@@ -938,6 +1105,8 @@ def install_framework_snapshot(
             try:
                 published_changed = _publish_runtime(
                     commands=commands,
+                    skills=skills,
+                    skills_root=skills_root,
                     staged_shim=staged_shim,
                     commands_root=commands_root,
                     shim=shim_root / "cc",
@@ -968,6 +1137,7 @@ def install_framework_snapshot(
         "source_tree": tree,
         "snapshot": str(snapshot),
         "machine_commands": [item.name for item in commands],
+        "machine_skills": [item.name for item in skills],
         "changed_targets": changed,
     }
 

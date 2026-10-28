@@ -251,15 +251,25 @@ def _source_repository(
     *,
     roster: tuple[str, ...] = MACHINE_COMMANDS,
     omit_source: str | None = None,
+    skills: dict[str, dict[str, str]] | None = None,
+    skills_roster: tuple[str, ...] | None = None,
 ) -> tuple[Path, str, str]:
+    """`skills` maps a skill folder name to its {relative path: content} files."""
+
     repo = tmp_path / "source"
     repo.mkdir()
     subprocess.run(("git", "init", "--quiet", str(repo)), check=True)
-    _write(
-        repo / "VERSION.json",
-        json.dumps({"components": {"commands": {"machineCommands": list(roster)}, "tc": {"version": "2.0.0"}}})
-        + "\n",
-    )
+    components: dict[str, object] = {
+        "commands": {"machineCommands": list(roster)},
+        "tc": {"version": "2.0.0"},
+    }
+    if skills is not None:
+        roster_names = tuple(skills) if skills_roster is None else skills_roster
+        components["skills"] = {"machineSkills": list(roster_names)}
+        for skill_name, skill_files in skills.items():
+            for relative, content in skill_files.items():
+                _write(repo / ".claude" / "skills" / skill_name / relative, content)
+    _write(repo / "VERSION.json", json.dumps({"components": components}) + "\n")
     for name in MACHINE_COMMANDS:
         if name != omit_source:
             _write(repo / ".claude" / "commands" / name, f"# committed {name}\n")
@@ -842,6 +852,12 @@ def test_full_repository_real_installer_succeeds_in_isolated_home(
     active = json.loads((home / ".copilot" / "framework-runtime.json").read_text())
     assert report["result"] == "installed"
     assert report["machine_commands"] == list(MACHINE_COMMANDS)
+    assert report["machine_skills"] == ["new-product"]
+    installed_skill = home / ".claude" / "skills" / "new-product"
+    assert (installed_skill / "SKILL.md").is_file()
+    assert _skill_tree(installed_skill) == _skill_tree(
+        source / ".claude" / "skills" / "new-product"
+    )
     assert not (snapshot / ".git").exists()
     assert not list((snapshot / "tools" / "cc" / "src").rglob("__pycache__"))
     assert not list((snapshot / "tools" / "cc" / "src").rglob("*.pyc"))
@@ -896,3 +912,141 @@ def test_snapshot_records_every_committed_version_of_installed_paths(tmp_path: P
     assert "tracked-outside-runtime.txt" not in history["paths"]
     # Reinstalling the same commit validates and reuses the snapshot.
     assert Path(_install(repo, commit, tree, tmp_path / "home")["snapshot"]) == snapshot
+
+
+SKILL_FILES = {
+    "SKILL.md": "---\nname: new-product\ndescription: fixture skill\n---\n# New product\n",
+    "references/runtime.md": "# runtime\n",
+    "assets/templates/00-overview/00-vision.md": "# vision\n",
+}
+
+
+def _skill_tree(root: Path) -> dict[str, bytes]:
+    return {
+        path.relative_to(root).as_posix(): path.read_bytes()
+        for path in sorted(root.rglob("*"))
+        if path.is_file()
+    }
+
+
+def test_machine_skill_roster_installs_whole_folder_to_user_skills_root(tmp_path: Path):
+    repo, commit, tree = _source_repository(tmp_path, skills={"new-product": SKILL_FILES})
+    home = tmp_path / "home"
+    unrelated = home / ".claude" / "skills" / "my-skill" / "SKILL.md"
+    _write(unrelated, "# person-owned\n")
+
+    report = _install(repo, commit, tree, home)
+
+    installed = home / ".claude" / "skills" / "new-product"
+    assert report["machine_skills"] == ["new-product"]
+    assert _skill_tree(installed) == {
+        name: content.encode() for name, content in SKILL_FILES.items()
+    }
+    assert unrelated.read_text() == "# person-owned\n"
+    active = json.loads((home / ".copilot" / "framework-runtime.json").read_text())
+    recorded = {item["name"]: item["files"] for item in active["machine_skills"]}
+    assert recorded == {
+        "new-product": {
+            name: hashlib.sha256(content.encode()).hexdigest()
+            for name, content in SKILL_FILES.items()
+        }
+    }
+
+
+def test_machine_skill_reinstall_is_noop_and_replaces_stale_files(tmp_path: Path):
+    repo, commit, tree = _source_repository(tmp_path, skills={"new-product": SKILL_FILES})
+    home = tmp_path / "home"
+    _install(repo, commit, tree, home)
+    installed = home / ".claude" / "skills" / "new-product"
+    assert _install(repo, commit, tree, home)["result"] == "up-to-date"
+
+    _write(installed / "references" / "retired.md", "# no longer shipped\n")
+    (installed / "SKILL.md").write_text("tampered\n", encoding="utf-8")
+    report = _install(repo, commit, tree, home)
+
+    assert report["result"] == "installed"
+    assert _skill_tree(installed) == {
+        name: content.encode() for name, content in SKILL_FILES.items()
+    }
+    assert _install(repo, commit, tree, home)["result"] == "up-to-date"
+
+
+@pytest.mark.parametrize(
+    "case",
+    ("missing-folder", "no-skill-md", "name-mismatch", "unsafe-name", "duplicate"),
+)
+def test_invalid_machine_skill_roster_fails_before_machine_mutation(
+    tmp_path: Path, case: str
+):
+    files = dict(SKILL_FILES)
+    roster: tuple[str, ...] | None = None
+    if case == "missing-folder":
+        roster = ("new-product", "not-there")
+    elif case == "no-skill-md":
+        del files["SKILL.md"]
+    elif case == "name-mismatch":
+        files["SKILL.md"] = "---\nname: other\ndescription: x\n---\n"
+    elif case == "unsafe-name":
+        roster = ("../escape",)
+    elif case == "duplicate":
+        roster = ("new-product", "new-product")
+    repo, commit, tree = _source_repository(
+        tmp_path, skills={"new-product": files}, skills_roster=roster
+    )
+    home = tmp_path / "home"
+
+    with pytest.raises(installer.FrameworkInstallError):
+        _install(repo, commit, tree, home)
+
+    assert not (home / ".claude" / "skills" / "new-product").exists()
+    assert not (home / ".copilot" / "framework-runtime.json").exists()
+    assert list((home / ".copilot" / "framework-snapshots").glob("claude-copilot-*")) == []
+
+
+def test_machine_skill_symlink_in_source_fails_closed(tmp_path: Path):
+    repo, commit, tree = _source_repository(tmp_path, skills={"new-product": SKILL_FILES})
+    link = repo / ".claude" / "skills" / "new-product" / "references" / "link.md"
+    link.symlink_to("runtime.md")
+    subprocess.run(("git", "-C", str(repo), "add", "."), check=True)
+    subprocess.run(
+        ("git", "-C", str(repo), "-c", "user.name=Snapshot Test",
+         "-c", "user.email=snapshot@test.invalid", "commit", "--quiet", "-m", "symlink"),
+        check=True,
+    )
+    commit, tree = _git(repo, "rev-parse", "HEAD"), _git(repo, "rev-parse", "HEAD^{tree}")
+    home = tmp_path / "home"
+
+    with pytest.raises(installer.FrameworkInstallError):
+        _install(repo, commit, tree, home)
+
+    assert not (home / ".claude" / "skills" / "new-product").exists()
+
+
+def test_publish_failure_rolls_back_machine_skill_files_and_directories(tmp_path: Path):
+    repo, commit, tree = _source_repository(tmp_path, skills={"new-product": SKILL_FILES})
+    home = tmp_path / "home"
+    original = {"SKILL.md": "# previous version\n", "references/old.md": "# old\n"}
+    for relative, content in original.items():
+        _write(home / ".claude" / "skills" / "new-product" / relative, content)
+    before = _skill_tree(home / ".claude" / "skills" / "new-product")
+
+    # Fail after the commands and part of the skill folder have been published.
+    with pytest.raises(installer.FrameworkInstallError, match="injected publish failure"):
+        _install(repo, commit, tree, home, _fail_after_publish=len(MACHINE_COMMANDS) + 2)
+
+    assert _skill_tree(home / ".claude" / "skills" / "new-product") == before
+
+    fresh = tmp_path / "fresh-home"
+    with pytest.raises(installer.FrameworkInstallError, match="injected publish failure"):
+        _install(repo, commit, tree, fresh, _fail_after_publish=len(MACHINE_COMMANDS) + 3)
+    assert not (fresh / ".claude" / "skills" / "new-product").exists()
+
+
+def test_repository_without_machine_skills_roster_installs_no_skills(tmp_path: Path):
+    repo, commit, tree = _source_repository(tmp_path)
+    home = tmp_path / "home"
+
+    report = _install(repo, commit, tree, home)
+
+    assert report["machine_skills"] == []
+    assert list((home / ".claude" / "skills").iterdir()) == []

@@ -94,6 +94,9 @@
     "skills": {
       "version": "3.5.0",
       "path": ".claude/skills",
+      "machineSkills": [
+        "new-product"
+      ],
       "categories": [
         "code",
         "design",

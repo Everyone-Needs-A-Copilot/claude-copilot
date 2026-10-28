@@ -132,6 +132,10 @@ printf 'config.json\n' > ~/.claude/cc/.gitignore
 The immutable framework installer above deploys every command declared in
 `VERSION.json`'s `machineCommands` roster and verifies the installed bytes.
 
+It also deploys every skill folder declared in the `machineSkills` roster
+(currently `new-product`, invoked as `/new-product`) to `~/.claude/skills/<name>/`,
+so those skills work from any directory, including an empty new-product folder.
+
 ### Project Setup
 
 1. Create directories:
