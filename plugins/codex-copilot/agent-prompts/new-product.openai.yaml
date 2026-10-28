@@ -1,0 +1,7 @@
+interface:
+  display_name: "New Product"
+  short_description: "Facilitated zero-to-one product definition from an empty folder"
+  default_prompt: "Use $new-product to start or resume a product design package in the current directory."
+
+policy:
+  allow_implicit_invocation: false

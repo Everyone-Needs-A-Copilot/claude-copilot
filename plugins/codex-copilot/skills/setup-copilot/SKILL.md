@@ -9,7 +9,7 @@ Verify shared Copilot tooling.
 
 ## Workflow
 
-1. Verify Python, `cc`, and `tc`.
+1. Verify Python 3.10 or newer (`cc` and `tc` require it; macOS system `python3` may be 3.9), `cc`, and `tc`.
 2. Confirm `cc` resolves to the Copilot CLI, not the system C compiler.
 3. Confirm `cc docs sources` works for Live Docs capability.
 4. Confirm `tc` supports required commands.

@@ -113,6 +113,8 @@ Checkpoint stages:
 - after `uids`
 - after `ta` when the plan materially shapes implementation
 
+Design-flow checkpoints (`sd`, `uxd`, `uids`, and PRD or design approval) require explicit user approval: there is no auto-proceed. Everywhere else, when there is no real decision, state the outcome and proceed.
+
 Each checkpoint follows `references/checkpoints.md`: outcome first, only real decision-specific options, and no evidence inventory. Include soul, architecture, QA, or next-step context only when it changes the decision.
 
 ## Main-session pattern

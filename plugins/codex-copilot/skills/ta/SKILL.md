@@ -31,7 +31,7 @@ Read only taste rules whose lens includes this specialist and whose `Applies:` s
 
 ## Workflow
 
-0. Read `08-taste/INDEX.md` from the nearest `paths.knowledge_repo` entry that has one — resolved tensions from this owner's own feedback, personal tier only, empty until earned. Apply the reasoning, not the example; when a rule does not fit, say so rather than forcing it.
+0. Read `08-taste/TASTE.md` from the nearest `paths.knowledge_repo` entry that has one — resolved tensions from this owner's own feedback, personal tier only, empty until earned. Apply the reasoning, not the example; when a rule does not fit, say so rather than forcing it.
 
 1. Check task context with `tc task get <taskId> --json` when a task exists.
 2. Hydrate config with `eval "$($HOME/.local/bin/cc env)"` when `cc` is available.
