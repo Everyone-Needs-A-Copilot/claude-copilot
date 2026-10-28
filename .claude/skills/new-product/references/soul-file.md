@@ -17,7 +17,7 @@ The soul file is a **decision instrument**, not a vision statement. Its single j
 | Living — drafted, ratified, versioned | A one-time deliverable signed off and shelved |
 | A root-level artifact (`SOUL.md`) | A doc buried in `docs/` |
 
-The gold-standard reference for structure and voice is Convoco's `SOUL.md`. Study how every principle carries a *rejection test*, every anti-pattern is a *named* failure mode with early-warning phrases, and the Feature Filter has sequential gates plus a case-law table of real verdicts.
+A gold-standard `SOUL.md` has a clear structure and voice. Study how every principle carries a *rejection test*, every anti-pattern is a *named* failure mode with early-warning phrases, and the Feature Filter has sequential gates plus a case-law table of real verdicts.
 
 ---
 
