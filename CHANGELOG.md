@@ -1,5 +1,11 @@
 # Changelog
 
+## [5.28.1] - 2026-10-28
+
+### Fixed
+
+- **`$new-product` now reaches Codex.** The embedded Codex plugin under `plugins/codex-copilot` is refreshed byte-for-byte from codex-copilot v0.12.0 (it was 0.9.1 and lacked the `new-product` skill and its prompt). `/update-copilot` therefore delivers `$new-product` to Codex as well as `/new-product` to Claude. No other framework content changes.
+
 ## [5.28.0] - 2026-10-28
 
 ### Added
