@@ -40,6 +40,41 @@ Read these as the matching step comes up, not all at once.
 | After Phase 5: Soul RATIFY | Case law, founding decisions, principle priority order | `SOUL.md` updated to RATIFIED v1.0 before the prototype |
 | 6: Prototype | Figma, design spec, Storybook or Next.js, the user's choice | `docs/06-prototype/` plus the chosen output |
 
+## What the Skill Creates
+
+After setup in an empty folder, the project directory holds the template package, the tracker and (once Phase 2 is done) the soul file:
+
+```text
+SOUL.md                          # created after Phase 2 (DRAFT), ratified after Phase 5
+docs/
+  README.md
+  TODO-DESIGN-PACKAGE.md         # tracker and resume point
+  00-overview/                   # vision, scope, metrics
+  01-research/                   # interviews, JTBD, journeys, moments
+  02-service-design/             # service blueprint
+  03-requirements/               # stories, use cases, acceptance criteria
+  04-experience-design/          # UX, UI, copy and voice
+  05-design-challenge/           # creative brief
+  06-prototype/                  # guide for the chosen output
+```
+
+## Core Pattern
+
+Every facilitated document follows the same loop: read the facilitation comment, ask one round of questions, probe, synthesize in the user's words, read it back, update the tracker. GOOD: "So what I'm hearing is the pain starts when the handoff is unclear. Here is what I wrote; does it feel right?" BAD: "Please list your top five features."
+
+## Anti-Patterns
+
+Facilitation failure modes to avoid:
+
+- **Question dumping**: asking several questions at once. Ask one, then listen.
+- **Form filling**: treating the template as a questionnaire. Follow the user's energy and use the comment as a guide.
+- **Sanitizing**: rewriting answers into formal documentation language. Keep the user's words, numbers and anecdotes.
+- **Inventing**: filling a section the user never spoke to. Mark it `<!-- TODO: ... -->` and capture it as an unknown.
+- **Batch synthesis**: writing everything at the end. Fill sections as you go and read each back.
+- **Telling, not asking**: deciding what to build. Reflect what you heard and ask what it changes for the user.
+- **Skipping checkpoints**: starting Phase 3 without the soul DRAFT, or the prototype without an approved brief.
+- **Time estimates**: describing effort in hours or weeks. Use phase, priority and complexity.
+
 ## Define Done
 
 - [ ] Template package copied into `docs/` (and `SOUL.md` kept out of `docs/`)
@@ -97,7 +132,7 @@ Once the brief is approved, facilitate the soul RATIFY pass with `references/sou
 
 Read `references/prototype-outputs.md`. Help the user choose one of four outputs, check its prerequisites, read the matching guide in `docs/06-prototype/`, and build it from everything documented in Phases 1 to 5.
 
-## Quality Tests
+## Quality Checklist
 
 - [ ] Every completed document uses the user's own language, not generic template text
 - [ ] The forces map uses the Moments Framework (Push, Pull, Anxiety, Habit)

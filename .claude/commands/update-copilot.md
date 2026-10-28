@@ -120,36 +120,26 @@ mkdir -p ~/.claude/memory
 
 ## Step 7: Verify Global Commands and Skills
 
-The immutable runtime installer already deployed every command in
-`VERSION.json`'s `machineCommands` roster, and every skill folder in its
-`machineSkills` roster (installed to `~/.claude/skills/<name>/`), from the same
-source snapshot.
+The runtime installer already deployed all `machineCommands` and
+`machineSkills` (`~/.claude/skills/<name>/`) from one snapshot.
 
 ```bash
 python3 - <<'PY'
-import hashlib
-import json
+import hashlib, json
 from pathlib import Path
 
-active = json.loads((Path.home() / ".copilot/framework-runtime.json").read_text())
-missing = [
-    item["name"]
-    for item in active["machine_commands"]
-    if not (Path.home() / ".claude/commands" / item["name"]).is_file()
-]
-if missing:
-    raise SystemExit("Missing global commands: " + ", ".join(missing))
-print(f"Verified {len(active['machine_commands'])} global commands")
-
-skills_missing = []
-for skill in active.get("machine_skills", []):
-    for relative, digest in skill["files"].items():
-        path = Path.home() / ".claude/skills" / skill["name"] / relative
-        if not path.is_file() or hashlib.sha256(path.read_bytes()).hexdigest() != digest:
-            skills_missing.append(f"{skill['name']}/{relative}")
-if skills_missing:
-    raise SystemExit("Missing or changed global skill files: " + ", ".join(skills_missing))
-print(f"Verified {len(active.get('machine_skills', []))} global skills")
+h = Path.home()
+active = json.loads((h / ".copilot/framework-runtime.json").read_text())
+bad = [i["name"] for i in active["machine_commands"]
+       if not (h / ".claude/commands" / i["name"]).is_file()]
+for s in active.get("machine_skills", []):
+    for rel, digest in s["files"].items():
+        f = h / ".claude/skills" / s["name"] / rel
+        if not f.is_file() or hashlib.sha256(f.read_bytes()).hexdigest() != digest:
+            bad.append(f"{s['name']}/{rel}")
+if bad:
+    raise SystemExit("Missing/changed: " + ", ".join(bad))
+print("Verified")
 PY
 ```
 
