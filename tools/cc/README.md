@@ -115,6 +115,12 @@ Scope defaults to `project` when inside a git repo, otherwise `global`.
 
 ---
 
+### Rules and weekly priorities
+
+`cc rule add --text "<rule>" [--destination global|framework|project|memory] (--replaces "<substring>" | --section "<heading>") [--file PATH] [--date YYYY-MM-DD] [--dry-run] [--json]` puts a correction where it belongs as a rewrite rather than an appended exception: `--replaces` rewrites the single line containing the substring (keeping its bullet), `--section` inserts the line as the last bullet under that `## ` heading, and giving neither is an error because appending at the end of a rulebook is not allowed. Global writes `~/.claude/CLAUDE.md`, project writes `./CLAUDE.md`, framework needs `--file` (relative to `paths.claude_copilot_root`, falling back to `~/.claude/copilot`), and memory stores a `lesson` entry. Every rule ends with `(YYYY-MM-DD)` unless the text already does, and each write is appended to `~/.claude/cc/rules-log.jsonl`. `cc rule list [--since YYYY-MM-DD] [--json]` prints that log, and `cc rule propose --text "<correction>"` recommends a destination from the placement test (fact to memory, process step to a framework or project mechanism, otherwise judgment to global or project); it is a proposal, not an enforcement.
+
+`cc priorities [--week YYYY-MM-DD] [--json]` reads every project's `.copilot/tasks.db` read-only (scanning `/Volumes/Dev/Sites/{CSE,COPILOT,PERSONAL,TSM}/*`, skipping worktrees, or the colon-separated `CC_PROJECT_ROOTS`) and prints this week's three outcomes, what can proceed without you, what should wait (open tasks under PRDs quiet for 14+ days), and what information is missing. A next action is the highest-priority open task whose dependencies are all completed; it is blocked on the owner when its status is blocked, its text says DECISION NEEDED, approval or approve, or its metadata says `awaiting: owner`. It creates nothing and gives no time estimates.
+
 ### Skills
 
 Discover and inspect `SKILL.md` files from project and machine skill directories.
