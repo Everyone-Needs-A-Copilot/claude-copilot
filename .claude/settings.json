@@ -71,6 +71,25 @@
           }
         ]
       }
+    ],
+    "PreCompact": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"$(git rev-parse --show-toplevel)/.claude/hooks/pre-compact-handoff.sh\""
+          }
+        ]
+      },
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"$CLAUDE_PROJECT_DIR/.claude/hooks/copilot-hook.sh\" pre-compact-handoff",
+            "_copilot_source": "claude-copilot"
+          }
+        ]
+      }
     ]
   }
 }

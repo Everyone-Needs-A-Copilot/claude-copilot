@@ -13,6 +13,7 @@ The hooks system provides lifecycle-based injection and enforcement for the main
 | `pretool-check.sh` | PreToolUse | Path-scope lock `/freeze` | Mandatory — exit 2 |
 | `subagent-stop.sh` | SubagentStop | QA gate state manager | Mandatory state write |
 | `user-prompt-submit.sh` | UserPromptSubmit | Session length cap (500 / 750 turns) | Advisory — systemMessage |
+| `pre-compact-handoff.sh` | PreCompact | Writes a handoff file before compaction | Advisory — never blocks, exit 0 |
 | `session-start.json` | SessionStart | Protocol injection | Advisory |
 
 ### Configuration
@@ -59,6 +60,7 @@ There are four hook types:
 2. **PreToolUse Hook** - Stateful dispatcher for enforcement rules (force-delegate, QA gate, security checks)
 3. **SubagentStop Hook** - QA gate state manager
 4. **UserPromptSubmit Hook** - Session length cap advisory at 500/750 turns
+5. **PreCompact Hook** - Handoff file written before compaction
 
 ---
 
@@ -160,6 +162,15 @@ Consider:
 ### Advisory Text (750 turns)
 
 Stronger language noting that the force-delegate hook and QA gate may receive incomplete context in very long sessions.
+
+---
+
+## PreCompact Hook — Handoff Before Compaction
+
+**File:** `.claude/hooks/pre-compact-handoff.sh`
+**Config:** `.claude/settings.json` → `hooks.PreCompact` (installed in projects by `cc settings-hook add`, dispatched as `copilot-hook.sh pre-compact-handoff`)
+
+Before Claude Code compacts the context, this hook writes `.copilot/handoffs/<YYYYMMDD-HHMMSS>-<session8>.md` in the project at the payload's `cwd`, in the work-lifecycle handoff shape: a Kickoff line, Outcome being pursued, Verified, Governing decisions, Remaining, Evidence, and the owner's last three messages from the transcript. The task is the in-progress task whose newest log entry carries the session id, else the most recently updated in-progress task, else none (the file is still written with the owner messages and transcript path). Verified comes from the newest QA work product's CRITERION and VERDICT lines and its last ARTIFACT line; Remaining lists contract criteria without an approved CRITERION line plus open dependent tasks. When a task exists the file is also stored with `tc wp store --type handoff`. The hook always exits 0, reports the file on stderr, fails open on every error, and `COPILOT_PRE_COMPACT=off` skips it. Test: `bash tests/hooks/test-pre-compact-handoff.sh`.
 
 ---
 

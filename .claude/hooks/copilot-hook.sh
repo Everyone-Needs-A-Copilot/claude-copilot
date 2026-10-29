@@ -15,7 +15,7 @@
 #   core/ecosystem/mutations.py's DEFAULT_HOOK_ENTRIES):
 #   bash "$CLAUDE_PROJECT_DIR/.claude/hooks/copilot-hook.sh" <event-name>
 #   <event-name> is one of: session-start | pretool-check | subagent-stop
-#                            | user-prompt-submit
+#                            | user-prompt-submit | pre-compact-handoff
 #   stdin (the harness's JSON payload) is passed through untouched on the
 #   happy path — this script never buffers or reparses it unless the
 #   global install cannot be reached (see below).

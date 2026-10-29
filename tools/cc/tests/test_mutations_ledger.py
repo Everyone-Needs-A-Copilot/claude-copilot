@@ -460,3 +460,9 @@ def test_hook_entry_spec_as_dict_round_trips_the_fingerprint():
     data = entry.as_dict()
     assert data["spec_fingerprint"] == entry.fingerprint()
     assert data["event"] == "PreToolUse"
+
+
+def test_default_entries_install_pre_compact_handoff():
+    merged, _ = merge_hook_entries({}, DEFAULT_HOOK_ENTRIES, source="claude-copilot")
+    commands = [h["command"] for g in merged["hooks"]["PreCompact"] for h in g["hooks"]]
+    assert commands == ['bash "$CLAUDE_PROJECT_DIR/.claude/hooks/copilot-hook.sh" pre-compact-handoff']

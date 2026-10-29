@@ -49,7 +49,8 @@ jobs:
       - name: Run remaining hook suites
         run: |
           chmod +x ./tests/hooks/test-shim-e2e.sh ./tests/hooks/test-qa-gate-integration.sh \
-            ./tests/hooks/test-subagent-stop.sh ./tests/hooks/test-user-prompt-submit.sh
+            ./tests/hooks/test-subagent-stop.sh ./tests/hooks/test-user-prompt-submit.sh \
+            ./tests/hooks/test-pre-compact-handoff.sh
           # End-to-end proof that a project vendored with ONLY the shim (no
           # rule scripts) still gets enforcement, by delegating to the real
           # global hook install.
@@ -62,6 +63,9 @@ jobs:
           # Session-turn-cap advisory thresholds, staleness pruning, and
           # concurrent-write safety.
           ./tests/hooks/test-user-prompt-submit.sh
+          # PreCompact handoff file shape, task selection, stored handoff WP,
+          # and fail-open exit 0 on empty or malformed input.
+          ./tests/hooks/test-pre-compact-handoff.sh
 
       - name: Run fitness functions (FF1-FF9)
         run: |

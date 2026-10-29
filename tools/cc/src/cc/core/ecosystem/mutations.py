@@ -154,6 +154,11 @@ DEFAULT_HOOK_ENTRIES = (
         "",
         'bash "$CLAUDE_PROJECT_DIR/.claude/hooks/copilot-hook.sh" user-prompt-submit',
     ),
+    HookEntrySpec(
+        "PreCompact",
+        "",
+        'bash "$CLAUDE_PROJECT_DIR/.claude/hooks/copilot-hook.sh" pre-compact-handoff',
+    ),
 )
 
 

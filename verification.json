@@ -117,6 +117,16 @@
       "timeoutSeconds": 60,
       "inputs": ["tests/hooks", ".claude/hooks", "tools/tc/src"],
       "hermetic": false
+    },
+    {
+      "id": "pre-compact-handoff",
+      "description": "Exercise the PreCompact handoff hook against a real tc database and fake transcript.",
+      "paths": ["tests/hooks/test-pre-compact-handoff.sh"],
+      "argv": ["bash", "tests/hooks/test-pre-compact-handoff.sh"],
+      "cwd": ".",
+      "timeoutSeconds": 60,
+      "inputs": ["tests/hooks", ".claude/hooks", "tools/tc/src"],
+      "hermetic": false
     }
   ]
 }
