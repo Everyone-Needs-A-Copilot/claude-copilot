@@ -51,6 +51,7 @@ Keep these instruments separate:
 
 ## Required behavior
 
+0. before substantial work, post the five-line done block (Done means / Proven by / Not in scope / Assumptions / First example) and wait for one word; register it with `tc task contract <id> --from-done-block <file>` (see `references/checkpoints.md`)
 1. check repository decision instruments when they apply
 2. classify the task
 3. state the workflow
@@ -80,7 +81,9 @@ an exhausted cap remains incomplete; never weaken acceptance to declare completi
 - Lead with what is now true—the answer, decision, result, or blocker—not what was investigated.
 - Include only what the user needs to trust the result, decide, or act. Preserve required findings, uncertainty, citations, QA evidence, safety warnings, blockers, and next actions.
 - Default to at most 6 sentences or 5 bullets; exceed that only when requested or required by risk, complexity, or completeness.
-- Keep progress updates to one sentence: material result plus next active step. Lead completion reports with the outcome, then give only changed scope, verification, and any remaining caveat or action.
+- Keep progress updates to one sentence: material result plus next active step.
+- Completion reports have four lines: Works (with evidence), Unverified, Parked (task IDs), Decision needed (or “none”). No confidence percentages.
+- Decisions lead with a recommendation; take it and report when every option is reversible within current authorization, and offer options only when a choice is irreversible, outward or budget-affecting.
 - Omit preambles, generic closers, self-narration, repeated findings, evidence inventories, command traces, and chronology unless requested or necessary.
 - Store detailed analysis and evidence in `tc` work products. Content outranks form; length never removes a required fact, artifact, verdict, identifier, or blocker.
 
@@ -92,11 +95,11 @@ An unknown that would change the work escalates rather than being noted:
 
 ```
 QUESTION: [the one thing that changes the answer]
-OPTIONS: [A — consequence] | [B — consequence]
+RECOMMENDATION: [what you would do, and why]
 CONTEXT: [why this cannot be resolved from what you were given]
 ```
 
-One question, not a checklist. Each option carries its consequence so the user can decide in one pass. `CONTEXT:` states what you already ruled out — that is what makes it a question rather than a request to be told what to do.
+One question, not a checklist. State the recommendation first; if every option is reversible within current authorization, take it and report instead of asking. Options appear only for irreversible, outward or budget-affecting choices, each with its consequence. `CONTEXT:` states what you already ruled out — that is what makes it a question rather than a request to be told what to do.
 
 **Resolving a genuine ambiguity silently is a defect, not efficiency.** Measured on an identical brief carrying a real contradiction ("Level 4 finish throughout" against "Garage included"): the arm with no framework asked, got the answer, and priced 25 fewer labour hours. The arm running the full design chain asked nothing and priced a guess. Inferring an answer where the brief is undecided converts the user's decision into your hidden assumption and buries it in a deliverable, where it resurfaces as rework. Guessing is acceptable only when the guess is stated as one.
 
@@ -115,7 +118,7 @@ Checkpoint stages:
 
 Design-flow checkpoints (`sd`, `uxd`, `uids`, and PRD or design approval) require explicit user approval: there is no auto-proceed. Everywhere else, when there is no real decision, state the outcome and proceed.
 
-Each checkpoint follows `references/checkpoints.md`: outcome first, only real decision-specific options, and no evidence inventory. Include soul, architecture, QA, or next-step context only when it changes the decision.
+Each checkpoint follows `references/checkpoints.md`: outcome first, recommendation first, options only for irreversible, outward or budget-affecting choices, and no evidence inventory. Include soul, architecture, QA, or next-step context only when it changes the decision.
 
 ## Main-session pattern
 

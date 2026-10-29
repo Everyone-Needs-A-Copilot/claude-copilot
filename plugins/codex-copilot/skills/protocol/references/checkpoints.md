@@ -13,27 +13,39 @@ Typical checkpoint points:
 
 ## What to include
 
-Use this shape when the user must make a real decision:
+Lead with the recommendation. Use this shape when the user must make a real decision:
 
 ```text
 [One headline sentence: what is now true, not what was investigated.]
-[At most 2–3 more sentences, only when the decision is unintelligible without them.]
-
-1. [Decision-specific option, stated as the outcome it produces.]
-2. [Decision-specific option.]
-3. [Decision-specific option, only when real.]
-
-Which one?
+Recommendation: [what you would do and why, in one sentence.]
+[Design-flow checkpoint only: “Approve to continue?” Otherwise a one-sentence question, only if the choice is irreversible, outward or budget-affecting.]
 
 Task: TASK-xxx | WP: WP-xxx
 ```
 
-- Put 2–3 numbered, decision-specific options immediately before a question of at most 4 words, normally “Which one?”
-- Do not print generic standing options such as change, back, skip, or show the work product.
+- State the recommendation first. If every option is reversible within current authorization, take the recommendation and report it instead of asking.
+- Design-flow checkpoints (after service, UX and UI design, and PRD or design approval) keep explicit approval: ask one approval sentence and wait.
+- Offer a short list of outcome-stated options only when the choice is irreversible, outward or budget-affecting. Never print generic standing options such as change, back, skip, or show the work product.
 - Put Task/WP metadata on one trailing line, never before the outcome.
 - If there is no real decision, state the outcome and proceed without options or an approval question.
 - Include soul, architecture, design-fidelity, QA, or next-step context only when it changes the decision.
 - Keep evidence, findings, and file traces in the work product unless one is necessary to understand the decision.
+
+## Done block and example first
+
+Before substantial work, post the five-line done block and wait for one word from the owner:
+
+```text
+Done means: [the outcome the owner will see]
+Proven by: [the check that shows it]
+Not in scope: [what this will not touch]
+Assumptions: [at most three, each with how it is checked]
+First example: [the one populated instance built first]
+```
+
+The confirmed block becomes the task contract: `tc task contract <id> --from-done-block <file>`. When the work builds a collection, workflow family, integration or asset family, build one populated first example with real content (one journey; one narrative section; one item through the real path; one record plus one exception; one device and an observed action), show it, apply the correction, then expand.
+
+When subagents are requested, run at most three concurrently unless the done block says otherwise, close each when its piece is done, and run one QA pass per batch.
 
 ## Approval and decision requests
 

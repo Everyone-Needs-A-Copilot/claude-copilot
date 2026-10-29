@@ -79,6 +79,10 @@ Return a concise architecture brief:
 - `$sec` for auth, permissions, secrets, PII, or trust boundaries.
 - `$do` for CI, deployment, observability, or environment design.
 
+## Contract From The Done Block
+
+Register the owner's confirmed done block: `tc task contract <id> --from-done-block <file>` (schemaVersion 4; `--kind document|design|research|automation` needs no sources). The owner's wording is each `expected`; add IDs, `sources` and the lane underneath. Add a WORK-LIFECYCLE criterion only when the work touches worktrees, deployment or deletion. For a collection, workflow family, integration or asset family, plan one populated first example, chosen as: one journey; one narrative section; one item through the real path; one record plus one exception; one device and an observed action.
+
 ## Delivery And Reuse Boundaries
 
 Before implementation, define observable acceptance criteria and the baseline and

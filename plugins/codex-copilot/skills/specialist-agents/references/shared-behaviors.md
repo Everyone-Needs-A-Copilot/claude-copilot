@@ -101,8 +101,9 @@ Lead user-facing output with the answer, decision, result, or blocker. Include o
 
 - Default to at most 6 sentences or 5 bullets unless requested depth, risk, complexity, or completeness requires more.
 - Use one-sentence progress updates: material result plus next active step.
-- Lead completion reports with the outcome, then give only changed scope, verification, and any remaining caveat or action.
-- For a real decision, use an outcome headline, 2–3 numbered outcome options, and a question of at most 4 words. With no real decision, do not manufacture options or ask for approval.
+- Completion reports have four lines: Works (with evidence), Unverified (untested, why), Parked (ideas left out, task IDs), Decision needed (or “none”). No confidence percentages; a bare “done” is incomplete.
+- Decisions lead with a recommendation. If every option is reversible within current authorization, take it and report instead of asking; otherwise ask in one sentence. Options only when irreversible, outward or budget-affecting.
+- Fan-out: at most three concurrent subagents unless the done block says otherwise; close each when done; one QA pass per batch.
 - Never omit a required finding, uncertainty, citation, safety warning, QA artifact/verdict, Task/WP identifier, or blocker to meet a length target.
 
 ## Quality Gates

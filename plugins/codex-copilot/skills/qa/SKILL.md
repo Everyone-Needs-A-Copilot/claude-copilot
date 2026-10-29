@@ -119,8 +119,12 @@ IDENTITY: <checkout/revision + dirty fingerprint; runtime/config/server/data>
 BASELINE: <before artifact and identity, or unavailable + reason>
 ARTIFACT: <accepted type>|<local artifact or failable command + exit/result>
 UNTESTED: <required cases not exercised, or none>
+LANE: <agreed lane command(s); elapsed vs cap>
+OUTSIDE LANE: <any check run outside the agreed lane + reason, or none>
 VERDICT: <supported QA verdict>
 ```
+
+Report every registered criterion ID in the packet; a missing ID is a gap, not a pass. For a contract that carries a lane, the `LANE:` line stays within its cap and each `OUTSIDE LANE:` entry names a reason.
 
 Artifact existence, playable media and build success do not establish behavioral
 correctness. A stale artifact, wrong test environment, failed criterion or untested

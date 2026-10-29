@@ -24,7 +24,7 @@ A reusable lesson states **applicability → failure → changed decision/check 
 
 ## Pause or handoff
 
-Preserve tested identity, approvals, failed criteria, charged usage, pending work, artifact locations and next owner/action in the existing record, retaining authoritative journey/run capsules. Distinguish awaiting results, idle, stale, blocked and complete. A live process is not progress; pausing is not acceptance. The incoming coordinator reconciles handoff against live state, including pending cleanup approval.
+Open every handoff with a one-line kickoff the owner can paste to resume ("Read this and continue from <step>"), then the outcome pursued, what is verified, governing decisions, what remains and where the evidence is. Preserve tested identity, approvals, failed criteria, charged usage, pending work, artifact locations and next owner/action in the existing record, retaining authoritative journey/run capsules. Distinguish awaiting results, idle, stale, blocked and complete. A live process is not progress; pausing is not acceptance. The incoming coordinator reconciles handoff against live state, including pending cleanup approval.
 
 ## Finish and clean up
 

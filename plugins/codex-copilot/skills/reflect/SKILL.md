@@ -14,6 +14,10 @@ Capture durable learning from completed work.
 3. Update the existing maintained narrative with source, applicability, corrective decision/check, outcome and counterexample or uncertainty; memory holds a deduplicated pointer when useful.
 4. Reference that record from the existing task work product. Distinguish recorded, applied and measured learning; do not create a second retrospective merely to satisfy this checkpoint.
 
+## Weekly Sweep (2026-10-29)
+
+Weekly, list this week's corrections (`cc memory list --type lesson --json`, `cc rule list --since <7 days ago>`) and propose which become rules (`cc rule add`), which are one-offs, and which contradict an existing rule. Propose deletions too; the sweep may not net-add rules. Pick the memory type by what changed: a wrong process (`lesson`), a project fact (`context`), a revised choice (`decision`) or an external fact (`reference`).
+
 ## Output
 
 - decisions stored

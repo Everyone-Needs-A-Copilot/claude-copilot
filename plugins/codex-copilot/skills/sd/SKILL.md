@@ -14,6 +14,7 @@ Use this skill to shape software as a service experience before screens or code.
 - Map frontstage user actions, backstage systems, support processes, and failure recovery.
 - Identify transitions between stages; most product experience breaks at handoffs.
 - Produce options with tradeoffs instead of a single assumed solution.
+- For collections or families, design one populated first example with real content (one journey; one narrative section; one item through the real path; one record plus one exception; one device and an observed action), show it, then expand.
 
 ## Taste Applicability
 

@@ -25,6 +25,7 @@ Source: the collaboration review at `docs/collaboration-reviews/2026-10-29-gap-p
 - **Protocol consolidation.** The four flows in use (experience, defect, infrastructure, technical) stay in `protocol.md`; the clarification, critique, skip-warning and knowledge-check flows move verbatim to `.claude/commands/_archive/protocol-flows-archived.md` with restore notes (1,122 to 950 lines).
 - **One test-weakening rule.** The verification policy's never-weaken rule and its obsolete-check exception are now one rule in one place, re-embedded in `me` and `qa`.
 - **Output contract.** Re-embedded in every agent.
+- **Embedded Codex plugin.** The embedded Codex plugin under `plugins/codex-copilot` is refreshed byte-for-byte to codex-copilot 0.13.0.
 - Component versions: cc 2.15.1 to 2.16.0, tc 2.9.0 to 2.10.0, agents 5.11.2 to 5.12.0, commands 5.8.1 to 5.9.0.
 
 ## [5.28.1] - 2026-10-28
