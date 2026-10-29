@@ -16,7 +16,7 @@ Claude Code guidance for the Claude Copilot framework.
 | Avoid reading >8 files directly | Delegate to framework agent | Hook: force-delegate (output + file budget) |
 | Keep responses short | Store details via `tc wp store` | Advisory |
 
-**Mechanical enforcement:** The force-delegate rule, QA-gate rule, session-cap advisory, and safety primitives are enforced by hooks in `.claude/hooks/` — not just policy. Past a measured output or distinct-file budget, main-session tool calls are blocked until you delegate or `/compact`. After `@agent-me` completes, all main-session tools are gated until `@agent-qa` provides a pass verdict. **Safety primitives:** `/careful` (destructive-command block/warn via `security-rules.json`) and `/freeze` (edit-boundary lock via `.claude/hooks/state/.freeze`) — escape hatches: `COPILOT_CAREFUL=off`, `COPILOT_FREEZE=off`, `COPILOT_SAFETY=off`. See `.claude/hooks/README.md` for escape hatches and debug tools.
+**Mechanical enforcement:** The force-delegate rule, QA-gate rule, session-cap advisory, and safety primitives are enforced by hooks in `.claude/hooks/` — not just policy. Past a measured output or distinct-file budget, main-session tool calls are blocked until you delegate or `/compact`. After `@agent-me` completes, all main-session tools are gated until `@agent-qa` provides a pass verdict. **Safety primitives:** `/careful` (destructive-command block/warn via `security-rules.json`) and `/freeze` (edit-boundary lock via `.claude/hooks/state/.freeze`). Escape hatches and debug tools: `.claude/hooks/README.md`.
 
 **Framework agents:** ta, me, qa, do, doc, sd · design chain sd→uxd→uids→uid→ta→me · branches ind/cco/cw · sec · business cs/cpa (15 framework agents; kc is setup-only; `design` retired). Roster is the authoritative list in `.claude/agents/manifest.json`.
 
@@ -24,15 +24,15 @@ Claude Code guidance for the Claude Copilot framework.
 
 ## Output Contract
 
-Canonical source: `.claude/agents/_shared/output-contract.md` (outcome first, proportional depth, real decisions only — content always outranks form). Embedded byte-for-byte in every agent `.md` and in `.claude/commands/protocol.md`; every other command and the main session inherit it from this file rather than duplicating it, since CLAUDE.md is always loaded.
+Canonical source: `.claude/agents/_shared/output-contract.md` (outcome first, proportional depth — content always outranks form). Embedded byte-for-byte in every agent `.md` and `.claude/commands/protocol.md`; the main session and other commands inherit it from this file.
 
-**Two registers:** user-facing output (main-session replies, checkpoint summaries, command reports) gets the full contract; agent-to-agent handoffs and stored work products (`tc wp store`, `cc memory store`, QA `ARTIFACT:`/`VERDICT:` lines, Task/WP IDs) stay precision-over-readability and are exempt from its vocabulary/length rules.
+**Two registers:** user-facing output (main-session replies, checkpoint summaries, command reports) gets the full contract; agent-to-agent handoffs and stored work products (work products, memory, QA `ARTIFACT:`/`VERDICT:` lines, Task/WP IDs) stay precision-over-readability and are exempt from its vocabulary/length rules.
 
 **Configurable at setup** (`/setup` machine-wide, overridable per project with `--project`):
 - `cc config set output.verbosity <concise|standard|detailed>` — default `concise` if unset.
 - `cc config set output.audience <plain|technical>` — default `plain` if unset.
 
-Read via `eval "$(cc env)"` as `$CC_OUTPUT_VERBOSITY` / `$CC_OUTPUT_AUDIENCE` — already step 2 of every agent's Workflow, so no extra hydration step is needed.
+Read via `eval "$(cc env)"` as `$CC_OUTPUT_VERBOSITY` / `$CC_OUTPUT_AUDIENCE`.
 
 ---
 
@@ -47,11 +47,6 @@ Read via `eval "$(cc env)"` as `$CC_OUTPUT_VERBOSITY` / `$CC_OUTPUT_AUDIENCE` �
 | Manual skill management | Auto-fire from trigger-rich `description`; `cc skill search` as fallback | **Skills** |
 | Context bloat from agents | Ephemeral task/work product storage | **Task Copilot** |
 | Inconsistent processes | Battle-tested workflows | **Protocol** |
-
-Memory preserves context/decisions/lessons across sessions; Protocol invokes
-specialists per session. Skills auto-fire on demand for reusable patterns/scripts;
-`tc` stores PRDs/tasks/work products per initiative. Commands are manual session
-shortcuts; extensions automatically apply permanent team standards/methodologies.
 
 ---
 
@@ -174,6 +169,8 @@ Battle-tested workflow commands.
 
 ## Agent Routing
 
+Fan-out: at most three concurrent subagents unless the done block says otherwise; close each when its piece is done; one QA pass per batch rather than per step. (2026-10-29)
+
 | From | Routes To | When |
 |------|-----------|------|
 | Any | `ta` | Architecture decisions |
@@ -195,6 +192,10 @@ Battle-tested workflow commands.
 
 ## Specification Workflow
 
+**Done block (2026-10-29).** Before substantial work, in or out of `/protocol`, post five short lines (Done means / Proven by / Not in scope / Assumptions / First example) and wait for one word from the owner; the confirmed block becomes the task contract (`tc task contract <id> --from-done-block <file>`).
+
+**Make this a rule (2026-10-29).** When the owner says "make this a rule", propose the destination (global CLAUDE.md, framework file, project CLAUDE.md or memory), rewrite the current rule rather than append an exception, and report where it went; the command is `cc rule add`.
+
 Domain agents (sd, ind, uxd, uids, cco, cw) **MUST NOT create tasks directly**. They create specification work products (`type: 'specification'`) and route to @agent-ta. TA discovers all specifications via `tc wp list`, reviews them, and creates tasks with `metadata.sourceSpecifications` linking back to each spec.
 
 ---
@@ -215,36 +216,31 @@ Start/resume/new PRD/initiative/finish/merge/pause/handoff: apply `.claude/agent
 
 ## Agent Shared Behaviors
 
-All agents inherit these. Individual agent files should NOT repeat them.
+All agents inherit these; agent files must not repeat them.
 
 - **Env Hydration:** Run `eval "$(cc env)"` at start to hydrate `CC_SHARED_DOCS`, `CC_KNOWLEDGE_REPO`, and other machine-level paths
-- **Skill Discovery:** Auto-fire from `description`; if needed skills did not surface, `cc skill search "<topic>"` (case-insensitive substring over name/description/tags), then `@include` the returned path. No normal search or `evaluate` step: skills are model-readable markdown.
-- **Live Docs:** Before planning/coding against version-sensitive third-party APIs, use `cc docs get <pkg>`, not API memory. `cc docs resolve <pkg>` identifies the installed version; `cc docs search <pkg> "<query>"` searches it. Local-first/offline/headless; self-owned network fallback requires optional `httpx`.
+- **Skill Discovery:** Auto-fire from `description`; if needed skills did not surface, `cc skill search "<topic>"`, then `@include` the returned path.
+- **Live Docs:** Before planning/coding against version-sensitive third-party APIs, use `cc docs get <pkg>`, not API memory. `cc docs resolve <pkg>` identifies the installed version; `cc docs search <pkg> "<query>"` searches it.
 - **Memory — Recall at start:** Run `cc memory search "<task topic>"` to recall prior decisions, lessons, and context relevant to the current task.
 - **Memory — Selective pointers:** Keep decisions/lessons in canonical task records and narratives; add `cc memory` locators only for useful retrieval, never duplicate session prose.
 - **Memory commands:** `cc memory store`, `cc memory search`, `cc memory get`, `cc memory list`, `cc memory export` (not MCP `memory_store`/`memory_search`)
 - **Task Copilot Pattern:** `tc task get` → do work → `tc wp store` → `tc task update --status completed`
 - **Code-Execution Path:** For ≥3 related operations, prefer one `python3` Bash block using `tc.api` or `cc.api`; print only the needed summary, avoiding repeated CLI JSON payloads.
-  - tc-only block: `from tc.api import create_prd, create_task, add_dependency, transaction`
-  - cc-only block: `from cc.api import memory_store, memory_search, memory_list`
-  - Separate environments: ONE tool per block. Keep CLI for single operations.
-  - Usage: `tools/tc/README.md`, `tools/cc/README.md`.
-- **Iteration Loop:** Self-manage iterations (max from frontmatter). Pass → complete. Blocked → emit `<promise>BLOCKED</promise>`. Confused → emit `<promise>CONFUSED</promise>` (see Confused Loop-State). Else → iterate.
+  - One tool per block (`from tc.api import create_prd, create_task, add_dependency, transaction` or `from cc.api import memory_store, memory_search, memory_list`); CLI for single operations. Usage: `tools/tc/README.md`, `tools/cc/README.md`.
+- **Iteration Loop:** Self-manage iterations (max from frontmatter). Pass → complete. Blocked → emit `<promise>BLOCKED</promise>`. Confused → emit `<promise>CONFUSED</promise>`. Else → iterate.
 - **Confused Loop-State:** When mid-task you hit a genuine decision fork that only the user can resolve, emit `<promise>CONFUSED</promise>` and record loop-state in a fenced block immediately after the promise tag:
   ```
   QUESTION: <one clear question — what decision must be made>
-  OPTIONS:
-  - A: <option description>
-  - B: <option description>
-  CONTEXT: <why the choice matters — consequences of each option>
+  RECOMMENDATION: <what you would do, and why>
+  CONTEXT: <why the choice matters — consequences of each path>
   ```
-  Never guess: suspend until the user answers, then resume. CONFUSED needs user judgment; BLOCKED means a technical blocker or unmet external prerequisite.
+  State the recommendation first. If every option is reversible within current authorization, take the recommendation and report it instead of asking. Otherwise ask in one sentence. Options only for irreversible, outward or budget-affecting choices. Suspend until the user answers, then resume. CONFUSED needs user judgment; BLOCKED means a technical blocker or unmet external prerequisite. (2026-10-29)
 - **Return Format:** Return ONLY ~100 tokens to main session. Store all details via `tc wp store`.
 - **Context Compaction:** If response exceeds ~14K tokens, store as work product and return summary only.
 - **Knowledge:** Run `cc memory search "<voice/brand query>"` for user-facing features. Never block work for missing knowledge.
 - **Specification Workflow:** Domain agents (sd, ind, uxd, uids, cco, cw) store as `type: 'specification'`, route to @agent-ta.
 - **Multi-Agent Handoff:** Intermediate agents: `tc handoff` then route to next agent. Final agent: `tc log --task <id>`, return consolidated summary.
-- **Testing Gate (MANDATORY):** @agent-me is NEVER final. After implementation, @agent-qa MUST run tests and include an `ARTIFACT: <type>|<detail>` marker in its verdict (`test-run`, `file-check`, `diff-check`, or `adversarial-run`). A bare `VERDICT: APPROVED` with no ARTIFACT line will NOT unblock the gate. `adversarial-run` satisfies the artifact requirement on its own but is never a new mandatory requirement (it is availability-gated — see `.claude/hooks/bin/adversarial-pass.sh`). No implementation ships without QA. See `.claude/hooks/README.md` for the full verdict format.
+- **Testing Gate (MANDATORY):** @agent-me is NEVER final. After implementation, @agent-qa MUST run tests and include an `ARTIFACT: <type>|<detail>` marker in its verdict (`test-run`, `file-check`, `diff-check`, or `adversarial-run`). A bare `VERDICT: APPROVED` with no ARTIFACT line will NOT unblock the gate. `adversarial-run` satisfies the artifact requirement alone but is availability-gated (`.claude/hooks/bin/adversarial-pass.sh`). No implementation ships without QA; verdict format in `.claude/hooks/README.md`.
 - **Protocol Integration:** Output stage-complete summary with Task/WP IDs, key decisions, handoff context (200-char max).
 
 ---

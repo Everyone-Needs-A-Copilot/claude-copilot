@@ -284,6 +284,10 @@ Invoking @agent-do for deployment planning...
 
 **Design-flow checkpoints require explicit approval.** At these checkpoints (sd, uxd, uids, and PRD/design approval) there is no auto-proceed: the user must explicitly approve to continue. Everywhere else, when there is no real decision, state the outcome and proceed.
 
+### Done Block and Example First (2026-10-29)
+
+Before substantial work, post the five-line done block (Done means / Proven by / Not in scope / Assumptions, at most three, each with how it is checked / First example) and wait for one word; the confirmed block becomes the task contract (`tc task contract <id> --from-done-block <file>`). Flows that build a collection, workflow family, integration or asset family build one populated instance with real content, stop, show it, apply the correction, then expand. Run at most three concurrent subagents unless the done block says otherwise; close each when its piece is done; one QA pass per batch.
+
 ### Checkpoint Pattern
 
 After each design stage (sd, uxd, uids), present:
@@ -778,17 +782,10 @@ When routing to agents or making technical decisions, reference Constitution con
    Invoking @agent-qa for issue investigation...
 
 4. Wait for @agent-qa diagnosis checkpoint
-5. Present checkpoint: "Diagnosis complete. Proceed with fix?"
-6. User responds:
-   - Yes: Extract handoff context, invoke @agent-me
-   - No/More investigation: Re-invoke @agent-qa with feedback
-7. Wait for @agent-me fix checkpoint
-8. Present checkpoint: "Fix complete. Ready for verification?"
-9. User responds:
-   - Yes: Invoke @agent-qa for verification
-   - No/Show code: Run `tc wp get <id>`, re-present options
-10. Wait for @agent-qa verification
-11. Present verification results (no checkpoint needed - final stage)
+5. State the diagnosis in one sentence and invoke @agent-me with the handoff context (no menu)
+6. Wait for @agent-me fix, then invoke @agent-qa for verification
+7. Wait for @agent-qa verification
+8. Present verification results (no checkpoint needed - final stage)
 ```
 
 ### Orchestration Flow: Technical-Only (Flow C)
@@ -805,12 +802,8 @@ When routing to agents or making technical decisions, reference Constitution con
    Invoking @agent-ta for refactor planning...
 
 4. Wait for @agent-ta checkpoint
-5. Present checkpoint: "Refactor plan ready. Proceed with implementation?"
-6. User responds:
-   - Yes: Invoke @agent-me with task IDs
-   - No/Changes: Re-invoke @agent-ta with feedback
-   - Show details: Run `tc wp get <id>`, re-present options
-7. After @agent-me: Present completion summary (no checkpoint needed)
+5. State the plan outcome in one sentence and invoke @agent-me with task IDs (no menu)
+6. After @agent-me: Present completion summary (no checkpoint needed)
 ```
 
 ### Orchestration Flow: Clarification (Flow D)
@@ -819,19 +812,11 @@ When routing to agents or making technical decisions, reference Constitution con
 1. User: /protocol improve dashboard
 2. Main Session: Detect ambiguous intent
 3. Main Session: Show clarification request
-   [PROTOCOL: CLARIFYING | Action: ASKING]
+   [PROTOCOL: CLARIFYING | Action: RESPONDING]
 
    I detected an ambiguous request: "improve dashboard"
 
-   What type of improvement are you looking for?
-   1. User experience (redesign, new features, better flows) → Experience Flow
-   2. Technical (performance, code quality, architecture) → Technical Flow
-   3. Bug fix (something is broken) → Defect Flow
-   4. Not sure, help me decide
-
-4. User selects option [1-4]
-5. Route to Flow A, B, C, or E based on selection
-6. If option 4: Provide suggestions based on context, then let user choose
+   Recommended: <flow> because <reason>. Routing there now; say "technical" or "bug" to switch.
 ```
 
 ### Orchestration Flow: Infrastructure (Flow E)
@@ -848,21 +833,12 @@ When routing to agents or making technical decisions, reference Constitution con
    Invoking @agent-do for deployment planning...
 
 4. Wait for @agent-do planning checkpoint
-5. Present checkpoint: "Deployment plan ready. Proceed with implementation?"
-   Options:
-   - Yes: Extract handoff context, invoke @agent-me
-   - No/Changes: Re-invoke @agent-do with feedback
-   - Show details: Run `tc wp get <id>`, re-present options
-6. Wait for @agent-me implementation checkpoint (if code/config changes needed)
-7. Present checkpoint: "Changes implemented. Ready for deployment verification?"
-   Options:
-   - Yes: Invoke @agent-qa for verification
-   - No/Show changes: Run `tc wp get <id>`, re-present options
-   - Skip (no code changes needed): Invoke @agent-qa directly with do's plan
-8. Wait for @agent-qa verification
+5. State the plan outcome in one sentence and invoke @agent-me (no menu); ask before any deploy or other outward step, recommendation first, in one sentence
+6. Wait for @agent-me (skip when no code or config changes), then invoke @agent-qa with the plan
+7. Wait for @agent-qa verification
    - @agent-qa uses `tc deploy wait <app> --test <spec>` for deploy verification (Phase 3)
    - If tc deploy wait unavailable: @agent-qa verifies manually via health checks
-9. Present verification results (no checkpoint needed - final stage)
+8. Present verification results (no checkpoint needed - final stage)
 ```
 
 **Note on infra keyword precedence:** When a message contains both infra-specific keywords (deploy, staging, docker, ci, kubernetes) AND technical keywords (refactor, optimize), Flow E takes precedence. Pure technical keywords without infra context still route to Flow C.
@@ -1085,18 +1061,19 @@ Offer when relevant. Never block work.
 
 ## Output Contract
 
-BLUF: lead with the answer or finding. Content outranks form — this contract shapes HOW, never WHAT. Use plain English; depth follows substance, not effort.
+BLUF: lead with the answer or finding. Content outranks form — this contract shapes HOW, never WHAT. Use plain English.
 
-User-facing output follows this contract; handoffs, work products, QA markers and Task/WP IDs favor exactness, without length limits.
+Handoffs, work products, QA markers, Task/WP IDs favor exactness over brevity.
 
-- Keep what readers need to trust/decide/act: required findings, uncertainty, citations, QA evidence, safety warnings, blockers, next actions.
+- Keep what readers need to trust/decide/act: findings, uncertainty, citations, QA evidence, warnings, blockers, next actions.
 - Default ≤6 sentences or 5 bullets; exceed for requests/risk/complexity/completeness.
-- Decision: outcome → 2–3 numbered outcome options → ≤4-word question (usually "Which one?"). No generic options; no decision, no options/approval question.
-- Progress: one sentence, result + next step. Completion: outcome, scope, verification, remaining caveat/action.
-- Define necessary jargon once; lists only for scanning.
+- Decision: recommendation first. If all options are reversible within current authorization, take it and report instead; else ask in one sentence. Options only if irreversible, outward or budget-affecting.
+- Progress: one sentence, result, next step.
+- Completion, four lines: Works (with evidence), Unverified (untested, why), Parked (ideas left out, task IDs), Decision needed (or "none"). No confidence percentages; a bare "done" is incomplete.
+- Define jargon once; lists only for scanning.
 
-**Pre-send deletion pass:** cut preambles/closers, self-narration, repetition, unneeded evidence/command chronology, empty hedges; keep real uncertainty.
-**Verify before sending:** first sentence states the current answer/decision/result/blocker; needed decision/verification/caveat/action last.
+**Pre-send deletion pass:** cut preambles/closers, self-narration, repetition, chronology, empty hedges; keep real uncertainty.
+**Verify before sending:** first sentence states the answer/decision/result/blocker; needed caveat or action last.
 `$CC_OUTPUT_VERBOSITY` / `$CC_OUTPUT_AUDIENCE` relax length/vocabulary, never outcome-first.
 
 ## Acknowledge

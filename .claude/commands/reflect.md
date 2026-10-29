@@ -63,19 +63,15 @@ Reconcile these in the existing canonical record, retaining prior authority and 
 
 Update the canonical record first; store only useful memory pointers with source and applicability boundary:
 
+Pick the type by what changed: a wrong process (`lesson`), a project fact (`context`), a revised choice (`decision`) or an external fact (`reference`).
+
 ```bash
-# Process/technique that was wrong and is now corrected
 cc memory store --type lesson "Correction: <what was wrong> → <correct guidance>."
-
-# Factual correction about the project, codebase, or environment
-cc memory store --type context "<corrected fact about the project>."
-
-# Revised architectural or design decision
-cc memory store --type decision "<revised decision and rationale>."
-
-# Corrected external fact (API endpoint, library version, etc.)
-cc memory store --type reference "<corrected reference fact>."
 ```
+
+## Weekly Sweep (2026-10-29)
+
+Weekly, list this week's corrections (`cc memory list --type lesson --json`, `cc rule list --since <7 days ago>`) and propose which become rules (`cc rule add`), which are one-offs, and which contradict an existing rule. Propose deletions too; the sweep may not net-add rules.
 
 ## Step 5: Retire Stale Entries Safely
 
@@ -92,10 +88,7 @@ maintaining a decision and source in the existing task record while working.
 
 ## Retrieval Next Session
 
-Stored corrections surface in the next session two ways:
-- `type:reference` (and project context) entries are injected at turn 1 by the
-  session-start hook.
-- `cc memory search "<topic>"` retrieves any entry before work begins.
+Stored corrections surface next session: `type:reference` and project context entries are injected at turn 1 by the session-start hook; `cc memory search "<topic>"` retrieves any entry.
 
 ## Related Documentation
 
