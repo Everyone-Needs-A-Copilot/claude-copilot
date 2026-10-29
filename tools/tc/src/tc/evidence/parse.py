@@ -28,7 +28,30 @@ from typing import Any
 
 from .schema import KNOWN_FIELDS
 
-_FIELD_RE = re.compile(r"^\s*(" + "|".join(KNOWN_FIELDS) + r")\s*:\s*(.*)$", re.IGNORECASE)
+# LANE / OUTSIDE LANE are optional lines read only by the v4 lane gate; they
+# are not in KNOWN_FIELDS because the strict v1 validator does not require them.
+_FIELD_RE = re.compile(r"^\s*(" + "|".join(KNOWN_FIELDS) + r"|OUTSIDE\s+LANE|LANE)\s*:\s*(.*)$", re.IGNORECASE)
+_LANE_RE = re.compile(r"^(?P<name>.*?)[\s,;:\-\u2013\u2014]*(?P<elapsed>\d+(?:\.\d+)?)\s*s(?:ec(?:onds?)?)?\b.*?\bof\s+(?:an?\s+)?(?P<cap>\d+(?:\.\d+)?)\s*s\b", re.IGNORECASE)
+_REASON_RE = re.compile(r"\s(?:\u2014|\u2013|--|-)\s+(\S.*)$|:\s+(\S.*)$")
+
+
+def parse_lane(value: str) -> dict:
+    """Tolerantly read ``<name>, <elapsed> s of a <cap> s cap``; fields are None when absent."""
+    match = _LANE_RE.match(value or "")
+    if not match:
+        return {"name": (value or "").strip() or None, "elapsed_seconds": None, "cap_seconds": None}
+    return {"name": match["name"].strip() or None, "elapsed_seconds": float(match["elapsed"]), "cap_seconds": float(match["cap"])}
+
+
+def parse_outside(value: str) -> dict:
+    """``none`` or ``<what> - <reason>`` (dash or colon separated)."""
+    text = (value or "").strip()
+    if text.lower() in ("none", "none.", "n/a"):
+        return {"what": None, "reason": None, "none": True}
+    match = _REASON_RE.search(text)
+    reason = (match.group(1) or match.group(2)).strip() if match else None
+    what = text[: match.start()].strip() if match else text
+    return {"what": what, "reason": reason, "none": False}
 _FENCE_RE = re.compile(r"^\s*```")
 
 # A top-level field line has at most this many leading spaces. Anything more
@@ -56,7 +79,7 @@ def _authoritative_lines(text: str):
         match = _FIELD_RE.match(raw_line)
         if not match:
             continue
-        yield match.group(1).upper(), match.group(2).strip()
+        yield re.sub(r"\s+", " ", match.group(1).upper()), match.group(2).strip()
 
 
 def _extract(text: str) -> dict[str, list[str]]:
@@ -111,6 +134,8 @@ def parse_packet(text: str) -> dict[str, Any]:
         "artifacts": fields.get("ARTIFACT", []),
         "untested": untested_values[-1] if untested_values else None,
         "verdicts": fields.get("VERDICT", []),
+        "lanes": [parse_lane(v) for v in fields.get("LANE", [])],
+        "outside_lane": [parse_outside(v) for v in fields.get("OUTSIDE LANE", [])],
         "raw": text or "",
     }
 

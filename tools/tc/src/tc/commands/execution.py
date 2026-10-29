@@ -90,7 +90,7 @@ execution_app.add_typer(budget_app, name="budget")
 
 
 @budget_app.command("show")
-def budget_show():
+def budget_show(json: bool = typer.Option(True, "--json/--no-json", help="Always JSON.")):
     """Budget, lifetime spend and remaining for this project (one task database;
     linked worktrees share their main checkout's)."""
     output_json(_call(ex.budget_status))
@@ -251,6 +251,7 @@ def execute_command(
     offline=False,
     usage_file=None,
     worker=False,
+    live=None,
 ):
     """Run without a shell, bound elapsed time, persist a private result even on failure."""
     if usage_file and Path(usage_file).exists():
@@ -294,12 +295,18 @@ def execute_command(
         TC_EXECUTION_TASK_ID=str(task),
         TC_EXECUTION_CRITERION=criterion,
     )
-    if token:
+    # Replay by default: only an explicit live run (reserved calls/usd) may reach a paid API.
+    if live is None:
+        live = float(calls or 0) > 0 or float(usd or 0) > 0
+    if token and live:
         env["TC_EXECUTION_TOKEN"] = token
         env["API_STUB_MISS_BUDGET"] = str(calls)
         env["API_STUB_COST_CAP_USD"] = str(usd)
     else:
-        env.pop("TC_EXECUTION_TOKEN", None)
+        if token:
+            env["TC_EXECUTION_TOKEN"] = token
+        else:
+            env.pop("TC_EXECUTION_TOKEN", None)
         env.update(
             APP_ENV="test",
             API_MODE="stub_strict",
@@ -405,8 +412,20 @@ def run(
     calls: int = 0,
     usd: float = 0,
     usage_file: Optional[Path] = None,
+    live: bool = typer.Option(
+        False, "--live", help="The only way to make a paid call; needs --calls and --usd (>0)."
+    ),
 ):
-    """Reserve BEFORE execution. --usage-file consumes a machine-produced transport report."""
+    """Run a check in replay mode (APP_ENV=test API_MODE=stub_strict, zero miss budget).
+    --live reserves --calls/--usd from the project budget and allows paid calls.
+    --usage-file consumes a machine-produced transport report."""
+    if not live and (calls or usd):
+        error_exit(
+            "--calls/--usd only apply with --live; without --live the run is replay-only (API_MODE=stub_strict, no paid calls)",
+            EXIT_VALIDATION,
+        )
+    if live and not (calls > 0 and usd > 0):
+        error_exit("--live needs --calls and --usd greater than 0 to reserve against the project budget", EXIT_VALIDATION)
     result = _call(
         execute_command,
         task=task,
@@ -416,9 +435,31 @@ def run(
         calls=calls,
         usd=usd,
         usage_file=usage_file,
+        live=live,
     )
     output_json(result)
     raise typer.Exit(result["exit_code"])
+
+
+def stub_miss_hint_line(budget, *, provider, prompt_hash, test, adapter):
+    return (
+        f"No recording for {provider} with prompt hash {prompt_hash}. "
+        f"Record it with: {adapter} --live {test}. "
+        f"Live calls charge the {budget['project']} budget "
+        f"(remaining ${budget['remaining_cost_usd']:.2f} of ${budget['cost_usd']:.2f})."
+    )
+
+
+@execution_app.command("stub-miss-hint")
+def stub_miss_hint(
+    provider: str = typer.Option(..., help="provider:model, e.g. openrouter:anthropic/claude-sonnet-5-5"),
+    hash: str = typer.Option(..., "--hash", help="Prompt hash that has no recording."),
+    test: str = typer.Option(..., help="Test id to record."),
+    adapter: str = typer.Option("scripts/test.sh", help="Project test adapter command."),
+):
+    """Print the message a project adapter shows on a stub miss, with the real budget."""
+    budget = _call(ex.budget_status)
+    print(stub_miss_hint_line(budget, provider=provider, prompt_hash=hash, test=test, adapter=adapter))
 
 
 @execution_app.command(

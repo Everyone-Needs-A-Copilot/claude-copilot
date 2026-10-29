@@ -55,6 +55,24 @@ def _evidence_work_products(task_id: int, conn) -> list[dict]:
     return [get_wp(wp_id=row["id"], conn=conn) for row in rows]
 
 
+def _lane_error(lane: dict, combined: dict) -> str | None:
+    """Reason the QA run breaks the contract's lane, or None. Names exactly what is missing."""
+    cap = lane["cap_seconds"]
+    if not combined["lanes"]:
+        return f"Contract carries a lane (cap {cap} s): add a LANE: line, e.g. 'LANE: focused + affected, 112 s of a {cap} s cap'"
+    current = combined["lanes"][-1]
+    if current["elapsed_seconds"] is None:
+        return f"LANE: line has no elapsed time: write '<lanes>, <elapsed> s of a {cap} s cap'"
+    if current["elapsed_seconds"] > cap:
+        return f"QA run exceeded the lane cap ({current['elapsed_seconds']:g} s of a {cap} s cap): incomplete, not complete; decide scope or cap before retrying"
+    if not combined["outside_lane"]:
+        return "Contract carries a lane: add an OUTSIDE LANE: line ('OUTSIDE LANE: none' or 'OUTSIDE LANE: <command> - <reason>')"
+    for entry in combined["outside_lane"]:
+        if not entry["none"] and not entry["reason"]:
+            return f"OUTSIDE LANE entry '{entry['what']}' has no reason: write 'OUTSIDE LANE: <command or suite> - <reason>'"
+    return None
+
+
 def check_task_qa(*, task_id: int, conn=None, db_path: Optional[Path] = None, task_override: Optional[dict] = None) -> dict[str, Any]:
     """The completion predicate.
 
@@ -139,12 +157,16 @@ def check_task_qa(*, task_id: int, conn=None, db_path: Optional[Path] = None, ta
             "artifacts": [],
             "untested": None,
             "verdicts": [],
+            "lanes": [],
+            "outside_lane": [],
         }
         for item in reversed(contributing):
             packet = item["packet"]
             combined["records"].extend(packet["records"])
             combined["artifacts"].extend(packet["artifacts"])
             combined["verdicts"].extend(packet["verdicts"])
+            combined["lanes"].extend(packet["lanes"])
+            combined["outside_lane"].extend(packet["outside_lane"])
             if packet["identity"]:
                 combined["identity"] = packet["identity"]
             if packet["baseline"]:
@@ -198,6 +220,18 @@ def check_task_qa(*, task_id: int, conn=None, db_path: Optional[Path] = None, ta
             if errors:
                 result.update(approved=False, reason=errors[0])
                 return result
+            contract = task_metadata(task["metadata"]).get("acceptanceContract")
+            if isinstance(contract, dict) and contract.get("schemaVersion") == 4 and not (combined["untested"] or "").strip():
+                result.update(
+                    approved=False,
+                    reason="Completion report needs an UNTESTED: line (the Unverified line; 'UNTESTED: none' is acceptable)",
+                )
+                return result
+            if isinstance(contract, dict) and contract.get("schemaVersion") == 4 and contract.get("lane"):
+                lane_error = _lane_error(contract["lane"], combined)
+                if lane_error:
+                    result.update(approved=False, reason=lane_error)
+                    return result
         verdict = validate_packet(combined, current_identity=current_identity)
         if verdict["valid"]:
             result.update(approved=True, legacy=historical, reason="Historical pre-v2 approval preserved; not current strict verification" if historical else "Task-bound evidence packet passes")

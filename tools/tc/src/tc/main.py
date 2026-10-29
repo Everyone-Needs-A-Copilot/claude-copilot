@@ -16,6 +16,7 @@ from tc.commands.deploy import deploy_app
 from tc.commands.history import archive_command, history_app
 from tc.commands.execution import execution_app
 from tc.commands.repo import repo_app
+from tc.commands.tests_cmd import tests_app
 
 app = typer.Typer(
     name="tc",
@@ -33,6 +34,7 @@ app.add_typer(deploy_app, name="deploy")
 app.add_typer(history_app, name="history")
 app.add_typer(execution_app, name="execution")
 app.add_typer(repo_app, name="repo")
+app.add_typer(tests_app, name="tests")
 app.command("archive")(archive_command)
 
 

@@ -133,6 +133,8 @@ def _policy(conn, task_id):
 
 def _source(p):
     if not p.get("externalSources"):
+        if not p["sources"]:
+            return digest([])  # schemaVersion 4 non-software work binds no sources
         return digest(source_manifest(Path(p["root"]), p["sources"]))
     # schemaVersion 3: local and external scoped content digest together. Checkout
     # locators live in the registry, so moving a checkout does not change the policy.
@@ -261,13 +263,13 @@ def register_limits(
             "micros": 0 if v2 else _micros(cost_usd),
             "authority": authority,
             "root": str(Path(root or database_path(conn).parent.parent).resolve()),
-            "sources": contract["sources"],
+            "sources": contract.get("sources", []),
             "criteria": [c["id"] for c in contract["criteria"]],
             "contract_sha256": digest(contract),
             "timeout_seconds": timeout_seconds,
             "stale_seconds": stale_seconds,
         }
-        if contract["schemaVersion"] == 3:
+        if "externalSources" in contract:
             p.update(externalSources=contract["externalSources"], database=str(database_path(conn)))
         if v2:
             p.update(
@@ -424,7 +426,7 @@ def amend_contract(
             raise ValidationError("An attempt is unsettled; settle it before amending")
         if [c["id"] for c in before["criteria"]] != [c["id"] for c in contract["criteria"]]:
             raise ValidationError("Amendment must preserve criterion IDs and order")
-        if not set(before["sources"]) <= set(contract["sources"]):
+        if not set(before.get("sources", [])) <= set(contract.get("sources", [])):
             raise ValidationError("Amendment cannot narrow local source coverage")
         external = {e["repo"]: e for e in contract.get("externalSources", [])}
         for entry in before.get("externalSources", []):
@@ -433,9 +435,9 @@ def amend_contract(
             ):
                 raise ValidationError("Amendment cannot narrow external source coverage")
         previous = _rounds(conn, task_id)[-1]
-        policy = {**previous["policy"], "sources": contract["sources"],
+        policy = {**previous["policy"], "sources": contract.get("sources", []),
                   "contract_sha256": after_hash}
-        if contract["schemaVersion"] == 3:
+        if "externalSources" in contract:
             from tc.services.qa_contract import database_path
 
             policy.update(externalSources=contract["externalSources"],
@@ -451,7 +453,7 @@ def amend_contract(
         from tc.services import external_sources as ext
 
         manifests = []
-        if contract["sources"]:
+        if contract.get("sources"):
             manifests.extend(source_manifest(Path(policy["root"]), contract["sources"]))
         budget = ext.Budget()
         for entry in contract.get("externalSources", []):

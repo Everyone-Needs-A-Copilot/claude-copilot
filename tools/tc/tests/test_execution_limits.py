@@ -582,6 +582,7 @@ def test_consume_and_run_charge_lifetime_counters_under_latest_caps(
             str(guarded[0]),
             "--criterion",
             "DELIVERY",
+            "--live",
             "--calls",
             "2",
             "--usd",

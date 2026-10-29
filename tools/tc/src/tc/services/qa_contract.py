@@ -20,6 +20,8 @@ from tc.db.exceptions import ValidationError
 
 CONTRACT_VERSION = 2
 EXTERNAL_CONTRACT_VERSION = 3
+DONE_BLOCK_CONTRACT_VERSION = 4
+CONTRACT_KINDS = ("software", "document", "design", "research", "automation")
 _REPO_ID = re.compile(r"[A-Za-z0-9._-]{1,100}")
 _REF = re.compile(r"[A-Za-z0-9._/-]{1,200}")
 _MAX_SCOPES = 100
@@ -67,10 +69,37 @@ def _validate_external(entries, sources) -> None:
         raise ValidationError("Acceptance contract requires 1–100 source files/directories")
 
 
+def _validate_v4_extras(contract: dict) -> None:
+    allowed = {"schemaVersion", "kind", "criteria", "sources", "externalSources", "lane", "excluded", "assumptions", "provenBy", "firstExample", "doneBlock"}
+    extra = sorted(set(contract) - allowed)
+    if extra:
+        raise ValidationError(f"Unknown schemaVersion 4 contract field: {extra[0]}")
+    if contract.get("kind") not in CONTRACT_KINDS:
+        raise ValidationError("schemaVersion 4 contract requires kind: " + ", ".join(CONTRACT_KINDS))
+    lane = contract.get("lane")
+    if lane is not None:
+        cap = lane.get("cap_seconds") if isinstance(lane, dict) else None
+        if (not isinstance(lane, dict) or not {"focused", "affected", "cap_seconds"} <= set(lane) <= {"focused", "affected", "cap_seconds", "lane"}
+                or lane.get("lane", "affected") not in ("focused", "affected", "broad")
+                or not all(isinstance(lane[k], str) and lane[k].strip() for k in ("focused", "affected"))
+                or not isinstance(cap, int) or isinstance(cap, bool) or cap <= 0):
+            raise ValidationError("lane must be {focused: str, affected: str, cap_seconds: int > 0, lane?: focused|affected|broad}")
+    for key in ("excluded", "assumptions"):
+        value = contract.get(key)
+        if value is not None and (not isinstance(value, list) or not all(isinstance(v, str) and v.strip() for v in value)):
+            raise ValidationError(f"{key} must be a list of nonempty strings")
+    for key in ("provenBy", "firstExample", "doneBlock"):
+        value = contract.get(key)
+        if value is not None and (not isinstance(value, str) or not value.strip() or len(value) > 12000):
+            raise ValidationError(f"{key} must be a nonempty string")
+
+
 def validate_contract(contract: dict) -> dict:
     version = contract.get("schemaVersion") if isinstance(contract, dict) else None
-    if version not in (CONTRACT_VERSION, EXTERNAL_CONTRACT_VERSION):
-        raise ValidationError("Register a schemaVersion 2 or 3 acceptanceContract with tc task contract")
+    if version not in (CONTRACT_VERSION, EXTERNAL_CONTRACT_VERSION, DONE_BLOCK_CONTRACT_VERSION):
+        raise ValidationError("Register a schemaVersion 2, 3 or 4 acceptanceContract with tc task contract")
+    if version == DONE_BLOCK_CONTRACT_VERSION:
+        _validate_v4_extras(contract)
     if version == CONTRACT_VERSION and "externalSources" in contract:
         raise ValidationError("externalSources requires a schemaVersion 3 acceptanceContract")
     criteria, sources = contract.get("criteria"), contract.get("sources")
@@ -88,13 +117,16 @@ def validate_contract(contract: dict) -> dict:
         if expected != expected.strip():
             raise ValidationError("Expected behavior must not contain surrounding whitespace")
         ids.add(cid)
-    if not isinstance(sources, list) or len(sources) > _MAX_SCOPES or (version == CONTRACT_VERSION and not sources):
+    if version == DONE_BLOCK_CONTRACT_VERSION and sources is None:
+        sources = []
+    needs_sources = version == CONTRACT_VERSION or (version == DONE_BLOCK_CONTRACT_VERSION and contract["kind"] == "software")
+    if not isinstance(sources, list) or len(sources) > _MAX_SCOPES or (needs_sources and not sources):
         raise ValidationError("Acceptance contract requires 1–100 source files/directories")
     for name in sources:
         _validate_scope(name)
     if len(set(sources)) != len(sources):
         raise ValidationError("Duplicate source paths")
-    if version == EXTERNAL_CONTRACT_VERSION:
+    if version == EXTERNAL_CONTRACT_VERSION or (version == DONE_BLOCK_CONTRACT_VERSION and "externalSources" in contract):
         _validate_external(contract.get("externalSources"), sources)
     return contract
 
@@ -205,7 +237,7 @@ def scoped_content(root: Path, contract: dict, conn) -> tuple[list[dict], list[d
     """
     from tc.services import external_sources as ext
     budget = ext.Budget()
-    local = source_manifest(root, contract["sources"], budget) if contract["sources"] else []
+    local = source_manifest(root, contract["sources"], budget) if contract.get("sources") else []
     blocks, receipts = [], []
     for entry in sorted(contract.get("externalSources") or [], key=lambda e: e["repo"]):
         found = ext.resolve(conn, entry)
@@ -227,7 +259,7 @@ def capture_for_task(task: dict, conn) -> dict:
                 "contract_sha256": digest(bound), "source_sha256": digest(sources), "source_count": len(sources),
                 "runtime": {"python": sys.version, "executable": str(Path(sys.executable).absolute()), "tc_sha256": digest(runtime)}}
     result = {"identity": identity, "sources": sources}
-    if contract["schemaVersion"] == EXTERNAL_CONTRACT_VERSION:
+    if contract["schemaVersion"] == EXTERNAL_CONTRACT_VERSION or "externalSources" in contract:
         identity["external"] = external
         result["external"] = receipts
     result["identity_line"] = "IDENTITY: " + json.dumps(identity, sort_keys=True, separators=(",", ":"))
