@@ -107,46 +107,6 @@ Invoking @agent-sd for service design...
 
 ---
 
-### Flow F: Critique (OPT-IN — not the default, and deliberately so)
-
-**Detection:** Never automatic. Reached only when the user asks for it: `/protocol --critique <request>`, or wording like "explore options", "give me alternatives", "I don't know what this should be yet".
-
-**Shape:** three candidates in parallel → mutual critique → synthesis.
-
-```
-sd, uxd, ind          each produce a DIFFERENT candidate direction, in parallel,
-                      without seeing the others
-      ↓
-uids, uid, ta, qa     each critiques ALL THREE from its own lens — no handoff,
-                      no elaboration, only "what breaks here and why"
-      ↓
-Feature Filter        SOUL.md Section 5's five gates, applied to each candidate
-                      rather than to one, so the gates SELECT instead of approve
-      ↓
-synthesis             one direction, grafting what the runners-up got right;
-                      state what was taken from each and what was dropped
-      ↓
-me                    implementation
-```
-
-**Checkpoints:** After the critique round, before synthesis. That is the moment the user's judgement is worth most — three live options with their weaknesses named, rather than one direction already elaborated four stages deep.
-
-**Why this exists as an alternative.** Flow A is a waterfall with human gates, and a pipeline's error compounds: if `sd` frames the journey wrongly, every downstream specialist elaborates the wrong frame with rising confidence and rising cost, and nothing revisits. The checkpoints are supposed to catch that, but a checkpoint reviews the stage that just ran, not the framing three stages back.
-
-Same agents, different topology. Plausibly cheaper too — three shallow passes plus a synthesis costs less than six deep sequential ones with a full handoff document between each — though that is a prediction, not a measurement.
-
-**Why it is NOT the default.** No evidence supports it over Flow A. None. Flow A is what this framework has always done and what every result in `copilot-bench` describes. Making an unevidenced re-architecture the default would be exactly the mistake this framework's own Honesty Test exists to prevent: claiming better output with no data for it.
-
-So it ships as an opt-in, alongside a way to find out. Paired against Flow A on identical work in `copilot-bench`, the comparison is: which produces the direction the user leaves alone? That is `cc survival` and blind scoring, not token counts — a cheaper wrong answer is not a better one.
-
-**Two things to watch, stated up front so a favourable result is not over-read:**
-- Three parallel candidates cost three framings. If they converge on near-identical directions, the divergence was theatre and the flow is paying triple for one candidate. Say so when it happens.
-- Critique is easier than creation. A round where every lens finds fault with every candidate and nothing is chosen has produced sophistication, not a decision. The synthesis step is mandatory for that reason, and it must name a winner.
-
-**Unknowns still apply.** Every specialist in this flow emits its `Unknowns:` line, and a genuine contradiction in the brief escalates as a `QUESTION:` block before three candidates are built on top of it. Divergent exploration is not a substitute for asking; a wrong brief produces three wrong candidates.
-
----
-
 ### Flow B: Defect
 
 **Detection:** User reports something broken or not working correctly.
@@ -208,40 +168,6 @@ Invoking @agent-ta for refactor planning...
 
 ---
 
-### Flow D: Clarification
-
-**Detection:** User input is ambiguous - could be experience, technical, or defect work.
-
-**Ambiguous Keywords:**
-```
-improve, enhance, update, change, modify, revise, adjust
-better, faster, cleaner, simpler, easier, more, less
-```
-
-**Behavior:** Ask user which flow they intend before routing.
-
-**Example:**
-```
-User: /protocol improve the dashboard
-
-[PROTOCOL: CLARIFYING | Action: ASKING]
-
-I detected an ambiguous request: "improve the dashboard"
-
-What type of improvement are you looking for?
-
-1. User experience (redesign, new features, better flows) → Experience Flow
-2. Technical (performance, code quality, architecture) → Technical Flow
-3. Bug fix (something is broken) → Defect Flow
-4. Not sure, help me decide
-
-Please select [1-4] or describe in more detail.
-```
-
-After user clarifies, route to appropriate flow.
-
----
-
 ### Flow E: Infrastructure
 
 **Detection:** User wants to deploy, configure infrastructure, set up CI/CD, manage containers, provision cloud resources, or handle environment/secrets.
@@ -282,7 +208,7 @@ Invoking @agent-do for deployment planning...
 
 ## Checkpoint System
 
-**Design-flow checkpoints require explicit approval.** At these checkpoints (sd, uxd, uids, and PRD/design approval) there is no auto-proceed: the user must explicitly approve to continue. Everywhere else, when there is no real decision, state the outcome and proceed.
+**Design-flow checkpoints require explicit approval.** At these checkpoints (sd, uxd, uids, and PRD/design approval) there is no auto-proceed: always wait for the user's explicit approval to continue. This is the only waiting rule; everywhere else, when there is no real decision, state the outcome and proceed.
 
 ### Done Block and Example First (2026-10-29)
 
@@ -391,7 +317,7 @@ Override default behavior with flags:
 | `--skip-uids` | Skip UI design (visual) stage |
 | `--skip-uid` | Skip UI component implementation stage |
 | `--design-only` | Stop after design stages (no ta/me) |
-| `--critique` | Flow F: three parallel candidates, mutual critique, Feature-Filter selection, synthesis. Opt-in; no evidence yet that it beats Flow A |
+| `--critique` | Archived (Flow F); see _archive/protocol-flows-archived.md |
 
 **Examples:**
 ```
@@ -426,6 +352,10 @@ Prevent context bloat:
 - Write implementation code directly (delegate to @agent-me)
 - Create detailed plans in conversation (delegate to @agent-ta)
 - Return full analysis in responses (store in Task Copilot)
+- Load full work products into context (use `tc wp get <id>` only when the user requests details)
+- Duplicate agent summaries (agents return ~100 tokens, main session adds ~50 tokens max)
+
+Main session response length follows the Output Contract's verbosity knob (see `## Output Contract` below), same as checkpoint presentations.
 
 **If you find yourself doing these things, STOP and delegate to an agent.**
 
@@ -487,14 +417,12 @@ Generic agents bypass Task Copilot and bloat context.
    - Use generic agents (Explore, Plan, general-purpose) for framework tasks
    - Write code directly - always delegate to @agent-me
    - Create PRDs or task lists directly - always delegate to @agent-ta
-   - Auto-proceed at design-flow checkpoints - ALWAYS wait for explicit user approval there
 
 4. **Self-Check Before Each Response:**
    - Am I about to read multiple files? → Delegate to agent
    - Am I about to write code? → Delegate to @agent-me
    - Am I about to create a plan? → Delegate to @agent-ta
    - Am I using a generic agent? → Switch to framework agent
-   - Am I at a design-flow checkpoint? → WAIT for explicit user approval
 
 5. **Time Estimate Prohibition:**
    - NEVER include hours, days, weeks, months, quarters, or sprints in any output
@@ -520,7 +448,7 @@ Generic agents bypass Task Copilot and bloat context.
 | DEFECT | bug, broken, error, fix, not working | @agent-qa |
 | TECHNICAL | refactor, optimize, architecture, performance | @agent-ta |
 | INFRA | deploy, staging, docker, ci, kubernetes, terraform, aws, dns, ssl | @agent-do |
-| CLARIFICATION | improve, enhance, update (ambiguous) | None (ask user) |
+| CLARIFICATION | improve, enhance, update (ambiguous) | Archived; see _archive/protocol-flows-archived.md (recommend a flow and route, per the Output Contract) |
 
 ---
 
@@ -806,19 +734,6 @@ When routing to agents or making technical decisions, reference Constitution con
 6. After @agent-me: Present completion summary (no checkpoint needed)
 ```
 
-### Orchestration Flow: Clarification (Flow D)
-
-```
-1. User: /protocol improve dashboard
-2. Main Session: Detect ambiguous intent
-3. Main Session: Show clarification request
-   [PROTOCOL: CLARIFYING | Action: RESPONDING]
-
-   I detected an ambiguous request: "improve dashboard"
-
-   Recommended: <flow> because <reason>. Routing there now; say "technical" or "bug" to switch.
-```
-
 ### Orchestration Flow: Infrastructure (Flow E)
 
 ```
@@ -840,8 +755,6 @@ When routing to agents or making technical decisions, reference Constitution con
    - If tc deploy wait unavailable: @agent-qa verifies manually via health checks
 8. Present verification results (no checkpoint needed - final stage)
 ```
-
-**Note on infra keyword precedence:** When a message contains both infra-specific keywords (deploy, staging, docker, ci, kubernetes) AND technical keywords (refactor, optimize), Flow E takes precedence. Pure technical keywords without infra context still route to Flow C.
 
 ### Checkpoint Handling Logic
 
@@ -871,24 +784,6 @@ When routing to agents or making technical decisions, reference Constitution con
 7. If changes requested: Re-invoke same agent with user feedback as constraint
 8. If skip requested: Show skip warning, then proceed to next stage
 9. If approved: Pass handoff context to next agent in chain
-```
-
-### Skip Warning Pattern
-
-When user chooses to skip a stage:
-
-```
-⚠️ Skipping [stage name] means you'll proceed without [what they miss].
-
-For example, skipping visual design means:
-- No design tokens or style guide
-- Implementation will lack visual consistency
-- You'll need to add design later via: /protocol add visual design to [feature]
-
-Do you want to proceed? (yes to skip, no to return)
-
-[If yes: Continue to next stage]
-[If no: Return to checkpoint options]
 ```
 
 ### Agent Invocation Pattern
@@ -970,7 +865,7 @@ Main session must track:
 
 ```
 {
-  currentFlow: "EXPERIENCE" | "DEFECT" | "TECHNICAL" | "CLARIFYING" | "INFRA",
+  currentFlow: "EXPERIENCE" | "DEFECT" | "TECHNICAL" | "INFRA",
   currentStage: "sd" | "ind" | "uxd" | "uids" | "uid" | "cco" | "cw" | "ta" | "me" | "qa" | "do" | "sec" | "cs" | "cpa",
   stageHistory: ["sd", "uxd", ...],
   workProducts: ["WP-001", "WP-002", ...],
@@ -989,73 +884,6 @@ Main session must track:
   }
 }
 ```
-
-### Token Efficiency Rules
-
-**CRITICAL: Main session MUST NOT:**
-- Load full work products into context (use `tc wp get <id>` only when user requests details)
-- Read multiple files (delegate to agents)
-- Create plans or designs (delegate to agents)
-- Write code (delegate to @agent-me)
-- Duplicate agent summaries (agents return ~100 tokens, main session adds ~50 tokens max)
-
-**Main session response length:** governed by the Output Contract's verbosity knob (see `## Output Contract` below), same as checkpoint presentations — no separate budget to track here.
-
----
-
-## Knowledge Status Check (Pull-Based)
-
-Before presenting the protocol acknowledgment, check knowledge status:
-
-### Check Knowledge Configuration
-
-Check the REAL configured knowledge repos (`CC_KNOWLEDGE_REPOS`, exported by `cc env`) -- never the machine template path (`~/.claude/knowledge/`), which is not a member of that list on a correctly onboarded machine and reports a false negative for anyone whose knowledge repos live elsewhere (the normal case):
-
-```bash
-eval "$(cc env)"
-if [ -n "$CC_KNOWLEDGE_REPOS" ]; then echo "KNOWLEDGE_CONFIGURED"; else echo "NO_KNOWLEDGE"; fi
-```
-
-**Decision Matrix:**
-
-| Status | User Intent | Action |
-|--------|-------------|--------|
-| KNOWLEDGE_CONFIGURED | Any | Proceed normally (knowledge available) |
-| NO_KNOWLEDGE | Experience-first features | Offer knowledge setup contextually |
-| NO_KNOWLEDGE | Technical/Defect work | Proceed without mention |
-| NO_KNOWLEDGE | Agent runs `cc skill select` for optional context | Selection still runs against project/machine skills only; report "Knowledge tier unconfigured; optional context limited to project and machine skills." Never block. |
-
-### When to Offer Knowledge Setup
-
-**Only offer when ALL conditions are true:**
-1. No knowledge configured (`NO_KNOWLEDGE`)
-2. User is building experience-first features (Flow A keywords detected)
-3. Keywords suggest company/product/brand relevance (e.g., "branding", "product page", "about us", "company info")
-
-**Contextual prompt (include in acknowledgment if applicable):**
-
-```
-Protocol active. [Constitution: Active/Not Found]
-
-💡 **Knowledge Tip:** You're building features that could benefit from shared knowledge (company info, voice guidelines, product details). Run `/knowledge-copilot` to set up a knowledge repository.
-
-Ready for your request.
-```
-
-**When NOT to offer:**
-- Defect flows (bug fixes don't need company knowledge)
-- Technical flows (refactors don't need company knowledge)
-- User has already been offered this session
-- Keywords don't suggest knowledge relevance
-
-### Pull-Based Philosophy
-
-**NEVER force or require knowledge setup.** The framework works without it. Knowledge is an enhancement that:
-- Provides company context to agents
-- Enables consistent voice/branding
-- Shares product information
-
-Offer when relevant. Never block work.
 
 ---
 
@@ -1084,7 +912,7 @@ Protocol active. [Constitution: Active/Not Found]
 Ready for your request.
 ```
 
-Or with knowledge tip if applicable (see Knowledge Status Check above).
+Knowledge-setup tip: archived; see _archive/protocol-flows-archived.md.
 
 <!-- cse-design-quality:start -->
 ## Design Quality Routing

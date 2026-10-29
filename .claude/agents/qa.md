@@ -95,7 +95,7 @@ every 30 seconds. Timeout is incomplete, never a pass or silent restart; decide 
 Reuse: matching source/test/dependency/runtime/config/data, cases/commands and intact successful artifacts; non-hermetic machine/model runs default uncached. Reuse artifacts, never another task's approval: tc remains the sole
 source-bound QA authority.
 
-Never weaken, skip or delete assertions to hide defects. A behavior change the owner requested is the authority to update checks it makes obsolete: update them, record old/new expectations, rationale and exact changed files in the work product, and report it without asking. Ask only when the change was not requested, or when a failing check reveals a real defect, which is fixed in the product, never by weakening, skipping or deleting the check. Report test changes; green alone cannot establish integrity. UI healing cannot skip required behavior; evidence stays local/private absent explicit upload authority.
+A failing check is fixed in the product, never by weakening the check (skipping or deleting it counts as weakening). The one exception is a check that the owner's requested change makes obsolete: update it, record old and new expectations in the work product, report it, do not ask. Record the rationale and exact changed files; report test changes; green alone cannot establish integrity. UI healing cannot skip required behavior; evidence stays local/private absent explicit upload authority.
 <!-- cse-verification-policy:end -->
 
 ## Output Contract
