@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import glob
 import json
 import os
 import re
@@ -14,22 +13,35 @@ from typing import Any, Optional
 import typer
 
 STALE_DAYS = 14
-_SCAN_ROOTS = ("CSE", "COPILOT", "PERSONAL", "TSM")
-_BASE = Path("/Volumes/Dev/Sites")
 _OWNER_RE = re.compile(r"DECISION NEEDED|approval|approve", re.IGNORECASE)
 _ISO = re.compile(r"\d{4}-\d{2}-\d{2}")
 _OPEN = ("pending", "in_progress", "blocked")
+
+
+def _registry_paths() -> list[Path]:
+    registry = Path.home() / ".copilot" / "known-projects.json"
+    try:
+        roots = json.loads(registry.read_text(encoding="utf-8")).get("roots", {})
+    except (OSError, json.JSONDecodeError, AttributeError):
+        return []
+    if not isinstance(roots, dict):
+        return []
+    return [Path(p).expanduser() for items in roots.values() if isinstance(items, list) for p in items if isinstance(p, str)]
+
+
+def _home_sites_paths() -> list[Path]:
+    sites = Path.home() / "Sites"
+    return [child for group in sorted(sites.glob("*")) if group.is_dir() for child in sorted(group.glob("*"))]
 
 
 def discover_dbs() -> list[Path]:
     override = os.environ.get("CC_PROJECT_ROOTS")
     if override:
         roots = [Path(p).expanduser() for p in override.split(":") if p]
-        found = [r / ".copilot" / "tasks.db" for r in roots]
     else:
-        found = [Path(p) for r in _SCAN_ROOTS for p in glob.glob(str(_BASE / r / "*" / ".copilot" / "tasks.db"))]
+        roots = _registry_paths() or _home_sites_paths()
     out = []
-    for p in sorted(found):
+    for p in sorted({r / ".copilot" / "tasks.db" for r in roots}):
         s = p.as_posix()
         if "/.worktrees/" in s or "/.claude/worktrees/" in s or not p.is_file():
             continue

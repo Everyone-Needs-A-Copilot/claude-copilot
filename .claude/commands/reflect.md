@@ -71,7 +71,7 @@ cc memory store --type lesson "Correction: <what was wrong> → <correct guidanc
 
 ## Weekly Sweep (2026-10-29)
 
-Weekly, list this week's corrections (`cc memory list --type lesson --json`, `cc rule list --since <7 days ago>`) and propose which become rules (`cc rule add`), which are one-offs, and which contradict an existing rule. Propose deletions too; the sweep may not net-add rules.
+List corrections since the last review (`cc memory list --type lesson --json`, `cc rule list --since <last review date>`) and propose which become rules (`cc rule add`), which are one-offs, and which contradict an existing rule. Propose deletions too; the sweep may not net-add rules.
 
 ## Step 5: Retire Stale Entries Safely
 

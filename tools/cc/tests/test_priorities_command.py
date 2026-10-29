@@ -140,3 +140,19 @@ def test_read_only_and_worktree_skipping(runner, fleet, tmp_path, monkeypatch):
     monkeypatch.setenv("CC_PROJECT_ROOTS", str(tmp_path / "alpha"))
     _run(runner, "--json")
     assert db.read_bytes() == before
+
+
+def test_discovery_uses_registry_then_home_sites(tmp_path, monkeypatch):
+    from cc.commands.priorities import discover_dbs
+
+    home = tmp_path / "home"
+    monkeypatch.setenv("HOME", str(home))
+    monkeypatch.delenv("CC_PROJECT_ROOTS", raising=False)
+    listed = make_project(tmp_path / "elsewhere", "listed", tasks=[T(1, None, "a", prio=0)])
+    unlisted = make_project(home / "Sites" / "GROUP", "unlisted", tasks=[T(1, None, "b", prio=0)])
+    # No registry: fall back to ~/Sites/*/*.
+    assert discover_dbs() == [unlisted / ".copilot" / "tasks.db"]
+    # Registry present: only its paths are scanned.
+    (home / ".copilot").mkdir(parents=True)
+    (home / ".copilot" / "known-projects.json").write_text(json.dumps({"roots": {"r": [str(listed)]}}))
+    assert discover_dbs() == [listed / ".copilot" / "tasks.db"]
