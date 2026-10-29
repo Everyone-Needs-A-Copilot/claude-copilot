@@ -1,5 +1,32 @@
 # Changelog
 
+## [5.29.0] - 2026-10-29
+
+Source: the collaboration review at `docs/collaboration-reviews/2026-10-29-gap-plan.md`.
+
+### Added
+
+- **Done block and v4 contracts.** Before substantial work the assistant posts a five-line done block and waits for one word; `tc task contract --from-done-block` turns the confirmed block into a schemaVersion 4 contract (kind software, document, design, research or automation; sources only for software; lane, excluded and assumptions) and registers execution limits v2 at the same moment.
+- **Completion gate for v4 tasks.** Completion requires an UNTESTED line and, when a lane is set, a LANE line within its cap and OUTSIDE LANE entries with reasons.
+- **Four-line completion report.** Reports carry Works / Unverified / Parked / Decision needed.
+- **Make-this-a-rule and `cc rule`.** `cc rule add` rewrites the current rule in place or inserts it under a named section, dates it and logs it (appending at the end of a rulebook is refused), `cc rule list` shows the rules, and `cc rule propose` applies the placement test.
+- **`cc priorities`.** Reads every project's `tasks.db` read-only and prints the week's three outcomes, what can proceed without the owner, what should wait, and missing information.
+- **Test map and lane gate.** `tc tests map` stores a per-project change-to-test map and selects lanes from a diff.
+- **`tc task review`.** Records the four two-week measures and summarizes them.
+- **`tc execution stub-miss-hint`.** Prints the recording instruction with the real budget numbers.
+- **PreCompact handoff hook.** `.claude/hooks/pre-compact-handoff.sh` writes `.copilot/handoffs/<stamp>-<session>.md` in the work-lifecycle shape and stores it as a handoff work product before the context is summarized; it exits 0 on every path and is registered in `settings.json` and in the default hook entries `cc` installs in projects.
+
+### Changed
+
+- **Example first.** Flows that build a family of things stop after one populated example.
+- **Recommendation first.** Decisions lead with the recommendation and are taken when every option is reversible; menus outside the design-flow checkpoints are removed from `protocol.md`.
+- **Fan-out cap.** At most three concurrent subagents by default.
+- **Replay by default.** `tc execution run` makes paid calls only with `--live`, charged to the project budget.
+- **Protocol consolidation.** The four flows in use (experience, defect, infrastructure, technical) stay in `protocol.md`; the clarification, critique, skip-warning and knowledge-check flows move verbatim to `.claude/commands/_archive/protocol-flows-archived.md` with restore notes (1,122 to 950 lines).
+- **One test-weakening rule.** The verification policy's never-weaken rule and its obsolete-check exception are now one rule in one place, re-embedded in `me` and `qa`.
+- **Output contract.** Re-embedded in every agent.
+- Component versions: cc 2.15.1 to 2.16.0, tc 2.9.0 to 2.10.0, agents 5.11.2 to 5.12.0, commands 5.8.1 to 5.9.0.
+
 ## [5.28.1] - 2026-10-28
 
 ### Fixed

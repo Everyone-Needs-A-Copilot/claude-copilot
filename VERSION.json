@@ -1,9 +1,9 @@
 {
-  "framework": "5.28.1",
-  "lastUpdated": "2026-10-28",
+  "framework": "5.29.0",
+  "lastUpdated": "2026-10-29",
   "components": {
     "cc": {
-      "version": "2.15.1",
+      "version": "2.16.0",
       "path": "tools/cc",
       "installScript": "tools/cc/install.sh",
       "provides": [
@@ -22,16 +22,18 @@
         "cc doctor --runtime-details",
         "cc eval adoption-freeze",
         "cc eval adoption-check",
-        "cc design"
+        "cc design",
+        "cc rule",
+        "cc priorities"
       ]
     },
     "tc": {
-      "version": "2.9.0",
+      "version": "2.10.0",
       "path": "tools/tc",
       "installCommand": "bash ~/.claude/copilot/tools/tc/install.sh"
     },
     "agents": {
-      "version": "5.11.2",
+      "version": "5.12.0",
       "path": ".claude/agents",
       "count": 16,
       "_countNote": "16 total manifest entries: 15 framework agents + 1 setup-only (kc). See frameworkAgents for the authoritative list.",
@@ -69,7 +71,7 @@
       ]
     },
     "commands": {
-      "version": "5.8.1",
+      "version": "5.9.0",
       "path": ".claude/commands",
       "projectCommands": [
         "protocol.md",
