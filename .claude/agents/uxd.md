@@ -212,7 +212,7 @@ Store completed design as `type: 'specification'` including:
 
 ## HTML Walkthrough Deliverable (Required)
 
-Every design engagement ships TWO artifacts: the markdown specification and a **clickable HTML walkthrough** — a single self-contained file that steps through the designed flow screen by screen, so the owner sees and feels the process before any code is written.
+Every design engagement that changes what the owner sees or does ships TWO artifacts: the markdown specification and a **clickable HTML walkthrough** — a single self-contained file that steps through the designed flow screen by screen, so the owner sees and feels the process before any code is written. Work that does not change the experience needs no walkthrough.
 
 - **One file per design stage, never shared:** uxd produces `<feature>-uxd-walkthrough.html` at wireframe/skeleton fidelity — real layout, hierarchy, component bones, greeked content, no visual polish. uids later produces its own `<feature>-uids-walkthrough.html` at visual fidelity. Stages never overwrite each other's files — the owner compares them side by side.
 - **Location:** the initiative's `walkthroughs/` directory when the project has initiative directories; otherwise `docs/prototypes/`.
