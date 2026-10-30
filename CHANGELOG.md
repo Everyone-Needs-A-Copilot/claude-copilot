@@ -5,6 +5,7 @@
 ### Changed
 
 - **Soul files require the walk-away test.** Every `SOUL.md` made with `/new-product` now asks the person the product is for "What would make you stop using this every day?" and records the answer in their words: the stop conditions and what they come for, in Section 2. Each stop condition is named by an anti-pattern and gets a drift signal, the Feature Filter ends with a Walk-away gate ("more or less likely to open it tomorrow?"), and the question is re-asked at every ratification. A soul is not ratified without the answer, and a retrofit never infers it; it is the first gap asked. The `new-product` skill moves to 1.1.0, with a contract test in `tests/test_new_product_skill.py`. Source: the walk-away test note from the GTM Delivery Engine soul ratification, 2026-10-30.
+- **Embedded Codex plugin.** The embedded Codex plugin under `plugins/codex-copilot` is refreshed byte-for-byte to codex-copilot 0.14.0, so `$new-product` carries the walk-away test in Codex too.
 - Component versions: skills 3.6.0 to 3.7.0.
 
 ## [5.29.0] - 2026-10-29

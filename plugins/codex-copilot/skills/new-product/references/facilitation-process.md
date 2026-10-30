@@ -126,7 +126,7 @@ After the three overview documents are complete, brief the user:
 After service design documents are complete:
 > "Service design is complete. We have journeys, JTBD, and moments that matter. Before we move into requirements, we'll distill the product's soul — a decision instrument that captures what the product is, what it refuses to be, and a filter for every feature from here on. Then requirements."
 
-Check the Design Foundation Checkpoint at this point. All checkpoint requirements should be met before continuing. Once the checkpoint passes, facilitate the soul DRAFT pass (see the new-product skill's `references/soul-file.md`): synthesize `SOUL.md` at the project root (DRAFT v0.1) from the vision, scope, JTBD, journeys, and moments-that-matter. The draft soul then acts as a north star for Phases 3–5.
+Check the Design Foundation Checkpoint at this point. All checkpoint requirements should be met before continuing. Once the checkpoint passes, facilitate the soul DRAFT pass (see the new-product skill's `references/soul-file.md`): ask the walk-away test first ("What would make you stop using this every day?"), then synthesize `SOUL.md` at the project root (DRAFT v0.1) from the answer and the vision, scope, JTBD, journeys, and moments-that-matter. The draft soul then acts as a north star for Phases 3–5.
 
 ### Phase 3 → Phase 4 (Requirements → Experience Design)
 
@@ -143,7 +143,7 @@ After experience design is complete:
 After the design challenge brief is approved:
 > "The design challenge brief is done. Before we build, we'll ratify the soul file — locking the feature filter and founding decisions with the real calls we've made across all five phases. Then it's time to bring your design to life."
 
-Facilitate the soul RATIFY pass (see the new-product skill's `references/soul-file.md`): populate the case-law table with real in/out verdicts from Phases 3–5, settle founding decisions with dates, and confirm the principle priority order. Walk the owner through the whole file, get explicit agreement, and mark the status **RATIFIED v1.0**. Then run the Design Complete Checkpoint and offer the prototype format choice:
+Facilitate the soul RATIFY pass (see the new-product skill's `references/soul-file.md`): re-ask the walk-away test, populate the case-law table with real in/out verdicts from Phases 3–5, settle founding decisions with dates, and confirm the principle priority order. Walk the owner through the whole file, get explicit agreement, and mark the status **RATIFIED v1.0**. Then run the Design Complete Checkpoint and offer the prototype format choice:
 > "Soul is ratified. You have four prototype options: Figma design, design specification, Storybook design system, or a working Next.js prototype. Which one fits your needs?"
 
 ---

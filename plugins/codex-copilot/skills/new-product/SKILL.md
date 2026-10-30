@@ -5,7 +5,7 @@ description: Facilitates zero-to-one product definition from an empty folder. Us
 
 # New Product
 
-Skill version: 1.0.0
+Skill version: 1.1.0
 
 Guide the user through a facilitated conversation that produces a complete product design package in the current directory: the documents that define what the product is, who it is for, how it looks and feels, and what the prototype should be. You ask structured questions, the user answers in their own words, and you synthesize the answers into documents. Each template carries its own facilitation guide as an HTML comment.
 
@@ -22,7 +22,7 @@ Read these as the matching step comes up, not all at once.
 | Facilitation process | `<skill-dir>/references/facilitation-process.md` | Detailed conversation technique, adaptation, synthesis, session management, phase transitions |
 | Document sequence | `<skill-dir>/references/document-sequence.md` | The full structure across six phases with prerequisites and checkpoint checks |
 | Session flow | `<skill-dir>/references/session-flow.md` | Session start, pausing and resuming, phase transition messages |
-| Soul file | `<skill-dir>/references/soul-file.md` | Per-section interview questions, synthesis rules and the Define-Done bar for SOUL.md |
+| Soul file | `<skill-dir>/references/soul-file.md` | The walk-away test, per-section interview questions, synthesis rules and the Define-Done bar for SOUL.md |
 | Soul retrofit | `<skill-dir>/references/soul-retrofit.md` | Creating SOUL.md for a project that already has documentation or code |
 | Prototype outputs | `<skill-dir>/references/prototype-outputs.md` | Phase 6 choices, prerequisites to check, hand-off to build workflows |
 | Runtime | `<skill-dir>/references/runtime.md` | How specialists, task tracking and memory map onto the runtime you are in |
@@ -33,7 +33,7 @@ Read these as the matching step comes up, not all at once.
 |-------|-------|--------|
 | 1: Discovery | Vision, scope, metrics | 3 documents in `docs/00-overview/` |
 | 2: Research and Service Design | Interviews, JTBD, journey maps, moments that matter, service blueprint | `docs/01-research/` and `docs/02-service-design/` |
-| After Phase 2: Soul DRAFT | IS/IS-NOT, design principles, anti-patterns, Feature Filter | `SOUL.md` at the project root (DRAFT v0.1), the north star for Phases 3 to 5 |
+| After Phase 2: Soul DRAFT | Walk-away test, IS/IS-NOT, design principles, anti-patterns, Feature Filter | `SOUL.md` at the project root (DRAFT v0.1), the north star for Phases 3 to 5 |
 | 3: Requirements | User stories, use cases, acceptance criteria | `docs/03-requirements/` |
 | 4: Experience Design | UX design, UI design, copy and voice | `docs/04-experience-design/` |
 | 5: Design Challenge | Creative brief | `docs/05-design-challenge/00-brief.md` |
@@ -73,6 +73,7 @@ Facilitation failure modes to avoid:
 - **Batch synthesis**: writing everything at the end. Fill sections as you go and read each back.
 - **Telling, not asking**: deciding what to build. Reflect what you heard and ask what it changes for the user.
 - **Skipping checkpoints**: starting Phase 3 without the soul DRAFT, or the prototype without an approved brief.
+- **Inferring the walk-away test**: writing what would make the user stop using the product from documents instead of asking them. Ask "What would make you stop using this every day?" and use their words; no answer, no ratification.
 - **Time estimates**: describing effort in hours or weeks. Use phase, priority and complexity.
 
 ## Define Done
@@ -87,7 +88,7 @@ Facilitation failure modes to avoid:
 - [ ] Phase 3 documents completed (user stories, use cases, acceptance criteria)
 - [ ] Phase 4 documents completed (UX, UI, copy and voice)
 - [ ] Design challenge brief completed and approved by the user
-- [ ] `SOUL.md` RATIFIED at the project root before the prototype
+- [ ] `SOUL.md` RATIFIED at the project root before the prototype, with the walk-away test answered in the user's own words
 - [ ] `docs/TODO-DESIGN-PACKAGE.md` status matches actual document state
 - [ ] Design Complete Checkpoint passes
 - [ ] Prototype output created in the chosen format

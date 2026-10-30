@@ -35,7 +35,7 @@ USING THIS TEMPLATE
   it must pass. Delete the italics once the section is real if you like; keep
   the discipline.
 - Mark anything you couldn't determine yet with `<!-- TODO: ... -->`.
-- Default to the FULL 10-section structure below. A genuinely simple product may scale sections down (e.g. 3 principles instead of 5, no priority-order conflict table) — but never drop the Feature Filter or the IS / IS-NOT table. Those two are the instrument. -->
+- Default to the FULL 10-section structure below. A genuinely simple product may scale sections down (e.g. 3 principles instead of 5, no priority-order conflict table) — but never drop the Feature Filter, the IS / IS-NOT table or the walk-away test. Those three are the instrument. -->
 
 ---
 
@@ -67,7 +67,7 @@ USING THIS TEMPLATE
 
 ## 2. The Essence
 
-*What this section is for: the one-line soul of the product, and a hard boundary of what it is and is not. Test it must pass: the IS / IS-NOT table is specific enough that two people would sort the same borderline feature the same way.*
+*What this section is for: the one-line soul of the product, what would make the person it serves walk away, and a hard boundary of what it is and is not. Test it must pass: the IS / IS-NOT table is specific enough that two people would sort the same borderline feature the same way, and the walk-away test is in the person's own words.*
 
 **Soul statement:**
 <!-- TODO: One sentence. What this product fundamentally does and for whom — the thing
@@ -76,6 +76,20 @@ USING THIS TEMPLATE
 **The deeper aim:**
 <!-- TODO: The outcome beneath the outcome. If the product works, what becomes true in
      the user's life or work that is bigger than the immediate task? -->
+
+**The walk-away test.** Asked what would make them stop using it every day, [the person this product is for] named these conditions:
+<!-- TODO: Ask the person the product is for (the owner, or the primary user when that is
+     someone else): "What would make you stop using this every day?" Write the answer close to
+     verbatim. NEVER infer it from documents or code; if they have not answered, leave this
+     TODO and the soul cannot be ratified. Record both sides: the stop conditions (what would
+     make them leave) and the inverse (what they come for). Each stop condition gets an
+     anti-pattern (Section 4) and a drift signal (Section 8); the inverse is measured by the
+     Walk-away gate (Section 5). See soul-file.md, "The walk-away test". -->
+
+1. **[Stop condition, in their words]**
+2. **[Stop condition, in their words]**
+
+The inverse is what they come for. In their words: "…". Every feature is measured against this (Section 5, Walk-away gate), and each condition has an anti-pattern (Section 4) and a drift signal (Section 8).
 
 **As a person, this product would be:**
 <!-- TODO: Describe the product as a character — the kind of person it is when it shows up.
@@ -142,7 +156,9 @@ Priority order: **[Principle] > [Principle] > [Principle] > …**
 <!-- TODO: Name each failure mode like a character or a trap ("The Closer," "The Spreadsheet
      With Feelings"). For each: the seductive drift (it always starts as a reasonable idea),
      why it kills the product, the phrases that signal it's happening, and the line you won't
-     cross. Seed these from the regression triggers / non-goals in the vision and scope docs. -->
+     cross. Seed these from the regression triggers / non-goals in the vision and scope docs.
+     Every walk-away stop condition (Section 2) must be named by an anti-pattern here, either
+     its own or an existing one whose "Why it kills us" says it is that condition failing. -->
 
 ### [The Named Failure Mode]
 **Drift:** <!-- TODO: The plausible, tempting version of the bad idea — how it sneaks in. -->
@@ -164,9 +180,9 @@ Priority order: **[Principle] > [Principle] > [Principle] > …**
 
 *What this section is for: the actual instrument. Sequential gates plus a growing table of real verdicts. Test it must pass: a person who has never seen this product can run a proposed feature through it and reach the same in/out verdict you would — in under a minute.*
 
-<!-- TODO: Write 2–4 gates. Order them cheapest-to-evaluate first so most bad ideas die
-     fast. The last gate should always be the Anti-Pattern check. Each gate is a single
-     question with an explicit "if no / if yes → stop" rule. -->
+<!-- TODO: Write 2–4 product-specific gates. Order them cheapest-to-evaluate first so most
+     bad ideas die fast. The Principle, Anti-Pattern and Walk-away gates always come last, in
+     that order. Each gate is a single question with an explicit "if no / if yes → stop" rule. -->
 
 Use these gates **in order**. A feature must pass **all** of them.
 
@@ -191,6 +207,14 @@ One violation → redesign or reject.
 > "Does building this drift toward any named anti-pattern in Section 4?"
 
 If yes → reject, or redesign until it doesn't.
+
+### Gate 5: Walk-away Test
+> "Would this make [the person] more or less likely to open it tomorrow?"
+
+<!-- TODO: Sharpen the question with the walk-away answer in Section 2: name the inverse they
+     come for and the stop conditions they named. -->
+
+If less → reject, or redesign until it leaves them closer to what they come for (Section 2). A feature that passes every other gate but fails this one is still rejected.
 
 ### Case Law (In / Out)
 
@@ -283,7 +307,9 @@ If yes → reject, or redesign until it doesn't.
 
 **Drift signals (we're losing the soul):**
 <!-- TODO: Early observable symptoms that the product is rotting toward an anti-pattern.
-     Each paired with what it means. These should fire BEFORE damage is done. -->
+     Each paired with what it means. These should fire BEFORE damage is done. Include at
+     least one signal per walk-away stop condition (Section 2): something you can see in use
+     before the person says it out loud. -->
 
 | Signal | What it means |
 |--------|---------------|
@@ -291,7 +317,8 @@ If yes → reject, or redesign until it doesn't.
 | | |
 
 **Recovery questions:**
-<!-- TODO: 2–3 questions to ask when a drift signal fires, to get back to true. -->
+<!-- TODO: 2–3 questions to ask when a drift signal fires, to get back to true. One of them
+     restates the walk-away test: would [the person] still open it tomorrow, and why? -->
 
 1. 2.
 
@@ -312,6 +339,7 @@ The settled calls this instrument is built on. Ratified with the owner <!-- TODO
 2. **[Decision].**
 3. **[Priority order is settled:** [Principle] > [Principle] > … ] <!-- if applicable -->
 4. **[The anti-patterns are named and kept:** [names]. ]
+5. **[The walk-away test is answered by [person]** and measured at the Walk-away gate. ]
 
 ---
 
@@ -323,13 +351,15 @@ This file changes only when:
 - Real user outcomes shift what the product is for
 - We learn something durable that contradicts a current principle or boundary
 - The product's place in its ecosystem changes (another product takes over a job)
+- The answer to the walk-away test changes (a changed answer means the product has changed)
 
 When updated, add the rationale to the changelog below.
 
 ### Changelog
 
 <!-- TODO: Record every version. At minimum: a DRAFT entry (after Phase 2) and a RATIFIED
-     v1.0 entry (after Phase 5). Newest first. -->
+     v1.0 entry (after Phase 5). Newest first. Re-ask the walk-away question at every
+     ratification and major change, and log any change to the answer here. -->
 
 | Date | Version | Change & rationale |
 |------|---------|--------------------|

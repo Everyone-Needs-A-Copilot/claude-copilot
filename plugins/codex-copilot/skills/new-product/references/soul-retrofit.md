@@ -16,7 +16,7 @@ This skill creates a **soul file** for a product that already exists. Unlike the
 - [ ] Target project's docs and code surveyed; evidence captured
 - [ ] Draft soul produced, with inferred content clearly marked
 - [ ] Gap list produced — exactly which sections/fields evidence could not determine
-- [ ] Owner interviewed to close gaps (one question at a time)
+- [ ] Owner interviewed to close gaps (one question at a time), starting with the walk-away test
 - [ ] `SOUL.md` written to the **target project root**, ratified with a date and a v1.0 changelog entry
 - [ ] Meets the soul-file Define-Done bar in `soul-file.md` (every principle testable, every anti-pattern named, Feature Filter usable in under a minute, IS / IS-NOT populated)
 
@@ -71,10 +71,13 @@ Fill `assets/templates/SOUL.md` as far as the evidence supports. For each inferr
 [your best synthesis]
 ```
 
+Never draft the walk-away test in Section 2, not even as a marked inference. Leave its `<!-- TODO -->`; only the person the product is for can answer it.
+
 Expect to get furthest on the **evidence-rich** sections and stall on the **owner-only** ones:
 
 | Usually inferable from evidence | Usually owner-only (gaps) |
 |---|---|
+| — | §2 the walk-away test (**never** inferable; always a gap) |
 | §1 The Job (from README / use cases) | §3 the *rejection* test behind each principle |
 | §2 soul statement, feature surface, half the IS/IS-NOT | §4 Anti-Patterns (the *named* failure modes) |
 | §3 candidate principles (the values) | §2 the IS-NOT boundaries the owner refuses |
@@ -90,6 +93,7 @@ Produce an explicit list of what analysis could **not** determine. Be precise �
 
 For each gap, name the section, the missing field, and why evidence can't supply it. The gaps are almost always the things only the founder knows:
 
+- **The walk-away test** — always on the list, whatever the evidence. Docs and code show what was built, never what would make the person stop using it. See `soul-file.md`, "The Walk-away Test".
 - **Anti-patterns** — code shows what the product *does*, never the tempting-but-wrong futures the owner is steering away from.
 - **The IS-NOT boundaries** — what the product deliberately refuses, especially when it would be easy and profitable to add.
 - **Principle rejection tests** — the values are visible; the *line each value draws* (the feature it kills) usually isn't.
@@ -106,6 +110,11 @@ Present the gap list to the owner before interviewing: "Here's the draft I pulle
 Close the gaps with the **minimum** set of questions, one at a time, warm-facilitator style (`facilitation-process.md`). Do not re-interview what Step 1 already answered — confirm those quickly ("I read this as X — right?") and spend the conversation on the gaps.
 
 Use the full per-section question bank in `soul-file.md`. Below is the **prioritized gap-closing subset** — the questions that close owner-only gaps, in the order that gives the most leverage:
+
+### First — The walk-away test (§2)
+*Ask it in the first round, before the anti-patterns: its answer often reframes the job and names the anti-patterns that matter most.*
+- "What would make you stop using this every day?" — write the answer close to verbatim, then ask for the inverse: "And when it's working, what do you come for?"
+- For each stop condition: "What's the reasonable-sounding change that would make that happen?" → an anti-pattern (§4). "What would we see you do before you'd say it?" → a drift signal (§8).
 
 ### Priority 1 — Anti-Patterns (§4) and the rejections behind principles (§3)
 *These are the highest-value gaps and the hardest to infer.*
@@ -135,8 +144,8 @@ Seed the **case-law table (§5)** during the interview by walking real history: 
 
 1. Merge inferred (confirmed) content with interview answers into the full `assets/templates/SOUL.md` structure. Remove the `INFERRED / CONFIRM` markers once
    confirmed; keep `<!-- TODO -->` on anything still genuinely open.
-2. Apply the soul-file **synthesis rules** from `soul-file.md`: owner's own words; every principle carries a concrete rejection test; every anti-pattern named; case law from real decisions; IS / IS-NOT rows that settle real confusions.
-3. Verify against the **Define Done** bar in `soul-file.md`. If the Feature Filter isn't usable in under a minute, or a principle has no rejection, it's not done — go back to Step 3 for that gap.
+2. Apply the soul-file **synthesis rules** from `soul-file.md`: owner's own words; the walk-away test in the person's words, connected to an anti-pattern, the Walk-away gate and a drift signal; every principle carries a concrete rejection test; every anti-pattern named; case law from real decisions; IS / IS-NOT rows that settle real confusions.
+3. Verify against the **Define Done** bar in `soul-file.md`. If the Feature Filter isn't usable in under a minute, a principle has no rejection, or the walk-away test is unanswered, it's not done — go back to Step 3 for that gap.
 4. Write `SOUL.md` to the **target project root** (not inside its `docs/`).
 5. Ratify with the owner: walk the whole file, get explicit agreement, set the status line to **RATIFIED v1.0** with today's date, and add the changelog row:
 

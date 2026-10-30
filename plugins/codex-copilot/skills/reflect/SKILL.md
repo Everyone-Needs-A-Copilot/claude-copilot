@@ -16,7 +16,7 @@ Capture durable learning from completed work.
 
 ## Weekly Sweep (2026-10-29)
 
-Weekly, list this week's corrections (`cc memory list --type lesson --json`, `cc rule list --since <7 days ago>`) and propose which become rules (`cc rule add`), which are one-offs, and which contradict an existing rule. Propose deletions too; the sweep may not net-add rules. Pick the memory type by what changed: a wrong process (`lesson`), a project fact (`context`), a revised choice (`decision`) or an external fact (`reference`).
+List corrections since the last review (`cc memory list --type lesson --json`, `cc rule list --since <last review date>`) and propose which become rules (`cc rule add`), which are one-offs, and which contradict an existing rule. Propose deletions too; the sweep may not net-add rules. Pick the memory type by what changed: a wrong process (`lesson`), a project fact (`context`), a revised choice (`decision`) or an external fact (`reference`).
 
 ## Output
 
