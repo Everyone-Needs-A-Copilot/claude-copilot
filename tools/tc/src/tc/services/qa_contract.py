@@ -248,16 +248,35 @@ def scoped_content(root: Path, contract: dict, conn) -> tuple[list[dict], list[d
     return local, blocks, receipts
 
 
+def execution_root(task_id: int, conn) -> Path | None:
+    """The checkout a guarded task was registered to run in, if any.
+
+    A task can execute in a linked worktree while sharing the main checkout's
+    task database, so QA must fingerprint the registered checkout rather than
+    the database's. Read from the latest round without the scope check, which
+    execution enforces on its own path.
+    """
+    from tc.services.execution import _rounds, has_limits
+
+    if not has_limits(task_id=task_id, conn=conn):
+        return None
+    root = _rounds(conn, task_id)[-1]["policy"].get("root")
+    return Path(root).resolve(strict=True) if root else None
+
+
 def capture_for_task(task: dict, conn) -> dict:
     bound = bound_contract(task, conn)
     root = database_path(conn).parent.parent
+    registered = execution_root(task["id"], conn)
     contract = bound["contract"]
-    sources, external, receipts = scoped_content(root, contract, conn)
+    sources, external, receipts = scoped_content(registered or root, contract, conn)
     package = Path(__file__).resolve().parents[1]
     runtime = {p.relative_to(package).as_posix(): hashlib.sha256(p.read_bytes()).hexdigest() for p in sorted(package.rglob("*.py"))}
     identity = {"schemaVersion": contract["schemaVersion"], "database": bound["database"], "task_id": task["id"],
                 "contract_sha256": digest(bound), "source_sha256": digest(sources), "source_count": len(sources),
                 "runtime": {"python": sys.version, "executable": str(Path(sys.executable).absolute()), "tc_sha256": digest(runtime)}}
+    if registered and registered != root.resolve():
+        identity["source_root"] = str(registered)
     result = {"identity": identity, "sources": sources}
     if contract["schemaVersion"] == EXTERNAL_CONTRACT_VERSION or "externalSources" in contract:
         identity["external"] = external

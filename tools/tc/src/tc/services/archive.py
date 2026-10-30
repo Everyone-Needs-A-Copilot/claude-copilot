@@ -35,6 +35,10 @@ DEFAULT_ARCHIVE_DAYS = 14
 _STAMP_SUFFIX = "-archive-stamp"
 _AUTO_INTERVAL_SECONDS = 24 * 3600
 
+# Execution records stay in tasks.db: lifetime budgets and attempt history are
+# read from the live database, so a task that has any is never archived.
+_EXECUTION_TABLES = ("execution_limits", "execution_attempts", "execution_checkpoints", "execution_rounds")
+
 # Moved for each task, children before parents so deletes never orphan a row.
 _TASK_OWNED = (
     ("task_dependencies", "task_id"),
@@ -110,6 +114,17 @@ def _in(ids: list[int]) -> str:
     return "(" + ",".join("?" * len(ids)) + ")"
 
 
+def _guarded_ids(conn: sqlite3.Connection, schema: str = "main") -> set[int]:
+    """Tasks with execution records, which the history format does not carry."""
+    ids: set[int] = set()
+    for table in _EXECUTION_TABLES:
+        if conn.execute(
+            f"SELECT 1 FROM {schema}.sqlite_master WHERE type='table' AND name=?", (table,)
+        ).fetchone():
+            ids.update(r[0] for r in conn.execute(f"SELECT DISTINCT task_id FROM {schema}.{table}"))
+    return ids
+
+
 def archivable_ids(conn: sqlite3.Connection, days: int) -> list[int]:
     """Finished tasks idle for ``days`` days that nothing staying live points at."""
     cutoff = conn.execute("SELECT datetime('now', ?)", (f"-{days} days",)).fetchone()[0]
@@ -124,7 +139,7 @@ def archivable_ids(conn: sqlite3.Connection, days: int) -> list[int]:
             """,
             (cutoff,),
         )
-    }
+    } - _guarded_ids(conn)
     parent_of = [(r[0], r[1]) for r in conn.execute(
         "SELECT id, parent_task_id FROM tasks WHERE parent_task_id IS NOT NULL")]
     depends = [(r[0], r[1]) for r in conn.execute("SELECT task_id, depends_on FROM task_dependencies")]
@@ -186,12 +201,22 @@ def archive(
         probe.close()
     result: dict[str, Any] = {
         "days": days, "dry_run": dry_run, "task_ids": ids, "history": str(history_path(db_path)), "moved": {},
+        "returned": [],
     }
-    if dry_run or not ids:
+    conn = _open_pair(db_path, create=bool(ids) and not dry_run)
+    if conn is None:
         return result
-    conn = _open_pair(db_path, create=True)
     try:
-        result["moved"] = _move(conn, "main", "h", ids)
+        # Earlier versions archived guarded tasks and left their execution
+        # records behind; bring those tasks back so the records resolve again.
+        archived = {r[0] for r in conn.execute("SELECT id FROM h.tasks")}
+        result["returned"] = sorted(archived & _guarded_ids(conn))
+        if dry_run:
+            return result
+        if result["returned"]:
+            _move(conn, "h", "main", result["returned"])
+        if ids:
+            result["moved"] = _move(conn, "main", "h", ids)
     finally:
         conn.close()
     return result

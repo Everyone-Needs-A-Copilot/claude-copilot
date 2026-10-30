@@ -28,6 +28,10 @@ def archive_command(
         output_json(result)
         return
     ids = result["task_ids"]
+    returned = result["returned"]
+    if returned:
+        verb = "Would return" if dry_run else "Returned"
+        print(f"{verb} {len(returned)} task(s) with execution history to tasks.db: {', '.join(f'#{i}' for i in returned)}")
     if not ids:
         print(f"Nothing to archive (no finished tasks idle {days}+ days that live work does not reference).")
     elif dry_run:

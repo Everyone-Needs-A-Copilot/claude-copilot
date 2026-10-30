@@ -154,6 +154,8 @@ tc history restore <id>...
 
 Finished tasks (completed or cancelled) whose latest activity is at least `--days` old move, with their activity log, work products and dependency rows, from `.copilot/tasks.db` into `.copilot/tasks.db-history`, a file with the same schema. A finished task stays while any task left in `tasks.db` still points at it as parent or dependency. Nothing is deleted, task IDs are never reused, and `tc history restore` moves tasks back. The history file is committed with the project, like `tasks.db`.
 
+A task with execution limits is never archived: its attempts and budget usage stay in `tasks.db`, where lifetime accounting and `tc execution status` read them. Earlier versions could archive such a task and leave its records behind; the next `tc archive` run, manual or automatic, moves those tasks back and lists them as returned.
+
 Archiving also runs automatically, at most once a day, after a writing `tc task` command (`update`, `park`, `unpark`, `cancel`). Turn it off with `TC_AUTO_ARCHIVE=0`; change the age with `TC_ARCHIVE_DAYS`. `tc progress` and `tc task list` cover only `tasks.db`.
 
 ### Task state is committed with the project
@@ -461,7 +463,7 @@ tc execution status 42
 Choose caps from the actual workload: each AI attempt must have enough allowance
 for its complete write/review/repair/re-review loop. Register before spending;
 do not split a failing criterion into another task to reset its budget.
-`--root` selects the source worktree when the task database is shared.
+`--root` selects the source worktree when the task database is shared. QA identity for a task with execution limits fingerprints that registered root, so `evidence-identity` and `check_task_qa` read the worktree the task runs in, not the main checkout; the identity line names it as `source_root` when the two differ.
 
 The runner executes from the registered root without a shell, with a process-group
 timeout, and writes private output/receipt files under
