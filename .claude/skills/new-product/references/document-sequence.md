@@ -95,7 +95,7 @@ The soul file is created immediately after the Design Foundation Checkpoint, bef
 
 | Output | Path | Role | Prerequisites | What It Produces |
 |--------|------|------|--------------|-----------------|
-| `SOUL.md` (DRAFT v0.1) | **Project root** | Industrial Designer (essentialism lens) | Documents #1–7; builds specifically on the Capabilities & Essence section (Round 7) of `00-vision.md` | Draft soul statement, IS / IS-NOT table, design principles with rejection tests, named anti-patterns, Feature Filter gates, first-draft quality bar and voice |
+| `SOUL.md` (DRAFT v0.1) | **Project root** | Industrial Designer (essentialism lens) | Documents #1–7; builds specifically on the Capabilities & Essence section (Round 7) of `00-vision.md` | Walk-away test in the user's words (asked first), draft soul statement, IS / IS-NOT table, design principles with rejection tests, named anti-patterns, Feature Filter gates ending with the Walk-away gate, first-draft quality bar and voice |
 
 **Notes:**
 - Full facilitation guide: the new-product skill's `references/soul-file.md`
@@ -146,7 +146,7 @@ The soul file is ratified after Document #15 is approved and before the Design C
 
 | Output | Path | Role | Prerequisites | What It Produces |
 |--------|------|------|--------------|-----------------|
-| `SOUL.md` (RATIFIED v1.0) | **Project root** | Industrial Designer (essentialism lens) + Design Lead | SOUL.md DRAFT; Document #15 (design challenge brief) | Populated case-law table, founding decisions settled and dated, principle priority order confirmed, soul marked RATIFIED v1.0 |
+| `SOUL.md` (RATIFIED v1.0) | **Project root** | Industrial Designer (essentialism lens) + Design Lead | SOUL.md DRAFT; Document #15 (design challenge brief) | Walk-away test re-asked and confirmed, populated case-law table, founding decisions settled and dated, principle priority order confirmed, soul marked RATIFIED v1.0 |
 
 **Notes:**
 - Full facilitation guide: the new-product skill's `references/soul-file.md`

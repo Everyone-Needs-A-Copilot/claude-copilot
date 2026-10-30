@@ -16,6 +16,7 @@ The soul file is a **decision instrument**, not a vision statement. Its single j
 | Made of testable principles and named traps | A list of aspirational adjectives |
 | Living — drafted, ratified, versioned | A one-time deliverable signed off and shelved |
 | A root-level artifact (`SOUL.md`) | A doc buried in `docs/` |
+| Anchored in what would make the person it serves walk away | Written entirely from the builder's side |
 
 A gold-standard `SOUL.md` has a clear structure and voice. Study how every principle carries a *rejection test*, every anti-pattern is a *named* failure mode with early-warning phrases, and the Feature Filter has sequential gates plus a case-law table of real verdicts.
 
@@ -47,6 +48,7 @@ Phase 6: Prototype
 **Why here:** Vision, scope, JTBD, journeys, and moments-that-matter now exist. That's enough raw material to state what the product *is* and what it refuses to be — so the soul can act as a north star while requirements, UX, UI, and the brief are written. Every later document should be checkable against the draft soul.
 
 **What this pass fills (as much as the evidence supports):**
+- **The walk-away test (Section 2)** — ask it first, before Section 1 is written, because the answer can change what the job is. See "The walk-away test" below.
 - **Section 1 (The Job)** — lift from `docs/02-service-design/30-jtbd.md` and the journey maps.
 - **Section 2 (The Essence)** — soul statement, deeper aim, and a first IS / IS-NOT table from the vision's non-goals and "what this is NOT."
 - **Section 3 (Design Principles)** — the principles, each with a rejection test.
@@ -65,8 +67,28 @@ Mark the status line **DRAFT v0.1** and add the v0.1 changelog row. Leave **Sect
 - **Section 9 (Founding Decisions)** — convert the open questions into settled, dated calls. Resolve every principle conflict (the priority order) and every anti-pattern boundary.
 - **Re-test Sections 3 & 4** — after building the brief, does any principle lack a real rejection? Does any anti-pattern not match a real temptation you faced? Fix them.
 - **Sections 6–8** — tighten the quality bar against the moments-that-matter A+ states and the voice against `docs/04-experience-design/70-copy-voice.md`.
+- **The walk-away test** — ask the question again. If the answer changed, update Section 2, its anti-patterns, gate and drift signals, and log the change. No answer from the person means no ratification.
 
 Walk the owner through the whole file, get explicit agreement, mark the status **RATIFIED v1.0** with the date, and add the v1.0 changelog row. The soul is now the working decision instrument.
+
+---
+
+## The Walk-away Test
+
+Every soul file answers one question in the words of the person the product is for: **"What would make you stop using this every day?"** The answer names the experience the product must never lose, and every feature and drift signal is measured against it.
+
+**Why it is required.** Principles, anti-patterns and the Feature Filter catch features that break a rule. They do not catch a change that obeys every rule but slowly takes away what the person comes for. That drift is most likely in AI products, where the easiest next feature is always to do more for the user, until they become a step in the product's process. The question is where that point gets named, and only the person who uses the product can answer it.
+
+**Rules:**
+
+1. **Ask the person the product is for, in these words, and never infer the answer.** That is the owner, or the primary user when that is someone else. Write the answer close to verbatim. Neither a draft nor a retrofit fills it in from documents or code.
+2. **Several kinds of user:** the primary user's answer is required. Ask any other kind of user whose leaving would break the product too, and record their answer as a separate walk-away block.
+3. **Record both sides:** the stop conditions (what would make them leave) and the inverse (what they come for). "A cog in the machine" is a stop condition; "a craftsman given all the information and tools" is its inverse.
+4. **Place it in Section 2 (The Essence)** as "The walk-away test", beside the soul statement. It is part of what the product is, not a metric.
+5. **Connect it to the parts that decide.** Every stop condition is named by an anti-pattern in Section 4, with early-warning phrases, and gets at least one observable drift signal in Section 8. The Walk-away gate is the last gate of the Feature Filter in Section 5: "Would this make [the person] more or less likely to open it tomorrow?" A feature that passes every other gate but fails this one is rejected or redesigned. An answer that only sits in the file changes nothing.
+6. **Ask it again at every ratification and major change**, and log any change to the answer in Section 10. A changed answer means the product has changed.
+
+A soul file is not ratified without this answer.
 
 ---
 
@@ -95,6 +117,7 @@ Ask these conversationally, adapting to what earlier documents already answered.
 - *Synthesis:* state the job in JTBD form ("When… they want to… so they can…"), pulling the JTBD doc forward.
 
 ### Section 2 — The Essence
+- **"What would make you stop using this every day?"** — *the walk-away test; ask it first, in these words, and probe each condition: "What would that look like on a bad day?" Then ask for the inverse: "And when it's working, what do you come for?"*
 - "In one sentence: what does this product fundamentally do, that nothing else does for this person?"
 - "Beneath the obvious outcome — what bigger thing becomes true in their life if this works?"
 - "If this product were a person walking into the room, who are they? How do they behave?"
@@ -117,10 +140,12 @@ Ask these conversationally, adapting to what earlier documents already answered.
 - "What exact words or requests would tip you off that it's happening?" → *the Early-warning phrases.*
 - "What's the line you will not cross to prevent it?" → *the Line in the sand.*
 - *Seed from prior docs:* mine the vision's "Warning Signs / Regression Triggers" and the scope doc's non-goals — those are anti-patterns waiting to be named.
+- *From the walk-away test:* "You said you'd stop using it if [stop condition]. What's the reasonable-sounding feature that would make that happen?" → *every stop condition needs an anti-pattern.*
 
 ### Section 5 — Feature Filter
 - "What's the very first question you'd ask of ANY feature idea — the one that kills most bad ideas fastest?" → *Gate 1.*
 - "What's the next cheapest question that filters out 'useful but not essential'?" → *Gate 2.*
+- *The Walk-away gate always comes last:* phrase it with the person's name and the inverse they come for.
 - *Build the case law from real history:* "Walk me through the last few features you said yes to — and the ones you said no to. For each: which gate decided it, and why?"
 - "Tell me a feature you were genuinely torn on. Which way did it go, and what tipped it?" → *borderline rows teach the most.*
 - *At ratification:* re-walk every in/out call made across Phases 3–5 and record it as case law.
@@ -139,6 +164,7 @@ Ask these conversationally, adapting to what earlier documents already answered.
 - "What would you be thrilled to overhear a user say? Their exact words." → *positive signals.*
 - "What's the earliest sign — observable from outside — that you're drifting toward one of your anti-patterns?" → *drift signals; these must fire early, not in the autopsy.*
 - "When that sign fires, what question gets you back to true?" → *recovery questions.*
+- "For each thing you said would make you walk away: what would we see you do before you'd say it out loud?" → *one drift signal per stop condition.*
 
 ### Section 9 — Founding Decisions (ratify pass)
 - "Of everything we've discussed, which calls are now SETTLED — the ones future-you isn't allowed to casually reopen?"
@@ -156,6 +182,7 @@ Ask these conversationally, adapting to what earlier documents already answered.
 5. **Make the IS / IS-NOT table do work.** Each row should settle a real, tempting confusion — the adjacent product people will assume this is. Vague rows ("good, not bad") are useless.
 6. **Keep the instrument crisp even though the process is warm.** Facilitate gently; write tersely. The filter has to be usable under time pressure by someone who didn't sit in the interview.
 7. **Don't invent to fill a section.** If a section can't be earned from evidence yet, leave the `<!-- TODO -->` and surface it at the ratify pass.
+8. **Never infer the walk-away test.** It comes from the person the product is for, in their words. Without their answer the section stays a TODO and the file stays a DRAFT.
 
 ---
 
@@ -165,6 +192,8 @@ The soul file is done (RATIFIED) when **all** of these are true:
 
 - [ ] **Section 1** states the struggling moment in the user's own words, with everyone the job touches.
 - [ ] **Section 2** has a one-sentence soul statement and an IS / IS-NOT table where every row settles a real confusion.
+- [ ] **Section 2** has the walk-away test in the person's own words: stop conditions and the inverse, asked again at this ratification.
+- [ ] Every walk-away stop condition is named by an anti-pattern (Section 4) and has a drift signal (Section 8), and the Walk-away gate is the last gate in Section 5.
 - [ ] **Section 3**: every principle has a Meaning, a concrete **Rejection** (a feature it kills), and a one-breath **Test**. No platitudes.
 - [ ] **Section 4**: every anti-pattern is **named**, with early-warning phrases and a line in the sand.
 - [ ] **Section 5**: the Feature Filter is usable by a stranger in **under a minute**, and the case-law table holds real in/out verdicts (including at least one borderline call).
@@ -175,7 +204,7 @@ The soul file is done (RATIFIED) when **all** of these are true:
 - [ ] **Section 10** changelog shows the DRAFT (v0.1) and RATIFIED (v1.0) entries with dates and rationale.
 - [ ] The file lives at the **project root** as `SOUL.md`, and the status line reads **RATIFIED v1.0**.
 
-If a simple product scaled sections down, that's fine — but the Feature Filter and the IS / IS-NOT table are never optional. They are the instrument.
+If a simple product scaled sections down, that's fine — but the Feature Filter, the IS / IS-NOT table and the walk-away test are never optional. They are the instrument.
 
 ---
 

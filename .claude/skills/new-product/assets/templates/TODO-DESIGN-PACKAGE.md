@@ -59,7 +59,7 @@ Draft the soul file immediately after the Design Foundation Checkpoint passes, b
 
 | # | Document | Status | Notes |
 |---|----------|--------|-------|
-| — | `SOUL.md` (project root — not in docs/) | NOT STARTED | DRAFT v0.1: soul statement, IS/IS-NOT table, design principles with rejection tests, named anti-patterns, Feature Filter gates. See the new-product skill's `references/soul-file.md` |
+| — | `SOUL.md` (project root — not in docs/) | NOT STARTED | DRAFT v0.1: walk-away test in the user's words, soul statement, IS/IS-NOT table, design principles with rejection tests, named anti-patterns, Feature Filter gates. See the new-product skill's `references/soul-file.md` |
 
 ---
 
@@ -97,7 +97,7 @@ Ratify the soul file after the design challenge brief (#15) is approved, before 
 
 | # | Document | Status | Notes |
 |---|----------|--------|-------|
-| — | `SOUL.md` (project root — ratify pass) | NOT STARTED | RATIFIED v1.0: populate case-law table with real in/out verdicts from Phases 3–5, settle founding decisions with dates, confirm principle priority order. See the new-product skill's `references/soul-file.md` |
+| — | `SOUL.md` (project root — ratify pass) | NOT STARTED | RATIFIED v1.0: re-ask the walk-away test (no answer, no ratification), populate case-law table with real in/out verdicts from Phases 3–5, settle founding decisions with dates, confirm principle priority order. See the new-product skill's `references/soul-file.md` |
 
 ---
 

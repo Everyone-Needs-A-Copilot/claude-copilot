@@ -125,6 +125,20 @@ def test_every_referenced_path_exists(document: Path):
     assert not broken, f"{document.relative_to(SKILL)} references missing files: {sorted(set(broken))}"
 
 
+def test_soul_requires_the_walk_away_test():
+    """Every soul file asks what would make its user stop using the product (2026-10-30)."""
+    template = (TEMPLATES / "SOUL.md").read_text(encoding="utf-8")
+    guide = (SKILL / "references" / "soul-file.md").read_text(encoding="utf-8")
+    retrofit = (SKILL / "references" / "soul-retrofit.md").read_text(encoding="utf-8")
+    essence = template.split("## 2. The Essence", 1)[1].split("## 3.", 1)[0]
+    gates = template.split("## 5. Feature Filter", 1)[1].split("### Case Law", 1)[0]
+    assert "**The walk-away test.**" in essence
+    assert gates.rfind("### Gate") == gates.find("### Gate 5: Walk-away Test")
+    assert "What would make you stop using this every day?" in guide
+    assert "A soul file is not ratified without this answer." in guide
+    assert "always a gap" in retrofit and "### First — The walk-away test" in retrofit
+
+
 def test_known_original_defects_are_gone():
     text = "\n".join(path.read_text(encoding="utf-8") for path in MARKDOWN)
     for stale in ("01-discovery", "02-research/", "04-experience/", "templates/design-package", "REF-", "SKILL-soul"):
