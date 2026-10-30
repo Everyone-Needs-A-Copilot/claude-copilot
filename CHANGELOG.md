@@ -1,5 +1,13 @@
 # Changelog
 
+## [5.30.1] - 2026-10-30
+
+### Fixed
+
+- **QA reads the worktree a task runs in.** A task with execution limits registered to a linked worktree (`tc execution register --root`) had its QA identity fingerprinted from the main checkout, so `tc task evidence-identity` and `check_task_qa` could approve code QA never read. tc now hashes the registered checkout and names it as `source_root` in the identity line when it differs from the main checkout. Identities for other tasks are unchanged.
+- **Archiving keeps execution history live.** Daily auto-archive moved finished tasks that had execution records into `tasks.db-history` and left the records behind, so `tc execution status` failed with "task not found" for them. Tasks with execution records are no longer archived, and the next `tc archive` run, manual or automatic, returns any task an earlier version stranded.
+- Component versions: tc 2.10.0 to 2.10.1.
+
 ## [5.30.0] - 2026-10-30
 
 ### Changed
