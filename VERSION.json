@@ -1,6 +1,6 @@
 {
-  "framework": "5.29.0",
-  "lastUpdated": "2026-10-29",
+  "framework": "5.30.0",
+  "lastUpdated": "2026-10-30",
   "components": {
     "cc": {
       "version": "2.16.0",
@@ -94,7 +94,7 @@
       ]
     },
     "skills": {
-      "version": "3.6.0",
+      "version": "3.7.0",
       "path": ".claude/skills",
       "machineSkills": [
         "new-product"
