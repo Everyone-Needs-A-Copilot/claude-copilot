@@ -488,9 +488,110 @@ cleanup_state
 COPILOT_TC_BIN="${TEST_ROOT}/does-not-exist" send_stop "me" "Task: ${OVR_TASK} | WP: WP-42\nSummary: done."
 expect_eq "Scenario 8: missing override executable fails open (no arm)" "[]" "$(gate_list pending_tasks)"
 cleanup_state
+# Obsolete-check update (TASK-12 Stream-B): OVR_TASK is already tc-approved, and
+# an approved task no longer arms the gate (old expectation: any valid task arms;
+# new: only a task tc does not already approve arms). Arm with a fresh task.
+OVR_ID="$(create_task "$TEST_PROJECT" "QA gate tc override unapproved fixture")"
+OVR_TASK="TASK-${OVR_ID}"
 send_stop "me" "Task: ${OVR_TASK} | WP: WP-43\nSummary: done."
 expect_eq "Scenario 8: override executable is a safe Bash prefix under the gate" "0" "$(COPILOT_TC_BIN="$TC_WRAPPER" bash -c '. /dev/null; printf "{\"session_id\":\"%s\",\"tool_name\":\"Bash\",\"tool_input\":{\"command\":\"%s task get 1\"}}" "$0" "$1" | bash "$2" >/dev/null 2>&1; echo $?' "$TEST_SESSION" "$TC_WRAPPER" "$PRETOOL_HOOK")"
 expect_eq "Scenario 8: unsafe command via override still denied" "2" "$(COPILOT_TC_BIN="$TC_WRAPPER" bash -c 'printf "{\"session_id\":\"%s\",\"tool_name\":\"Bash\",\"tool_input\":{\"command\":\"%s rm -rf x\"}}" "$0" "$1" | bash "$2" >/dev/null 2>&1; echo $?' "$TEST_SESSION" "$TC_WRAPPER" "$PRETOOL_HOOK")"
+
+echo ""
+echo "--- Scenario 9: gate state comes from tc, not reply formatting (TASK-12 Stream-B) ---"
+cleanup_state
+# 9a. The TASK-11 failure: task in rework, QA's reply header is "Task N | WP-84"
+# (no "TASK-" prefix, no colon form). tc approves; the gate must clear.
+RW_ID="$(create_task "$TEST_PROJECT" "QA gate rework header fixture")"
+RW_TASK="TASK-${RW_ID}"
+send_stop "me" "Task: ${RW_TASK} | WP: WP-50\nSummary: done."
+store_evidence "$RW_ID" $'SUPPORTED\nVERDICT: REJECTED'
+send_stop "qa" "Task: ${RW_TASK} | WP: WP-51\nRejected."
+expect_eq "Scenario 9a: precondition, task is in rework" "[\"${RW_TASK}\"]" "$(gate_list rework_tasks)"
+store_evidence "$RW_ID" "APPROVED"
+send_stop "qa" "Task ${RW_ID} | WP-84\nAll criteria supported."
+expect_eq "Scenario 9a: 'Task N | WP-84' header clears rework task once tc approves" "[]" "$(gate_list rework_tasks)"
+expect_eq "Scenario 9a: and nothing is pending" "[]" "$(gate_list pending_tasks)"
+
+# 9b. No header at all and the task sits in rework: tc approval still clears it.
+cleanup_state
+send_stop "me" "Task: ${RW_TASK} | WP: WP-52\nSummary: done."
+"$JQ" --arg sid "$TEST_SESSION" --arg t "$RW_TASK" '.[$sid].pending_tasks=[] | .[$sid].rework_tasks=[$t]' "$GATE_FILE" > "$GATE_FILE.n" && mv "$GATE_FILE.n" "$GATE_FILE"
+send_stop "qa" "Looks good, nothing structured."
+expect_eq "Scenario 9b: header-less QA stop clears an approved rework task" "[]" "$(gate_list rework_tasks)"
+
+# 9c. A header naming a different, unapproved task cannot hold back a listed
+# approved task, and a non-header failure is not counted as a retry.
+cleanup_state
+UNAPP_ID="$(create_task "$TEST_PROJECT" "QA gate unapproved fixture")"
+UNAPP_TASK="TASK-${UNAPP_ID}"
+send_stop "me" "Task: ${UNAPP_TASK} | WP: WP-53\nSummary: done."
+"$JQ" --arg sid "$TEST_SESSION" --arg t "$RW_TASK" '.[$sid].pending_tasks += [$t]' "$GATE_FILE" > "$GATE_FILE.n" && mv "$GATE_FILE.n" "$GATE_FILE"
+send_stop "qa" "TASK-${RW_ID} | WP-85\nApproved."
+expect_eq "Scenario 9c: approved listed task cleared, unapproved one stays pending" "[\"${UNAPP_TASK}\"]" "$(gate_list pending_tasks)"
+expect_eq "Scenario 9c: no retry counted against the unapproved non-header task" "0" "$("$JQ" -r --arg sid "$TEST_SESSION" --arg t "$UNAPP_TASK" '.[$sid].retries[$t] // 0' "$GATE_FILE")"
+
+echo ""
+echo "--- Scenario 10: implementer stop on an already-approved task does not arm ---"
+cleanup_state
+send_stop "me" "Task: ${RW_TASK} | WP: WP-54\nSummary: done (tc already approves)."
+expect_eq "Scenario 10: approved task (attested T1/T2 path) never arms the gate" "[]" "$(gate_list pending_tasks)"
+
+echo ""
+echo "--- Scenario 11: header variants arm on the first line, prose does not ---"
+for header in "Task: TASK-${UNAPP_ID} | WP-1" "TASK-${UNAPP_ID} | WP-1" "Task ${UNAPP_ID} | WP-1" "Task #${UNAPP_ID} | WP-1" "Task: ${UNAPP_ID}"; do
+  cleanup_state
+  send_stop "me" "${header}\nSummary: done."
+  expect_eq "Scenario 11: header '${header}' arms" "[\"${UNAPP_TASK}\"]" "$(gate_list pending_tasks)"
+done
+cleanup_state
+send_stop "me" "Summary first.\nThe follow-up in TASK-${UNAPP_ID} is separate."
+expect_eq "Scenario 11: prose mention of a task never arms" "[]" "$(gate_list pending_tasks)"
+cleanup_state
+send_stop "me" "Task: TASK-${INVALID_TASK_ID} | WP-1\nSummary: done."
+expect_eq "Scenario 11: id absent from this project's tc still never arms (RC-2 protection)" "[]" "$(gate_list pending_tasks)"
+
+echo ""
+echo "--- Scenario 12: PreToolUse derives approval from tc on the next call ---"
+cleanup_state
+LIVE_ID="$(create_task "$TEST_PROJECT" "QA gate live derivation fixture")"
+LIVE_TASK="TASK-${LIVE_ID}"
+send_stop "me" "Task: ${LIVE_TASK} | WP: WP-60\nSummary: done."
+RESULT="$(send_pretool_bash "ls")"
+expect_eq "Scenario 12: unapproved task denies Bash" "2" "$(get_exit_code "$RESULT")"
+store_evidence "$LIVE_ID" "APPROVED"
+RESULT="$(send_pretool_bash "ls")"
+expect_eq "Scenario 12: tc approves with no QA stop at all, so the next call is allowed" "0" "$(get_exit_code "$RESULT")"
+expect_eq "Scenario 12: state file now has no pending task" "[]" "$(gate_list pending_tasks)"
+
+# 12b. Cache: with tasks.db unchanged, repeat calls do not call tc again.
+cleanup_state
+CACHE_ID="$(create_task "$TEST_PROJECT" "QA gate cache fixture")"
+send_stop "me" "Task: TASK-${CACHE_ID} | WP: WP-61\nSummary: done."
+sleep 2   # fingerprint is only cached once the db is older than the current second
+: > "$TC_LOG"
+send_cached() { COPILOT_TC_BIN="$TC_WRAPPER" send_pretool_bash "ls"; }
+RESULT="$(send_cached)"
+FIRST_CALLS="$(grep -c "check-qa ${CACHE_ID}" "$TC_LOG" 2>/dev/null || true)"
+RESULT2="$(send_cached)"
+SECOND_CALLS="$(grep -c "check-qa ${CACHE_ID}" "$TC_LOG" 2>/dev/null || true)"
+expect_eq "Scenario 12b: first call asks tc" "1" "$FIRST_CALLS"
+expect_eq "Scenario 12b: unchanged tasks.db is served from cache (no second tc call)" "1" "$SECOND_CALLS"
+expect_eq "Scenario 12b: cached state still denies" "2" "$(get_exit_code "$RESULT2")"
+(cd "$TEST_PROJECT" && tc task update "$CACHE_ID" --title "QA gate cache fixture touched" --json >/dev/null 2>&1)
+send_cached >/dev/null
+THIRD_CALLS="$(grep -c "check-qa ${CACHE_ID}" "$TC_LOG" 2>/dev/null || true)"
+expect_eq "Scenario 12b: a tasks.db change re-asks tc" "2" "$THIRD_CALLS"
+
+# 12c. Fail-safe: tc unavailable keeps the gate shut even though evidence is approved.
+cleanup_state
+store_evidence "$CACHE_ID" "APPROVED"
+"$JQ" -n --arg sid "$TEST_SESSION" --arg t "TASK-${CACHE_ID}" '{($sid):{pending_tasks:[$t],rework_tasks:[],retries:{},history:[],lastSeen:"2026-01-01T00:00:00Z"}}' > "$GATE_FILE"
+RESULT="$(COPILOT_TC_BIN="${TEST_ROOT}/does-not-exist" send_pretool_bash "ls")"
+expect_eq "Scenario 12c: tc missing -> state kept, gate stays closed" "2" "$(get_exit_code "$RESULT")"
+# And a project with no tasks.db at all keeps the cached state too.
+RESULT="$(CLAUDE_PROJECT_DIR="$TEST_ROOT/nowhere" send_pretool_bash "ls")"
+expect_eq "Scenario 12c: no tasks.db -> state kept, gate stays closed" "2" "$(get_exit_code "$RESULT")"
 
 # ---------------------------------------------------------------------------
 # Results

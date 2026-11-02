@@ -576,6 +576,10 @@ QA_GATE_SAFE_PREFIXES=(
   "tc task create"
   "tc task update"
   "tc task check-qa"
+  "tc task attest"
+  "tc task tier"
+  "tc task qa-packet"
+  "tc task evidence-identity"
   "tc wp get"
   "tc wp list"
   "tc wp store"
@@ -649,6 +653,101 @@ _qa_gate_rework_only() {
   deny "QA gate rework: ${ids} was rejected by @agent-qa. Only @agent-me (to fix it), @agent-qa, read/edit tools and read-only tc commands are allowed until QA approves."
 }
 
+# ---------------------------------------------------------------------------
+# Derive gate state from tc (Stream-B, TASK-12): the state file is a cache of
+# what `tc task check-qa` says, not a record of what the agent's reply said.
+#
+# When this session has pending or rework tasks, compare the newest mtime of
+# the project's .copilot/tasks.db and tasks.db-wal with the `derivedAt`
+# fingerprint stored on the session entry. Unchanged -> use the cached state
+# (stat only, keeps the 50ms target). Changed or never derived -> ask tc about
+# each listed task and drop the approved ones, then record the new fingerprint.
+#
+# FAIL-SAFE: no tasks.db for the project, tc missing, or tc erroring (any exit
+# other than 0 approved / 1 not approved) leaves the state untouched, so the
+# gate stays shut exactly as before. Approval is only ever read from tc.
+# ---------------------------------------------------------------------------
+_qa_gate_db_fingerprint() {
+  local project_dir="$1" f m max=0
+  for f in "${project_dir}/.copilot/tasks.db" "${project_dir}/.copilot/tasks.db-wal"; do
+    [[ -f "$f" ]] || continue
+    m="$(stat -f %m "$f" 2>/dev/null || stat -c %Y "$f" 2>/dev/null)" || continue
+    [[ "$m" =~ ^[0-9]+$ ]] || continue
+    [[ "$m" -gt "$max" ]] && max="$m"
+  done
+  printf '%s' "$max"
+}
+
+_qa_gate_refresh_from_tc() {
+  local gate_file="$1"
+  local project_dir="${CLAUDE_PROJECT_DIR:-$PWD}"
+
+  local listed derived_at
+  listed="$("$JQ" -r --arg sid "$SESSION_ID" \
+    '((.[$sid].pending_tasks // []) + (.[$sid].rework_tasks // [])) | unique | .[]' \
+    "$gate_file" 2>/dev/null)" || return 0
+  [[ -n "$listed" ]] || return 0
+
+  local fingerprint
+  fingerprint="$(_qa_gate_db_fingerprint "$project_dir")"
+  if [[ "$fingerprint" == "0" ]]; then
+    echo "[pretool-check] no tasks.db under ${project_dir}; keeping cached qa-gate state" >&2
+    return 0
+  fi
+  derived_at="$("$JQ" -r --arg sid "$SESSION_ID" '.[$sid].derivedAt // empty' "$gate_file" 2>/dev/null)"
+  [[ "$derived_at" == "$fingerprint" ]] && return 0
+
+  if ! command -v "$QA_GATE_TC_BIN" &>/dev/null; then
+    echo "[pretool-check] ${QA_GATE_TC_BIN} unavailable; keeping cached qa-gate state (fail closed)" >&2
+    return 0
+  fi
+
+  local t num rc approved=() clean=1
+  while IFS= read -r t; do
+    [[ -n "$t" ]] || continue
+    num="${t#TASK-}"
+    [[ "$num" =~ ^[0-9]+$ ]] || { clean=0; continue; }
+    rc=0
+    ( cd "$project_dir" 2>/dev/null && "$QA_GATE_TC_BIN" task check-qa "$num" --json >/dev/null 2>&1 ) || rc=$?
+    if [[ "$rc" -eq 0 ]]; then
+      approved+=("$t")
+    elif [[ "$rc" -ne 1 ]]; then
+      clean=0
+      echo "[pretool-check] tc task check-qa ${num} errored (exit ${rc}); keeping ${t} gated" >&2
+    fi
+  done <<< "$listed"
+
+  # Only record the fingerprint when every answer was definitive, so a broken
+  # tc is retried on the next call instead of being cached as "checked".
+  [[ "${#approved[@]}" -gt 0 || "$clean" -eq 1 ]] || return 0
+  # mtimes have one-second resolution: a db touched this very second may be
+  # written again within it, so do not cache that fingerprint.
+  [[ "$fingerprint" -lt "$(date +%s)" ]] || clean=0
+
+  local lock="${STATE_DIR}/qa-gate.lock" i=0
+  while ! mkdir "$lock" 2>/dev/null; do
+    sleep 0.02; i=$((i + 1))
+    [[ $i -ge 15 ]] && return 0
+  done
+  local approved_json updated tmp="${gate_file}.tmp.$$"
+  approved_json="$(printf '%s\n' "${approved[@]+"${approved[@]}"}" | "$JQ" -R . | "$JQ" -sc 'map(select(. != ""))')"
+  updated="$("$JQ" --arg sid "$SESSION_ID" --argjson ok "$approved_json" \
+    --arg fp "$fingerprint" --argjson clean "$clean" --arg now "$(date -u +%Y-%m-%dT%H:%M:%SZ)" '
+    if has($sid) then
+      .[$sid].pending_tasks = ((.[$sid].pending_tasks // []) - $ok) |
+      .[$sid].rework_tasks = ((.[$sid].rework_tasks // []) - $ok) |
+      (if ($ok | length) > 0 then
+        .[$sid].history = ((.[$sid].history // []) + ($ok | map({taskId: ., event: "qa_approved_by_tc", ts: $now}))) |
+        .[$sid].retries = ((.[$sid].retries // {}) | del(.[$ok[]]))
+       else . end) |
+      (if $clean == 1 then .[$sid].derivedAt = $fp else . end)
+    else . end' "$gate_file" 2>/dev/null)"
+  if [[ -n "$updated" ]]; then
+    printf '%s\n' "$updated" > "$tmp" && mv "$tmp" "$gate_file"
+  fi
+  rmdir "$lock" 2>/dev/null || true
+}
+
 rule_qa_gate() {
   # Escape hatch
   if [[ "${COPILOT_QA_GATE:-}" == "off" ]]; then
@@ -661,6 +760,8 @@ rule_qa_gate() {
   if [[ ! -f "$gate_file" ]]; then
     return 0
   fi
+
+  _qa_gate_refresh_from_tc "$gate_file"
 
   # Read pending_tasks for this session
   local pending_json
