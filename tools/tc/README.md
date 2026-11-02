@@ -7,7 +7,7 @@ Agent-agnostic task management CLI for AI development workflows. Stores PRDs, ta
 ## Install
 
 ```bash
-cd tools/tc && pip install -e .
+bash tools/tc/install.sh
 ```
 
 The `tc` binary is placed on your `PATH` (standard pip scripts install).

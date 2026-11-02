@@ -968,7 +968,7 @@ Use this checklist to track your journey:
 ### Challenge 1: "cc or tc not found"
 
 **Solution:**
-1. Reinstall: `bash ~/.claude/copilot/tools/cc/install.sh` and `pip install -e ~/.claude/copilot/tools/tc`
+1. Reinstall: `bash ~/.claude/copilot/tools/cc/install.sh` and `bash ~/.claude/copilot/tools/tc/install.sh`
 2. Reload your shell: `source ~/.zshrc` (installer auto-appends `~/.local/bin` to your profile)
 3. Verify: `cc --version` and `tc version`
 4. Restart Claude Code

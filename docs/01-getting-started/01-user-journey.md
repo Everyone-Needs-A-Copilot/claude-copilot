@@ -90,7 +90,7 @@ Or simply:
 
 1. **Prerequisites check** - Verifies Python 3.10+ is available
 2. **Install cc CLI** - `bash tools/cc/install.sh`
-3. **Install tc CLI** - `pip install -e tools/tc`
+3. **Install tc CLI** - `bash tools/tc/install.sh`
 4. **Create directories** - `~/.claude/memory/` and `~/.claude/tasks/` for databases
 5. **Install global commands** - Copies `/setup-project`, `/update-project`, `/update-copilot`, and `/knowledge-copilot` to `~/.claude/commands/`
 6. **Check for knowledge** - Detects existing knowledge repository
@@ -410,7 +410,7 @@ Note: `/setup` only works when run from `~/.claude/copilot`. For projects, use `
 ### CLI tools not found
 
 1. Run `cc --version` and `tc version` to confirm both are installed
-2. If missing, reinstall: `bash ~/.claude/copilot/tools/cc/install.sh` and `pip install -e ~/.claude/copilot/tools/tc`
+2. If missing, reinstall: `bash ~/.claude/copilot/tools/cc/install.sh` and `bash ~/.claude/copilot/tools/tc/install.sh`
 3. Reload your shell: `source ~/.zshrc` (the installer auto-appends `~/.local/bin` to your profile)
 4. Restart Claude Code
 

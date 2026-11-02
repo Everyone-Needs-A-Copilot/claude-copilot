@@ -290,7 +290,7 @@ ls "$(cc config get paths.knowledge_repo --raw)"
 bash ~/.claude/copilot/tools/cc/install.sh
 
 # Install tc CLI
-pip install -e ~/.claude/copilot/tools/tc
+bash ~/.claude/copilot/tools/tc/install.sh
 
 # Or add to PATH manually
 export PATH="$PATH:~/.claude/copilot/tools/cc/src"

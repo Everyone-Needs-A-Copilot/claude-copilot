@@ -47,7 +47,7 @@ cd ~/your-project && claude
 bash ~/.claude/copilot/tools/cc/install.sh
 
 # tc CLI (Task Copilot)
-pip install -e ~/.claude/copilot/tools/tc
+bash ~/.claude/copilot/tools/tc/install.sh
 ```
 
 #### Agents
@@ -358,7 +358,7 @@ cd ~/your-project && claude
 
 | Issue | Solution |
 |-------|----------|
-| **`cc` or `tc` not found** | Run `bash ~/.claude/copilot/tools/cc/install.sh` and `pip install -e ~/.claude/copilot/tools/tc` |
+| **`cc` or `tc` not found** | Run `bash ~/.claude/copilot/tools/cc/install.sh` and `bash ~/.claude/copilot/tools/tc/install.sh` |
 | **Memory not persisting** | Run `cc memory index --rebuild`, check `~/.claude/memory/` |
 | **Skill search empty** | Run `cc skill list` — confirm local skills path is set |
 | **Commands not working** | Verify `.claude/commands/*.md` exist, restart Claude Code |

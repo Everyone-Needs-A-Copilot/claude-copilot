@@ -72,7 +72,7 @@ This creates a knowledge repository for company/product information shared acros
 | Binary | Purpose |
 |--------|---------|
 | `cc` | Memory and skills CLI (installed by `tools/cc/install.sh`) |
-| `tc` | Task Copilot CLI (installed by `pip install -e tools/tc`) |
+| `tc` | Task Copilot CLI (installed by `bash tools/tc/install.sh`) |
 
 ### User Config (`~/.claude/`)
 
@@ -112,7 +112,7 @@ If you prefer to run steps manually:
 
 ```bash
 # tc CLI — Task Copilot (required)
-pip install -e ~/.claude/copilot/tools/tc
+bash ~/.claude/copilot/tools/tc/install.sh
 
 # Exact immutable framework runtime — cc plus VERSION.json machineCommands
 COPILOT_SOURCE_ROOT="$(git -C "$HOME/.claude/copilot" rev-parse --show-toplevel)"
@@ -221,7 +221,7 @@ $HOME/.local/bin/cc --version
 ### `tc` Not Found
 
 ```bash
-pip3 install -e ~/.claude/copilot/tools/tc
+bash ~/.claude/copilot/tools/tc/install.sh
 tc version
 ```
 

@@ -55,7 +55,7 @@ if command -v tc >/dev/null 2>&1; then
     echo -e "  ${GREEN}✅ tc CLI: $TC_VERSION${NC}"
 elif [ -d "$COPILOT_PATH/tools/tc" ]; then
     echo -e "  ${YELLOW}⚠️  tc CLI: found at tools/tc/ but not on PATH${NC}"
-    echo -e "      Install: cd $COPILOT_PATH/tools/tc && pip install -e ."
+    echo -e "      Install: bash $COPILOT_PATH/tools/tc/install.sh"
     ((ERRORS++))
 else
     echo -e "  ${RED}❌ tc CLI: not found${NC}"
@@ -188,7 +188,7 @@ else
     echo ""
     echo "To fix issues:"
     echo "  1. Install cc CLI: bash ~/.claude/copilot/tools/cc/install.sh"
-    echo "  2. Install tc CLI: cd ~/.claude/copilot/tools/tc && pip install -e ."
+    echo "  2. Install tc CLI: bash ~/.claude/copilot/tools/tc/install.sh"
     echo "  3. Update framework: /update-copilot"
 fi
 echo -e "${BLUE}========================================${NC}"

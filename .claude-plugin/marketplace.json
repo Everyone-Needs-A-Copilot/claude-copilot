@@ -5,7 +5,7 @@
   "plugins": [
     {
       "name": "claude-copilot",
-      "version": "5.30.1",
+      "version": "5.31.0",
       "description": "Claude Copilot \u2014 specialized agents (ta/me/qa/sd/do/doc/kc), skills, commands, and hooks that give Claude persistent memory, expert methodology, and task tracking.",
       "author": "Claude Copilot contributors",
       "homepage": "https://github.com/pabloalej/claude-copilot",
@@ -31,7 +31,7 @@
         },
         "tc": {
           "description": "tc CLI \u2014 task copilot (PRD, task, work product storage)",
-          "install": "pip install -e tools/tc",
+          "install": "bash tools/tc/install.sh",
           "degraded_without": [
             "tc task",
             "tc wp",
@@ -45,6 +45,6 @@
   "_usage": {
     "add_marketplace": "Add to your Claude Code settings: extraKnownMarketplaces: [\"<repo-url>/.claude-plugin/marketplace.json\"]",
     "install": "/plugin install claude-copilot",
-    "after_install": "Run 'bash tools/cc/install.sh' and 'pip install -e tools/tc' to enable full functionality. Then run 'cc doctor' to verify."
+    "after_install": "Run 'bash tools/cc/install.sh' and 'bash tools/tc/install.sh' to enable full functionality. Then run 'cc doctor' to verify."
   }
 }

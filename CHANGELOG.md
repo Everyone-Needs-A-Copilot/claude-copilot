@@ -1,5 +1,16 @@
 # Changelog
 
+## [5.31.0] - 2026-11-02
+
+### Added
+
+- **`cc resources`: managed synthetic Docker test databases.** `cc resources run --project PATH --task TASK-ID --profile ops|convoco|postgres -- COMMAND` starts one fresh loopback-only PostgreSQL server and named volume for a test command, then removes it on success or stops it and keeps its data for 48 hours on failure. `cc resources status`, `finish RUN_ID`, `audit`, `sweep` and `maintain` inspect and clean only resources the framework created and can prove it created. There is no prune and no adoption of existing servers; capacity warns at 70% and blocks at 85% of the Docker VM filesystem. Cleanup requires the owner policy file `~/.config/copilot/docker-resources.json` (`automatic_synthetic_cleanup: true` plus an `approval` quote); without it `run` holds. See `tools/cc/docs/docker-resources.md` and `tools/cc/tests/test_docker_resources.py`.
+
+### Fixed
+
+- **`/setup` no longer fails on Homebrew Python.** Setup, `/update-copilot`, SETUP.md and the install hints ran a plain `pip install -e tools/tc`, which Homebrew Python refuses with the PEP 668 "externally-managed-environment" error. They now run `tools/tc/install.sh`, which installs tc into its own virtual environment and places the `tc` shim, the same way `tools/cc/install.sh` already installs cc. `tests/test_setup_no_global_pip.py` blocks the plain-pip form from returning.
+- Component versions: cc 2.16.0 to 2.17.0, commands 5.9.0 to 5.9.1.
+
 ## [5.30.1] - 2026-10-30
 
 ### Fixed

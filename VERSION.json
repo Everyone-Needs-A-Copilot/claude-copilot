@@ -1,9 +1,9 @@
 {
-  "framework": "5.30.1",
-  "lastUpdated": "2026-10-30",
+  "framework": "5.31.0",
+  "lastUpdated": "2026-11-02",
   "components": {
     "cc": {
-      "version": "2.16.0",
+      "version": "2.17.0",
       "path": "tools/cc",
       "installScript": "tools/cc/install.sh",
       "provides": [
@@ -24,7 +24,8 @@
         "cc eval adoption-check",
         "cc design",
         "cc rule",
-        "cc priorities"
+        "cc priorities",
+        "cc resources"
       ]
     },
     "tc": {
@@ -71,7 +72,7 @@
       ]
     },
     "commands": {
-      "version": "5.9.0",
+      "version": "5.9.1",
       "path": ".claude/commands",
       "projectCommands": [
         "protocol.md",
