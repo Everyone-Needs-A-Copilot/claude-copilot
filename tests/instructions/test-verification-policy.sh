@@ -23,15 +23,15 @@ def verify_policy(content):
         row = [r for k, r in rows.items() if k.startswith(lane)]
         assert row and all(t in row[0] for t in terms), lane
     tiers = {
-        'T1 copy': ('New text present, old text gone, one browser load', 'no QA agent'),
-        'T2 structural': ('One or two renders', 'existing fast checks', 'no separate QA agent'),
+        'T1 copy': ('New text present, old text gone, one browser load', 'no QA agent', '--in ', '--present ', '--absent ', '--load '),
+        'T2 structural': ('One or two renders', 'existing fast checks', 'no separate QA agent', '--render ', '--checks '),
         'T3 foundational': ('Full depth', 'independent @agent-qa'),
     }
     for tier, terms in tiers.items():
         row = [r for k, r in rows.items() if k.startswith(tier)]
         assert row and all(x in row[0] for x in terms), tier
     for required in (
-        '## Verification Tiers', 'escalates upward only', 'Downgrades are owner-only',
+        '## Verification Tiers', 'pablo:<quote>', 'escalates upward only', 'Downgrades are owner-only',
         'Untiered tasks default to T3', 'light source check, not automatic T3',
         'Unknown impact selects a broader named lane, never an empty selection',
         'New tests\nare required for missing behavior coverage',
@@ -75,6 +75,9 @@ for mutant in (
     policy.replace('then stop', 'then improve again'),
     policy.replace('no QA agent |', 'QA agent required |'),
     policy.replace('Untiered tasks default to T3', 'Untiered tasks default to T1'),
+    policy.replace('pablo:<quote>', 'owner quote'),
+    policy.replace('--absent ', '--gone '),
+    policy.replace('--checks ', '--check-run '),
     policy.replace('escalates upward only', 'may move either way'),
     policy.replace('Downgrades are owner-only', 'Agents may downgrade'),
     policy.replace('light source check, not automatic T3', 'forced T3'),

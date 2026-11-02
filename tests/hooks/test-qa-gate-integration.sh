@@ -593,6 +593,69 @@ expect_eq "Scenario 12c: tc missing -> state kept, gate stays closed" "2" "$(get
 RESULT="$(CLAUDE_PROJECT_DIR="$TEST_ROOT/nowhere" send_pretool_bash "ls")"
 expect_eq "Scenario 12c: no tasks.db -> state kept, gate stays closed" "2" "$(get_exit_code "$RESULT")"
 
+# 13. Integration with tiers: the gate treats a tc-attested T1 task as approved,
+# and an unattested T1 task still arms it (negative control). Needs a tc that
+# implements `tc task attest`; it is real tc, real git, no stubs.
+echo ""
+echo "--- Scenario 13: attested T1 task never arms the gate ---"
+cleanup_state
+SAVED_PATH="$PATH"
+[[ -x "$PROJECT_ROOT/tools/tc/.venv/bin/tc" ]] && PATH="$PROJECT_ROOT/tools/tc/.venv/bin:$PATH"
+if ! tc task attest --help >/dev/null 2>&1; then
+  fail "Scenario 13: installed tc lacks 'task attest'; install this checkout's tc to run the tier integration"
+else
+  GIT_ID=(-c user.name=T -c user.email=t@example.invalid)
+  printf '# Plan\n\nWe offer the OLD title today.\n' > "$TEST_PROJECT/doc.md"
+  (cd "$TEST_PROJECT" && git init -q && git "${GIT_ID[@]}" add -A && git "${GIT_ID[@]}" commit -qm baseline)
+  T1_ID="$(create_task "$TEST_PROJECT" "Tier T1 gate fixture")"
+  T1_TASK="TASK-${T1_ID}"
+  (cd "$TEST_PROJECT" && tc task tier "$T1_ID" T1 --reason "copy edit" --json >/dev/null)
+
+  # Negative control: tiered but not attested -> the implementer stop arms the gate.
+  send_stop "me" "Task: ${T1_TASK} | WP: WP-90\nSummary: edited copy."
+  expect_eq "Scenario 13: unattested T1 task arms the gate" "[\"${T1_TASK}\"]" "$(gate_list pending_tasks)"
+  expect_eq "Scenario 13: unattested T1 task denies Bash" "2" "$(get_exit_code "$(send_pretool_bash "ls")")"
+
+  # Edit, evidence newer than the edit, attest through tc.
+  sleep 1
+  printf '# Plan\n\nWe offer the NEW title today.\n' > "$TEST_PROJECT/doc.md"
+  mkdir -p "$TEST_PROJECT/.copilot/evidence"; sleep 1
+  printf 'png' > "$TEST_PROJECT/.copilot/evidence/load.png"
+  ATTEST_OUT="$(cd "$TEST_PROJECT" && tc task attest "$T1_ID" --tier T1 --in doc.md --present "NEW title" --absent "OLD title" --load .copilot/evidence/load.png --json 2>&1)"
+  if (cd "$TEST_PROJECT" && tc task check-qa "$T1_ID" --json 2>/dev/null) | "$JQ" -e '.approved == true' >/dev/null; then
+    ok "Scenario 13: tc approves the attested T1 task"
+  else
+    fail "Scenario 13: tc did not approve the attested T1 task: $ATTEST_OUT"
+  fi
+  # The armed gate clears on the next tool call, with no QA agent stop at all.
+  expect_eq "Scenario 13: gate derives approval from tc and allows Bash" "0" "$(get_exit_code "$(send_pretool_bash "ls")")"
+  expect_eq "Scenario 13: pending cleared without a QA stop" "[]" "$(gate_list pending_tasks)"
+  # And a fresh implementer stop on an already-attested task never arms it.
+  send_stop "me" "Task: ${T1_TASK} | WP: WP-91\nSummary: done."
+  expect_eq "Scenario 13: implementer stop on an attested task does not arm" "[]" "$(gate_list pending_tasks)"
+
+  # T2: markup change, one render and a passed verification run.
+  printf '<html><body><h1 class="a">Heading</h1></body></html>\n' > "$TEST_PROJECT/page.html"
+  (cd "$TEST_PROJECT" && git "${GIT_ID[@]}" add -A && git "${GIT_ID[@]}" commit -qm "page baseline")
+  T2_ID="$(create_task "$TEST_PROJECT" "Tier T2 gate fixture")"
+  T2_TASK="TASK-${T2_ID}"
+  (cd "$TEST_PROJECT" && tc task tier "$T2_ID" T2 --reason "class change" --json >/dev/null)
+  sleep 1
+  printf '<html><body><h1 class="b">Heading</h1></body></html>\n' > "$TEST_PROJECT/page.html"
+  mkdir -p "$TEST_PROJECT/.copilot/verification/run1"; sleep 1
+  printf 'png' > "$TEST_PROJECT/.copilot/evidence/render.png"
+  printf '{"status":"passed"}' > "$TEST_PROJECT/.copilot/verification/run1/status.json"
+  T2_OUT="$(cd "$TEST_PROJECT" && tc task attest "$T2_ID" --tier T2 --render .copilot/evidence/render.png --checks run1 --json 2>&1)"
+  send_stop "me" "Task: ${T2_TASK} | WP: WP-92\nSummary: restyled."
+  expect_eq "Scenario 13: attested T2 task does not arm the gate" "[]" "$(gate_list pending_tasks)"
+  if (cd "$TEST_PROJECT" && tc task check-qa "$T2_ID" --json 2>/dev/null) | "$JQ" -e '.approved == true' >/dev/null; then
+    ok "Scenario 13: tc approves the attested T2 task"
+  else
+    fail "Scenario 13: tc did not approve the attested T2 task: $T2_OUT"
+  fi
+fi
+PATH="$SAVED_PATH"
+
 # ---------------------------------------------------------------------------
 # Results
 # ---------------------------------------------------------------------------
