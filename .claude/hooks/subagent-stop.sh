@@ -336,9 +336,26 @@ get_session() {
 # ---------------------------------------------------------------------------
 extract_task_id() {
   local msg="$1"
-  local line
+  local line first
+  # Header variants tc-approved work has actually been reported with:
+  #   Task: TASK-11 | WP-84     TASK-11 | WP-84     Task 11 | WP-84
+  #   Task #11 | WP-84          Task: 11
+  # Only the FIRST non-empty line counts, so prose later in the reply that
+  # mentions a task cannot become the candidate. The "Task:"-prefixed form is
+  # still honoured on any line (the long-standing contract).
   line="$(printf '%s\n' "$msg" | grep -oE '^[[:space:]>*_-]*Task:[[:space:]*_]*TASK-[0-9]+' | head -1 2>/dev/null)" || line=""
-  printf '%s' "$line" | grep -oE 'TASK-[0-9]+' 2>/dev/null || echo ""
+  if [[ -n "$line" ]]; then
+    printf '%s' "$line" | grep -oE 'TASK-[0-9]+' 2>/dev/null || echo ""
+    return
+  fi
+  first="$(printf '%s\n' "$msg" | grep -m1 -E '[^[:space:]]' 2>/dev/null)" || first=""
+  local num
+  num="$(printf '%s' "$first" | sed -nE 's/^[[:space:]>*_#-]*(Task:?[[:space:]*_]*#?|TASK-)([0-9]+)([^0-9].*)?$/\2/p' 2>/dev/null)"
+  if [[ -n "$num" ]]; then
+    printf 'TASK-%s' "$num"
+  else
+    echo ""
+  fi
 }
 
 # NOTE: `extract_all_task_ids` (the whole-message TASK-N scanner that used
@@ -525,6 +542,15 @@ handle_me_completion() {
     exit 0
   fi
 
+  # tc is the authority: when the implementer already finished through
+  # `tc task attest` (T1/T2) or the task is otherwise approved at the current
+  # identity, there is nothing for a QA agent to do, so the gate never arms.
+  # Any non-pass outcome (not approved, tc error, tc missing) arms as before.
+  if [[ "$(check_qa_verdict "$task_id")" == "pass" ]]; then
+    log_info "me_completed: tc task check-qa already approves ${task_id} -- NOT arming QA gate (session: ${SESSION_ID})"
+    exit 0
+  fi
+
   acquire_lock
   trap 'release_lock' EXIT
 
@@ -546,6 +572,7 @@ handle_me_completion() {
     ) |
     .rework_tasks = ((.rework_tasks // []) | map(select(. != $tid))) |
     .history = .history + [{"taskId": $tid, "event": $event, "ts": $now}] |
+    del(.derivedAt) |
     .lastSeen = $now
   ' 2>/dev/null)"
 
@@ -662,22 +689,32 @@ handle_qa_completion() {
   # final message carries no parseable header (the cause of retries silently
   # not advancing), fall back to this session's own pending tasks rather than
   # exiting unrecorded. tc check-qa stays the sole verdict authority per task.
-  local candidates=()
+  # The header task is the primary candidate; this session's pending and
+  # rework tasks are always added, because the header is only a hint (it was
+  # "Task 11 | WP-84" when TASK-11 sat in rework and nothing cleared). Extra
+  # candidates can only be CLEARED by an approval; a non-pass for a task the
+  # header did not name never counts as a retry or a rejection.
+  local candidates=() full_verdict=() listed_tasks t
   if [[ -n "$task_id" ]]; then
     candidates=("$task_id")
-  else
-    local pending_list
-    pending_list="$(read_gate_state | "$JQ" -r --arg sid "$SESSION_ID" \
-      '(.[$sid].pending_tasks // [])[]' 2>/dev/null)"
-    while IFS= read -r t; do
-      [[ -n "$t" ]] && candidates+=("$t")
-    done <<< "$pending_list"
-    if [[ "${#candidates[@]}" -eq 0 ]]; then
-      log_warn "agent-qa completed but no TASK-N found in last_assistant_message and no pending task (session: ${SESSION_ID}) -- cannot look up a task-bound verdict"
-      exit 0
-    fi
-    log_warn "agent-qa completed with no 'Task: TASK-N' header; checking pending task(s) ${candidates[*]} (session: ${SESSION_ID})"
+    full_verdict=(1)
   fi
+  # Pending tasks get the full verdict only when no header named a task (the
+  # long-standing fallback); rework tasks are clear-only.
+  listed_tasks="$(read_gate_state | "$JQ" -r --arg sid "$SESSION_ID" \
+    '((.[$sid].pending_tasks // []) | map("P " + .))[], ((.[$sid].rework_tasks // []) | map("R " + .))[]' 2>/dev/null)"
+  while IFS= read -r t; do
+    [[ -n "$t" ]] || continue
+    local kind="${t%% *}" id="${t#* }"
+    [[ "$id" == "$task_id" ]] && continue
+    candidates+=("$id")
+    if [[ "$kind" == "P" && -z "$task_id" ]]; then full_verdict+=(1); else full_verdict+=(0); fi
+  done <<< "$listed_tasks"
+  if [[ "${#candidates[@]}" -eq 0 ]]; then
+    log_warn "agent-qa completed but no task header and no pending/rework task (session: ${SESSION_ID}) -- cannot look up a task-bound verdict"
+    exit 0
+  fi
+  [[ -z "$task_id" ]] && log_warn "agent-qa completed with no parseable task header; checking pending/rework task(s) ${candidates[*]} (session: ${SESSION_ID})"
 
   local verdicts=() t
   for t in "${candidates[@]}"; do
@@ -697,6 +734,10 @@ handle_qa_completion() {
   QA_REWORK_MSG=""
   local i
   for i in "${!candidates[@]}"; do
+    # Clear-only candidates (see above) are skipped unless tc approved them.
+    if [[ "${full_verdict[$i]}" -eq 0 && "${verdicts[$i]}" != "pass" ]]; then
+      continue
+    fi
     apply_qa_verdict_to "${candidates[$i]}" "${verdicts[$i]}" "$now"
     [[ -z "$UPDATED_ENTRY" ]] && break
   done
