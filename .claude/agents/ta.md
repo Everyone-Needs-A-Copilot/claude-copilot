@@ -60,10 +60,10 @@ Register the owner's confirmed done block: `tc task contract <id> --from-done-bl
 
 ## Testing Requirements in Tasks
 
-Every implementation task description MUST name its verification tier, proposed from the planned diff (`tc task tier <id> T1|T2|T3 --reason "<text>"`; upward only, owner-only downgrades; untiered means T3), and the tests that tier requires:
+Every implementation task description MUST name its verification tier, proposed from the planned diff (`tc task tier <id> T1|T2|T3 --reason "<text>"`; upward only, owner-only downgrades; untiered means T3), per `.claude/agents/_shared/verification-policy.md`:
 
-- T1 copy: new text present, old text gone, one browser load; implementer attests, no tests written
-- T2 structural: one or two renders plus the existing fast checks; implementer attests
+- T1 copy: attest new text present, old text gone, one browser load; no tests written
+- T2 structural: one or two renders plus existing fast checks; implementer attests
 - T3 foundational: Backend "Unit and integration tests required"; Frontend "Playwright E2E tests required"; Full-stack "Unit/integration AND Playwright E2E tests required"
 - A changed number or claim adds a light source check (`--source`), not T3 by itself
 

@@ -52,11 +52,15 @@ def verify_policy(content):
 
 verify_policy(policy)
 for name, text in agents.items():
-    embedded = text.split('<!-- cse-verification-policy:start -->\n')[1].split('<!-- cse-verification-policy:end -->')[0]
-    assert embedded == policy, f'{name}: policy embed differs from canonical source'
-    assert 'Obsolete-contract migration' not in embedded and 'Escalate undecided' not in embedded
-    verify_policy(embedded)  # named-file deployment works without shipping _shared
-    assert 'Read `.claude/agents/_shared/verification-policy.md`' not in text
+    # Migrated 2026-11-02 (TASK-12): agents reference the shared policy instead of embedding it
+    # (old: embedded block byte-equal to canonical file; new: short T1/T2/T3 reference + pointer).
+    assert '<!-- cse-verification-policy:start -->' in text and '<!-- cse-verification-policy:end -->' in text, name
+    ref = text.split('<!-- cse-verification-policy:start -->\n')[1].split('<!-- cse-verification-policy:end -->')[0]
+    assert '.claude/agents/_shared/verification-policy.md' in ref, name
+    for term in ('T1 copy', 'T2 structural', 'T3 foundational', 'untiered tasks are T3', 'escalates upward only', 'downgrades are owner-only'):
+        assert term in ref, (name, term)
+    assert len(ref) < 1200, f'{name}: reference grew into an embed'
+    assert '| Tier | The check |' not in text and '### Fixed finish line' not in text, name
     assert 'tests_written' not in text, f'{name}: unconditional test generation'
     assert 'maxIterations is a ceiling, not a required run count' in text
     assert 'tc task evidence-identity <id>' in text
