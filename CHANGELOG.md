@@ -1,5 +1,11 @@
 # Changelog
 
+## [5.33.1] - 2026-11-02
+
+### Changed
+
+- **Embedded Codex plugin.** The embedded Codex plugin under `plugins/codex-copilot` is refreshed byte-for-byte to codex-copilot 0.15.0, which requires cc 2.18.0 and tc 2.11.0. It ships `verification-policy.md` copied byte for byte from this repository's canonical file and `$me`, `$qa`, `$protocol` and `$ta` skills that follow the same T1/T2/T3 tiers. No framework component versions change.
+
 ## [5.33.0] - 2026-11-02
 
 Source: the tiered-verification plan (TASK-12): testing depth follows the change instead of forcing a full QA packet on every edit.

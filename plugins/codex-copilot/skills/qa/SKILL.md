@@ -55,7 +55,7 @@ Return:
 
 Read `../specialist-agents/references/verification-policy.md` once per task before
 selecting checks. Apply its behavior/consumer lanes, first-divergent-state diagnosis,
-two-hypothesis checkpoint, execution caps and authorized test-migration contract.
+two-hypothesis checkpoint, execution caps and authorized test-migration contract. Check the task's tier first (`tc task tier <id> --check`): on a T1/T2 task verify only that a valid tc attestation exists (`tc task check-qa <id> --json`) and that the diff does not need a higher tier; do not build a per-criterion packet. `tc task qa-packet <id>` pre-fills the T3 packet's IDENTITY and each criterion's exact text.
 
 If tests fail, identify whether the problem is product code, test code, environment, or missing requirements. Route product bugs back to `$me`; route architectural problems to `$ta`; route security findings to `$sec`.
 
@@ -165,6 +165,7 @@ identity. Use the registered IDs in `CRITERION:` and exact expected behavior in
 completion service rechecks contract, task/database identity and content hashes,
 including dirty files, new files and deletions. It also enforces unfinished task
 dependencies. Do not downgrade requiresQa or replace source evidence with prose.
+Tier scope: the contract, identity and per-criterion packet above are the T3 path. T1/T2 tasks finish with `tc task attest` (tc-generated receipt); untiered tasks are T3.
 
 A v1 packet for pending work must be migrated with a registered contract and
 fresh verification. Historical completed records remain readable and explicitly
