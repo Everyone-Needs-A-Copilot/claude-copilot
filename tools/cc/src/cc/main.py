@@ -18,6 +18,7 @@ from cc.commands.memory import memory_app
 from cc.commands.onboard import onboard_cmd
 from cc.commands.priorities import priorities_cmd
 from cc.commands.reconcile import reconcile_app
+from cc.commands.resources import resources_app
 from cc.commands.rule import rule_app
 from cc.commands.settings_hook import settings_hook_app
 from cc.commands.status import status_cmd
@@ -51,6 +52,7 @@ app.add_typer(layers_app, name="layers")
 app.add_typer(journey_app, name="journey")
 app.add_typer(workspaces_app, name="workspace")
 app.add_typer(reconcile_app, name="reconcile")
+app.add_typer(resources_app, name="resources")
 app.add_typer(store_app, name="store")
 app.add_typer(survival_app, name="survival")
 app.add_typer(support_app, name="support")
