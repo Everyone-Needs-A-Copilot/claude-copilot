@@ -10,13 +10,15 @@
 
 Source: the tiered-verification plan (TASK-12): testing depth follows the change instead of forcing a full QA packet on every edit.
 
+5.33.0 was superseded before release by 5.33.1 and was never tagged or pushed; its changes ship in 5.33.1.
+
 ### Added
 
 - **Verification tiers in `tc`.** `tc task tier <id> T1|T2|T3 --reason "<text>"` records one tier per task (T1 copy, T2 structural, T3 foundational). Tiers rise automatically and only the owner lowers one: lowering needs `--authority` with the owner's verbatim words, stored in the tier history. `tc task tier <id> --check` classifies the real diff and prints the minimum tier and its triggers. Untiered tasks stay T3, so existing behavior is unchanged.
 - **`tc task attest` approves T1 and T2 without a QA agent.** T1 takes `--in <built file> --present "<new>" --absent "<old>" --load <screenshot>`; T2 takes one or two `--render <artifact>` plus `--checks <cc verify run id>`. tc reads the files and the stored run status, refuses when the diff needs a higher tier, and stores a generated work product ending in `ATTEST-RECEIPT: <sha256>` recorded in an `attestations` table; a hand-typed receipt never approves. Changed numbers need `--source "<value>=<file:line | WP-id | pablo:<quote>>"`, a read of the cited source rather than an automatic T3.
 - **Delta rounds on approved T3 tasks.** Each approval stores its per-file manifest (`qa_approvals`), so a later T1/T2 attestation compares against it and carries the earlier approval forward instead of re-covering every criterion for a title change. Approvals made before this release have no manifest and need one normal round first.
 - **`tc task qa-packet <id> [--carry WP-N:C1,C2]`** prints a T3 QA packet pre-filled with the captured IDENTITY and each criterion's exact CRITERION/EXPECTED text, so QA fills only OBSERVED, ARTIFACT and VERDICT. The done block gains a `Tier:` line and `.copilot/test-map.json` accepts an optional per-glob `"tier": "T3"`.
-- **Verification policy tier table.** `verification-policy.md` (embedded byte for byte in `me.md` and `qa.md`) leads with the three tiers and the real flags above; `me`, `qa`, `ta` and `/protocol` scope the independent QA agent and the full packet to T3 and escalations, and the UI-behavior row applies to T3 behavior changes only. `tests/instructions/test-verification-policy.sh` pins the tier rows, flags and `pablo:` source form with new mutants.
+- **Verification policy tier table.** `verification-policy.md` (the single canonical file; `me`, `qa` and `ta` reference it rather than embedding it) leads with the three tiers and the real flags above; `me`, `qa`, `ta` and `/protocol` scope the independent QA agent and the full packet to T3 and escalations, and the UI-behavior row applies to T3 behavior changes only. `tests/instructions/test-verification-policy.sh` pins the tier rows, flags and `pablo:` source form with new mutants.
 - **`scripts/replay-t1-live.sh`.** A post-install acceptance replay: in a throwaway project it records tier T1, attests a copy edit, and checks that `tc task check-qa` approves with no QA agent, the gate never arms, a logic diff and a hand-typed receipt are refused, and (optionally) Codex's `copilot-gate.sh` passes.
 
 ### Fixed
