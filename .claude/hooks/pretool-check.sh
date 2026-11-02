@@ -671,7 +671,7 @@ _qa_gate_db_fingerprint() {
   local project_dir="$1" f m max=0
   for f in "${project_dir}/.copilot/tasks.db" "${project_dir}/.copilot/tasks.db-wal"; do
     [[ -f "$f" ]] || continue
-    m="$(stat -f %m "$f" 2>/dev/null || stat -c %Y "$f" 2>/dev/null)" || continue
+    m="$(stat -c %Y "$f" 2>/dev/null || stat -f %m "$f" 2>/dev/null)" || continue
     [[ "$m" =~ ^[0-9]+$ ]] || continue
     [[ "$m" -gt "$max" ]] && max="$m"
   done
