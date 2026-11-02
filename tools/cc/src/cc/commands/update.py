@@ -35,7 +35,7 @@ from pathlib import Path
 from typing import Any, Optional
 
 from cc.core.config import personal_roots_from_config, resolve_key
-from cc.core.ecosystem import entitlement, mirror
+from cc.core.ecosystem import entitlement, mirror, skill_distribution
 from cc.core.ecosystem.freshness import lock_fingerprint
 from cc.core.ecosystem.knowledge_skill_source import (
     resolve_protected_knowledge_lock_projections,
@@ -96,6 +96,7 @@ def build_update_report(
     _mirror_root: Any = _UNSET,
     _materialize_root: Any = _UNSET,
     _materialize_roots: Any = _UNSET,
+    _codex_skills_dir: Any = _UNSET,
     _target_allowlist: Any = _UNSET,
     _policy: Optional[PolicyFn] = None,
     _personal_roots: Any = _UNSET,
@@ -504,6 +505,48 @@ def build_update_report(
         if ecosystem_op is not None:
             mat_report["ops"].append(ecosystem_op)
 
+        # Org/department skills reach Codex too: link each verified Claude
+        # copy into the Codex skills directory (skill_distribution.py).
+        # Injected-root callers (tests) opt in with `_codex_skills_dir`, so
+        # they never touch the real home directory.
+        injected_roots = (
+            _materialize_roots is not _UNSET or _materialize_root is not _UNSET
+        )
+        dist_lock = (
+            _lock_write_path
+            if _lock_write_path is not _UNSET
+            else default_lockfile_path()
+        )
+        layer_roles = {
+            layer["id"]: str(layer.get("role", "")) for layer in effective_layers
+        }
+        if (
+            dist_lock is not None
+            and (_codex_skills_dir is not _UNSET or not injected_roots)
+            and skill_distribution.has_work(
+                mat_report["ops"],
+                layer_roles,
+                skill_distribution.state_path_for(dist_lock),
+            )
+        ):
+            if _codex_skills_dir is not _UNSET:
+                codex_dir = Path(_codex_skills_dir).expanduser()
+            else:
+                configured = resolve_key("paths.codex_skills_dir")
+                codex_dir = (
+                    Path(str(configured)).expanduser()
+                    if configured
+                    else skill_distribution.codex_skills_dir()
+                )
+            mat_report["skill_distribution"] = skill_distribution.project_org_skills(
+                mat_report["ops"],
+                resolved,
+                layer_roles=layer_roles,
+                codex_dir=codex_dir,
+                state_path=skill_distribution.state_path_for(dist_lock),
+                dry_run=_dry_run,
+            )
+
         if not _dry_run:
             lock_write_path = (
                 _lock_write_path
@@ -630,7 +673,7 @@ def build_update_report(
     else:
         result = "up-to-date"
 
-    return {
+    report: dict[str, Any] = {
         "schema_version": SCHEMA_VERSION,
         "host": socket.gethostname(),
         "result": result,
@@ -640,6 +683,16 @@ def build_update_report(
         "held_for_approval": held_for_approval,
         "blocked": blocked,
     }
+    distribution = [
+        row
+        for row in mat_report.get("skill_distribution", [])
+        if row["action"] != "unchanged"
+    ]
+    if distribution:
+        # ADDITIVE: Codex skill links created/removed, plus any conflict the
+        # engine refused to overwrite (a real directory or foreign link).
+        report["skill_distribution"] = distribution
+    return report
 
 
 def _lockfile_path_default() -> Any:

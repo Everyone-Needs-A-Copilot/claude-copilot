@@ -1,5 +1,12 @@
 # Changelog
 
+## [5.32.0] - 2026-11-02
+
+### Added
+
+- **Organization skills reach both Claude Code and Codex on every machine.** `cc update` already copied each signed organization or department skill (`skills/<name>/SKILL.md` in a layer that declares the `skills` dimension) into `~/.claude/skills`; Codex never received them, so a new machine got no org skills in Codex and Pablo's Mac relied on hand-made symlinks. After the Claude copy is placed and verified, `cc update` now links `~/.codex/skills/<name>` to that one canonical folder (set `paths.codex_skills_dir`, or `CODEX_HOME`, to move it). Only organization and department layers are projected, personal content is still never materialized, and held, blocked or unverified items are skipped. It is idempotent, never overwrites a real directory or a link pointing elsewhere (those are reported as `skill_distribution` conflicts in `cc update --json`), and removes only links it created, once no layer provides the skill. Precedence is the existing layer rank. `cc doctor` gains an `org-skill-distribution` check that both harnesses resolve each distributed skill. Tests: `tools/cc/tests/test_skill_distribution.py`.
+- Component versions: cc 2.17.0 to 2.18.0.
+
 ## [5.31.0] - 2026-11-02
 
 ### Added

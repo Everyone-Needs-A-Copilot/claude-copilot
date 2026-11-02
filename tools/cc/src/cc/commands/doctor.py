@@ -49,7 +49,7 @@ from cc.core.config_paths import (
     project_config_path,
     repo_root,
 )
-from cc.core.ecosystem import mirror
+from cc.core.ecosystem import mirror, skill_distribution
 from cc.core.ecosystem.component_status import Checker, compute_component_checkers
 from cc.core.ecosystem.lockfile import default_lockfile_path, read_lockfile
 from cc.core.ecosystem.manifest import ManifestError, load_layers, validate_layers
@@ -779,6 +779,50 @@ def _build_auth_entries(
     return []
 
 
+def _skill_distribution_checkers(_lockfile_path: Any) -> list[Checker]:
+    """One checker: both harnesses see every org skill `cc update` distributed.
+
+    Omitted entirely when nothing was distributed (a machine with no
+    organization skills has nothing to verify -- "not applicable" is no entry,
+    never a fabricated pass)."""
+    lockfile_path = (
+        _lockfile_path if _lockfile_path is not _UNSET else default_lockfile_path()
+    )
+    if lockfile_path is None:
+        return []
+    state = skill_distribution.state_path_for(lockfile_path)
+    if not skill_distribution.read_state(state):
+        return []
+    claude_root = resolve_key("paths.claude_materialize_root") or "~/.claude"
+    configured = resolve_key("paths.codex_skills_dir")
+    codex_dir = (
+        Path(str(configured)).expanduser()
+        if configured
+        else skill_distribution.codex_skills_dir()
+    )
+    problems = skill_distribution.verify_distribution(
+        claude_dir=Path(str(claude_root)).expanduser() / "skills",
+        codex_dir=codex_dir,
+        state_path=state,
+    )
+    if not problems:
+        return [
+            Checker(
+                id="org-skill-distribution",
+                severity="pass",
+                detail="Every organization skill is visible to Claude and Codex.",
+            )
+        ]
+    return [
+        Checker(
+            id="org-skill-distribution",
+            severity="warn",
+            detail="; ".join(p["problem"] for p in problems),
+            repair="cc update",
+        )
+    ]
+
+
 def _probe_lock_held(_lock_probe_path: Any) -> bool:
     """
     Non-destructive, non-blocking, NEVER-CREATING probe: is the advisory
@@ -850,6 +894,7 @@ def build_doctor_report(
         project_cfg_path=_project_cfg_path,
         resolved_cfg=_resolved_cfg,
     )
+    checkers = checkers + _skill_distribution_checkers(_lockfile_path)
 
     project_path = _project_path if _project_path is not _UNSET else Path.cwd()
     try:
