@@ -64,38 +64,12 @@ Coverage is not correctness; risky rules need targeted mutations/negative contro
 not unconditional whole-suite mutation.
 
 <!-- cse-verification-policy:start -->
-## Proportional Verification
+## Verification Tiers
 
-Before edits, record deliverable, required criteria, consumers, lane/commands, exclusions/reasons and cap in task. Select by behavior/risk, not extension.
-
-| Change | Default checks | Expand when |
-|--------|----------------|-------------|
-| Instructions/routing | Parse, refs, manifest, actual dispatch/hook wiring | Routing/judgment: bounded scenario; wording alone does not require live model evaluation |
-| Logic/transformation | Reproducer, boundaries, affected callers | Shared API/serialization/concurrency/state |
-| Storage/installation | Disposable real persistence, rollback, preservation, repeat no-op | Schema/installer/release: platform/snapshot |
-| UI behavior | Seeded Playwright semantic assertions; comparable before/after trace and video for defects | Shared component/navigation/auth/responsive: affected journeys/states |
-| Machine/model effectiveness | Separate environment assessment or frozen paired evaluation | Relevant machine/model change, never an unrelated code edit |
-
-Unknown impact selects a broader named lane, never an empty selection. New tests
-are required for missing behavior coverage, not edited files; reuse sufficient checks. Gaps/broken behavior fail. Keep safety/concurrency/transaction/evidence-parser negative controls.
-
-Reproduce expected/actual and first divergent state; extra-item IDs/membership + introducing transformation, not count. Unchanged dependency failures count once. After two falsified root-cause
-hypotheses: inspect enforcement, cite file:line; change investigation, not speculative tests/abandonment.
-
-### Fixed finish line
-
-Freeze that boundary for the batch; new requirements need explicit scope decisions.
-Smallest sufficient checks, then one planned batch acceptance pass. Repair change-caused failures; rerun affected checks only. Record unrelated defects; they do not silently reopen completed work. Pre-existing failure of a required criterion still blocks that criterion. Never lower acceptance/hide failures for caps.
-
-Current source-bound QA approval for all required criteria: close task, report complete/separately pending work, then stop. Further polish/audit/broad rerun/tasks need a new request. Missing evidence/exhausted cap: incomplete, not complete; name blocker and stop retries until scope/cap decision.
-
-Focused first; broad portable checks once/batch or release. Changed inputs: affected rerun. Caps: focused 60 seconds, affected 180
-seconds, broad 900 seconds. Show operation/elapsed/artifact at least
-every 30 seconds. Timeout is incomplete, never a pass or silent restart; decide scope/cap before retry. Caps are ceilings, not required passes/estimates; subprocesses need no inference.
-Reuse: matching source/test/dependency/runtime/config/data, cases/commands and intact successful artifacts; non-hermetic machine/model runs default uncached. Reuse artifacts, never another task's approval: tc remains the sole
-source-bound QA authority.
-
-A failing check is fixed in the product, never by weakening the check (skipping or deleting it counts as weakening). The one exception is a check that the owner's requested change makes obsolete: update it, record old and new expectations in the work product, report it, do not ask. Record the rationale and exact changed files; report test changes; green alone cannot establish integrity. UI healing cannot skip required behavior; evidence stays local/private absent explicit upload authority.
+Read/apply `.claude/agents/_shared/verification-policy.md` once per task: tiers, Proportional Verification and the fixed finish line. Set the tier at task start (`tc task tier <id> T1|T2|T3 --reason "<text>"`); it escalates upward only, downgrades are owner-only, untiered tasks are T3.
+- T1 copy: `tc task attest --tier T1`; implementer attests, no QA agent.
+- T2 structural: `tc task attest --tier T2` with renders plus fast checks; no separate QA agent.
+- T3 foundational: contract, packet, independent @agent-qa, tc gate.
 <!-- cse-verification-policy:end -->
 
 ## Output Contract
@@ -146,6 +120,8 @@ Coverage Gaps: [If any]
 
 ## QA Gate Contract
 
+Tier first: `tc task tier <id> --check`. On a T1/T2 task, verify only that a valid tc attestation exists (`tc task check-qa <id> --json`) and that the diff check does not require a higher tier; do not build a per-criterion packet. If the diff needs more, reject with the higher tier named. Everything below applies to T3 and untiered tasks.
+
 `tc` alone approves: store complete task-bound `test` evidence per acceptance/identity
 below; run `tc task check-qa <id> --json`.
 The `.claude/hooks/subagent-stop.sh` hook extracts task ID and inspects stored evidence; text/metadata/recorder success/rejection
@@ -191,7 +167,7 @@ OUTSIDE LANE: <any check run outside the agreed lane + reason, or none>
 VERDICT: <supported QA verdict>
 ```
 
-Report every registered criterion ID in the packet; a missing ID is a gap, not a pass.
+Report every registered criterion ID in the packet (T3); a missing ID is a gap, not a pass. `tc task qa-packet <id>` pre-fills IDENTITY and each criterion's CRITERION/EXPECTED text.
 
 Existing artifacts/playable media/builds do not prove behavior. Stale artifacts,
 wrong environment, failed/untested required criteria cannot approve: rerun at intended
@@ -269,6 +245,7 @@ implementation/dependencies/config; generated reviews outside sources.
 Capture/compare `tc task evidence-identity <id>` before/after checks; keep exact
 `IDENTITY:` in task WP. Content change: new identity + affected rerun.
 Registered `CRITERION:` IDs, exact `EXPECTED:`, observations/baseline/artifacts/verdict.
+Tier scope: the contract, identity and per-criterion packet below are the T3 path. T1/T2 tasks finish with `tc task attest` (tc-generated receipt); untiered tasks are T3.
 Completion rechecks contract/task/database identity, hashes (dirty/new/deleted),
 unfinished dependencies. Do not downgrade requiresQa or replace source evidence with prose.
 Pending v1: registered contract/fresh verification. Completed history: readable,

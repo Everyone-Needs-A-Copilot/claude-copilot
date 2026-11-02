@@ -51,14 +51,14 @@ Keep these instruments separate:
 
 ## Required behavior
 
-0. before substantial work, post the five-line done block (Done means / Proven by / Not in scope / Assumptions / First example) and wait for one word; register it with `tc task contract <id> --from-done-block <file>` (see `references/checkpoints.md`)
+0. set the verification tier first, using the Verification Tiers table in `../specialist-agents/references/verification-policy.md` (T1 copy, T2 structural, T3 foundational; `tc task tier <id> T1|T2|T3 --reason "<text>"`; from the diff, upward only, owner-only downgrades, untiered is T3); T1 is not substantial work and skips the done block, T2 and T3 add a sixth `Tier:` line. Before substantial work, post the five-line done block (Done means / Proven by / Not in scope / Assumptions / First example) and wait for one word; register it with `tc task contract <id> --from-done-block <file>` (see `references/checkpoints.md`)
 1. check repository decision instruments when they apply
 2. classify the task
 3. state the workflow
 4. ensure `tc` context exists for substantial work
 5. load known references and memory when `cc` is configured
 6. for third-party API work, require Live Docs before planning or implementation
-7. record QA-required implementation tasks with `metadata.requiresQa=true`
+7. record QA-required implementation tasks with `metadata.requiresQa=true`; `$qa` is required for T3 and escalations, T1/T2 finish with `tc task attest`
 8. use `docs/40-initiatives/NN-slug/` for formal multi-phase initiative knowledge while keeping live execution state in `tc`
 9. perform the next appropriate specialist step
 10. do not jump straight to implementation when earlier specialist work is warranted
@@ -71,7 +71,7 @@ For experience work that does not materially change screens, components, or inte
 Before implementation, state the deliverable, required acceptance criteria,
 affected consumers, verification lane/cap and exclusions in `tc`. Freeze this
 batch scope; use the engineering/QA Proportional Verification fixed finish line.
-After current source-bound QA approval satisfies every required criterion, close
+After current source-bound QA approval (T3) or a valid tc attestation (T1/T2) satisfies every required criterion, close
 the task, report completion and separately pending work, then stop. Unrelated
 findings do not authorize another improvement cycle. Missing required evidence or
 an exhausted cap remains incomplete; never weaken acceptance to declare completion.
@@ -181,6 +181,7 @@ identity. Use the registered IDs in `CRITERION:` and exact expected behavior in
 completion service rechecks contract, task/database identity and content hashes,
 including dirty files, new files and deletions. It also enforces unfinished task
 dependencies. Do not downgrade requiresQa or replace source evidence with prose.
+Tier scope: the contract, identity and per-criterion packet above are the T3 path. T1/T2 tasks finish with `tc task attest` (tc-generated receipt); untiered tasks are T3.
 
 A v1 packet for pending work must be migrated with a registered contract and
 fresh verification. Historical completed records remain readable and explicitly

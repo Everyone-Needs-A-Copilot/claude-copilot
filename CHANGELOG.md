@@ -1,5 +1,33 @@
 # Changelog
 
+## [5.33.1] - 2026-11-02
+
+### Changed
+
+- **Embedded Codex plugin.** The embedded Codex plugin under `plugins/codex-copilot` is refreshed byte-for-byte to codex-copilot 0.15.0, which requires cc 2.18.0 and tc 2.11.0. It ships `verification-policy.md` copied byte for byte from this repository's canonical file and `$me`, `$qa`, `$protocol` and `$ta` skills that follow the same T1/T2/T3 tiers. No framework component versions change.
+
+## [5.33.0] - 2026-11-02
+
+Source: the tiered-verification plan (TASK-12): testing depth follows the change instead of forcing a full QA packet on every edit.
+
+5.33.0 was superseded before release by 5.33.1 and was never tagged or pushed; its changes ship in 5.33.1.
+
+### Added
+
+- **Verification tiers in `tc`.** `tc task tier <id> T1|T2|T3 --reason "<text>"` records one tier per task (T1 copy, T2 structural, T3 foundational). Tiers rise automatically and only the owner lowers one: lowering needs `--authority` with the owner's verbatim words, stored in the tier history. `tc task tier <id> --check` classifies the real diff and prints the minimum tier and its triggers. Untiered tasks stay T3, so existing behavior is unchanged.
+- **`tc task attest` approves T1 and T2 without a QA agent.** T1 takes `--in <built file> --present "<new>" --absent "<old>" --load <screenshot>`; T2 takes one or two `--render <artifact>` plus `--checks <cc verify run id>`. tc reads the files and the stored run status, refuses when the diff needs a higher tier, and stores a generated work product ending in `ATTEST-RECEIPT: <sha256>` recorded in an `attestations` table; a hand-typed receipt never approves. Changed numbers need `--source "<value>=<file:line | WP-id | pablo:<quote>>"`, a read of the cited source rather than an automatic T3.
+- **Delta rounds on approved T3 tasks.** Each approval stores its per-file manifest (`qa_approvals`), so a later T1/T2 attestation compares against it and carries the earlier approval forward instead of re-covering every criterion for a title change. Approvals made before this release have no manifest and need one normal round first.
+- **`tc task qa-packet <id> [--carry WP-N:C1,C2]`** prints a T3 QA packet pre-filled with the captured IDENTITY and each criterion's exact CRITERION/EXPECTED text, so QA fills only OBSERVED, ARTIFACT and VERDICT. The done block gains a `Tier:` line and `.copilot/test-map.json` accepts an optional per-glob `"tier": "T3"`.
+- **Verification policy tier table.** `verification-policy.md` (the single canonical file; `me`, `qa` and `ta` reference it rather than embedding it) leads with the three tiers and the real flags above; `me`, `qa`, `ta` and `/protocol` scope the independent QA agent and the full packet to T3 and escalations, and the UI-behavior row applies to T3 behavior changes only. `tests/instructions/test-verification-policy.sh` pins the tier rows, flags and `pablo:` source form with new mutants.
+- **`scripts/replay-t1-live.sh`.** A post-install acceptance replay: in a throwaway project it records tier T1, attests a copy edit, and checks that `tc task check-qa` approves with no QA agent, the gate never arms, a logic diff and a hand-typed receipt are refused, and (optionally) Codex's `copilot-gate.sh` passes.
+
+### Fixed
+
+- **Gate refresh works on Linux.** `pretool-check.sh` read the database mtime with BSD `stat -f %m` first, which GNU `stat` treats as filesystem mode, so on Linux the fingerprint was never read and the tc re-check never ran (found by CI). It now tries `stat -c %Y` first.
+- **The QA gate reads its state from `tc`, not from reply formatting.** `pretool-check.sh` re-asks `tc task check-qa` for pending and rework tasks whenever `tasks.db` or its WAL changed, so a task tc approved no longer keeps the session blocked; unchanged databases use the cached state, and an unavailable tc keeps the gate closed. `subagent-stop.sh` does not arm the gate for a task tc already approves (the T1/T2 attest path), accepts `Task: TASK-N`, `TASK-N`, `Task N` and `Task #N` headers, and a QA stop now also clears tasks in rework. `tc task attest`, `tier`, `qa-packet` and `evidence-identity` are allowed while the gate is active.
+- **Obsolete check updated, not weakened.** The owner-requested tier change renames the policy's UI-behavior row to "UI behavior (T3: ..."; `tests/instructions/test-verification-policy.sh` now matches lane rows by prefix and keeps every original term assertion on that row. Old expectation: an exact `UI behavior` row key. New: the `UI behavior (T3` prefix with the same four term checks, plus new tier-row, flag, `pablo:` and escalation assertions with 6 added negative controls.
+- Component versions: tc 2.10.1 to 2.11.0, agents 5.12.0 to 5.13.0, commands 5.9.1 to 5.10.0.
+
 ## [5.32.0] - 2026-11-02
 
 ### Added

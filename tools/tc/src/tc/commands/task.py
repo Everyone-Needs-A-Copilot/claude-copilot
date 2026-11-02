@@ -482,6 +482,15 @@ def task_contract(
             registered = limits_registered(task_id, db_path)
         row = update_task(task_id=task_id, metadata={"requiresQa": True, "acceptanceContract": contract}, db_path=db_path)
         if from_done_block is not None:
+            from tc.services.done_block import parse_done_block
+            block_tier = parse_done_block(path.read_text()).get("tier")
+            if block_tier:
+                from tc.services.tiers import effective_tier, recorded_tier, set_tier
+                from tc.services.qa import task_metadata
+                current = effective_tier(task_metadata(row["metadata"])) if recorded_tier(task_metadata(row["metadata"])) else None
+                if current is None or block_tier == current or TIER_ORDER.index(block_tier) > TIER_ORDER.index(current):
+                    set_tier(task_id=task_id, tier=block_tier, reason="Tier line in the done block", setter="done-block", db_path=db_path)
+        if from_done_block is not None:
             if registered:
                 limits_note = "Execution limits were already registered; left unchanged"
             else:
@@ -549,3 +558,83 @@ def task_evidence_identity(
     except (OSError, ValidationError, TaskNotFound) as exc:
         error_exit(str(exc), EXIT_VALIDATION)
     output_json(receipt) if json else print(receipt["identity_line"])
+
+
+TIER_ORDER = ("T1", "T2", "T3")
+
+
+@task_app.command("tier")
+def task_tier(
+    task_id: int = typer.Argument(...),
+    tier: Optional[str] = typer.Argument(None, help="T1 copy, T2 structural, T3 foundational. Omit with --check."),
+    reason: Optional[str] = typer.Option(None, "--reason", help="Why this tier."),
+    authority: Optional[str] = typer.Option(None, "--authority", help="The owner's verbatim words; required to LOWER a tier. Never write this on the owner's behalf."),
+    check: bool = typer.Option(False, "--check", help="Classify the actual diff and print the minimum tier."),
+    base: Optional[str] = typer.Option(None, "--base", help="Git revision to diff against (default: the revision recorded with the tier, else HEAD)."),
+    json: bool = typer.Option(False, "--json"),
+) -> None:
+    """Record a task's verification tier, or check the diff against it. Tiers only rise without owner authority."""
+    from tc.services import tiers
+    db_path = require_db()
+    try:
+        if check:
+            data = tiers.check_tier(task_id=task_id, base=base, db_path=db_path)
+            if json:
+                output_json(data)
+            else:
+                print(f"Minimum tier for the diff: {data['minimum']} (recorded: {data['recorded']}, required: {data['required']})")
+                for trigger in data["triggers"]:
+                    print(f"  {trigger}")
+                if data["numbers"]:
+                    print("  changed numbers needing a source: " + ", ".join(data["numbers"]))
+            return
+        if tier is None or not reason:
+            error_exit("give a tier and --reason (or use --check)", EXIT_VALIDATION)
+        entry = tiers.set_tier(task_id=task_id, tier=tier.upper(), reason=reason, authority=authority, db_path=db_path)
+    except TaskNotFound:
+        error_exit(f"Task #{task_id} not found", EXIT_NOT_FOUND)
+    except (ValidationError, OSError) as exc:
+        error_exit(str(exc), EXIT_VALIDATION)
+    output_json(entry) if json else print(f"Task #{task_id} is {entry['tier']}")
+
+
+@task_app.command("attest")
+def task_attest(
+    task_id: int = typer.Argument(...),
+    tier: str = typer.Option(..., "--tier", help="T1 or T2."),
+    in_file: Optional[str] = typer.Option(None, "--in", help="T1: built file to read."),
+    present: Optional[list[str]] = typer.Option(None, "--present", help="T1: new text that must be in --in (repeatable)."),
+    absent: Optional[list[str]] = typer.Option(None, "--absent", help="T1: old text that must be gone (repeatable)."),
+    load: Optional[str] = typer.Option(None, "--load", help="T1: screenshot of one successful browser load."),
+    render: Optional[list[str]] = typer.Option(None, "--render", help="T2: render artifact, one or two (repeatable)."),
+    checks: Optional[str] = typer.Option(None, "--checks", help="T2: cc verify run id (tc reads its stored status)."),
+    source: Optional[list[str]] = typer.Option(None, "--source", help="VALUE=file:line | WP-id | pablo:<quote>, for each changed number."),
+    base: Optional[str] = typer.Option(None, "--base", help="Git revision to diff against."),
+    agent: Optional[str] = typer.Option(None, "--agent"),
+    json: bool = typer.Option(False, "--json"),
+) -> None:
+    """Record the one T1/T2 check and its result. tc refuses when the diff needs a higher tier."""
+    from tc.services import tiers
+    try:
+        data = tiers.attest(task_id=task_id, tier=tier.upper(), base=base, agent=agent, db_path=require_db(), inputs={
+            "in": in_file, "present": present, "absent": absent, "load": load, "render": render, "checks": checks, "source": source})
+    except TaskNotFound:
+        error_exit(f"Task #{task_id} not found", EXIT_NOT_FOUND)
+    except (ValidationError, OSError) as exc:
+        error_exit(str(exc), EXIT_VALIDATION)
+    output_json(data) if json else print(f"Attested {data['tier']} for task #{task_id} (WP-{data['work_product_id']}, receipt {data['receipt'][:12]})")
+
+
+@task_app.command("qa-packet")
+def task_qa_packet(
+    task_id: int = typer.Argument(...),
+    carry: Optional[list[str]] = typer.Option(None, "--carry", help="WP-N:C1,C2 - pre-fill those criteria from an earlier packet (repeatable)."),
+) -> None:
+    """Print a T3 QA packet pre-filled with the captured IDENTITY and each criterion's exact text."""
+    from tc.services.tiers import qa_packet
+    try:
+        print(qa_packet(task_id=task_id, carry=carry, db_path=require_db()))
+    except TaskNotFound:
+        error_exit(f"Task #{task_id} not found", EXIT_NOT_FOUND)
+    except (ValidationError, OSError) as exc:
+        error_exit(str(exc), EXIT_VALIDATION)

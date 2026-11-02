@@ -16,12 +16,23 @@ def verify_policy(content):
         'Instructions/routing': ('Parse', 'dispatch/hook wiring', 'wording alone does not require live model'),
         'Logic/transformation': ('Reproducer', 'affected callers', 'Shared API'),
         'Storage/installation': ('Disposable real persistence', 'rollback', 'preservation', 'platform/snapshot'),
-        'UI behavior': ('Playwright', 'semantic assertions', 'before/after trace and video', 'affected journeys'),
+        'UI behavior (T3': ('Playwright', 'semantic assertions', 'before/after trace and video', 'affected journeys'),
         'Machine/model effectiveness': ('Separate', 'frozen paired', 'never an unrelated code edit'),
     }
     for lane, terms in cases.items():
-        assert lane in rows and all(t in rows[lane] for t in terms), lane
+        row = [r for k, r in rows.items() if k.startswith(lane)]
+        assert row and all(t in row[0] for t in terms), lane
+    tiers = {
+        'T1 copy': ('New text present, old text gone, one browser load', 'no QA agent', '--in ', '--present ', '--absent ', '--load '),
+        'T2 structural': ('One or two renders', 'existing fast checks', 'no separate QA agent', '--render ', '--checks '),
+        'T3 foundational': ('Full depth', 'independent @agent-qa'),
+    }
+    for tier, terms in tiers.items():
+        row = [r for k, r in rows.items() if k.startswith(tier)]
+        assert row and all(x in row[0] for x in terms), tier
     for required in (
+        '## Verification Tiers', 'pablo:<quote>', 'escalates upward only', 'Downgrades are owner-only',
+        'Untiered tasks default to T3', 'light source check, not automatic T3',
         'Unknown impact selects a broader named lane, never an empty selection',
         'New tests\nare required for missing behavior coverage',
         'first divergent state', 'IDs/membership', 'two falsified root-cause\nhypotheses',
@@ -41,11 +52,15 @@ def verify_policy(content):
 
 verify_policy(policy)
 for name, text in agents.items():
-    embedded = text.split('<!-- cse-verification-policy:start -->\n')[1].split('<!-- cse-verification-policy:end -->')[0]
-    assert embedded == policy, f'{name}: policy embed differs from canonical source'
-    assert 'Obsolete-contract migration' not in embedded and 'Escalate undecided' not in embedded
-    verify_policy(embedded)  # named-file deployment works without shipping _shared
-    assert 'Read `.claude/agents/_shared/verification-policy.md`' not in text
+    # Migrated 2026-11-02 (TASK-12): agents reference the shared policy instead of embedding it
+    # (old: embedded block byte-equal to canonical file; new: short T1/T2/T3 reference + pointer).
+    assert '<!-- cse-verification-policy:start -->' in text and '<!-- cse-verification-policy:end -->' in text, name
+    ref = text.split('<!-- cse-verification-policy:start -->\n')[1].split('<!-- cse-verification-policy:end -->')[0]
+    assert '.claude/agents/_shared/verification-policy.md' in ref, name
+    for term in ('T1 copy', 'T2 structural', 'T3 foundational', 'untiered tasks are T3', 'escalates upward only', 'downgrades are owner-only'):
+        assert term in ref, (name, term)
+    assert len(ref) < 1200, f'{name}: reference grew into an embed'
+    assert '| Tier | The check |' not in text and '### Fixed finish line' not in text, name
     assert 'tests_written' not in text, f'{name}: unconditional test generation'
     assert 'maxIterations is a ceiling, not a required run count' in text
     assert 'tc task evidence-identity <id>' in text
@@ -62,6 +77,15 @@ for mutant in (
     policy.replace('wording alone does not require live model', 'always run live model'),
     policy.replace('tc remains the sole\nsource-bound QA authority', 'runner grants approval'),
     policy.replace('then stop', 'then improve again'),
+    policy.replace('no QA agent |', 'QA agent required |'),
+    policy.replace('Untiered tasks default to T3', 'Untiered tasks default to T1'),
+    policy.replace('pablo:<quote>', 'owner quote'),
+    policy.replace('--absent ', '--gone '),
+    policy.replace('--checks ', '--check-run '),
+    policy.replace('escalates upward only', 'may move either way'),
+    policy.replace('Downgrades are owner-only', 'Agents may downgrade'),
+    policy.replace('light source check, not automatic T3', 'forced T3'),
+    policy.replace('One or two renders', 'Full Playwright suite'),
     policy.replace('still blocks that criterion', 'never blocks completion'),
 ):
     try:
@@ -69,9 +93,21 @@ for mutant in (
     except AssertionError:
         continue
     raise AssertionError('policy negative control unexpectedly passed')
+# Forced-depth instructions are gone from the role and planning files
+assert 'Finalize without @agent-qa' not in agents['me']
+assert '**ALWAYS**: every implementation' not in agents['me']
+assert 'T1/T2 finish with `tc task attest`' in agents['me'] and 'T3 and any escalation' in agents['me']
+assert 'verify only that a valid tc attestation exists' in agents['qa']
+ta = Path('.claude/agents/ta.md').read_text()
+assert 'Frontend: "Playwright E2E tests required"\n' not in ta and 'name its verification tier' in ta
+assert 'T3 foundational: Backend' in ta
+for name, text in (('me', agents['me']), ('qa', agents['qa']), ('ta', ta), ('protocol', Path('.claude/commands/protocol.md').read_text())):
+    assert 'untiered tasks are T3' in text.replace('\n', ' '), name
 protocol = Path('.claude/commands/protocol.md').read_text()
 assert '## Fixed Delivery Boundary' in protocol
 assert 'close\nthe task' in protocol and 'then stop' in protocol
-print('PASS: 5 lane contracts, shared me/qa loading, fixed finish line, evidence authority, owner-requested obsolete-check rule, 8 negative controls')
+assert 'set the verification tier' in protocol and 'valid tc attestation (T1/T2)' in protocol
+assert 'sixth `Tier:` line' in protocol and 'T1 copy work is not substantial' in protocol
+print('PASS: 5 lane contracts, 3 tier rows, shared me/qa loading, fixed finish line, evidence authority, owner-requested obsolete-check rule, 14 negative controls')
 print('UNTESTED: live model compliance; this check validates instruction structure only')
 PY

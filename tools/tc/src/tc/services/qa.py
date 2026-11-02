@@ -103,6 +103,16 @@ def check_task_qa(*, task_id: int, conn=None, db_path: Optional[Path] = None, ta
             "legacy": False,
         }
 
+        # Tier branch: a valid T1/T2 tc attestation approves without a per-criterion
+        # packet. Anything else (including every untiered task) takes the strict T3 path below.
+        from tc.services import tiers
+        attested = tiers.attestation_status(task, conn)
+        if attested and attested["approved"]:
+            result.update(approved=True, work_product_id=attested["wp_id"], reason=attested["reason"])
+            return result
+
+        if attested:
+            result["reason"] = attested["reason"]  # shown unless a full QA packet below decides otherwise
         work_products = _evidence_work_products(task_id, conn)
         if not work_products:
             return result
@@ -234,6 +244,10 @@ def check_task_qa(*, task_id: int, conn=None, db_path: Optional[Path] = None, ta
                     return result
         verdict = validate_packet(combined, current_identity=current_identity)
         if verdict["valid"]:
+            if not historical:
+                tiers.record_approval(task=task, conn=conn, wp_id=result["work_product_id"])
+                if owns_conn:
+                    conn.commit()
             result.update(approved=True, legacy=historical, reason="Historical pre-v2 approval preserved; not current strict verification" if historical else "Task-bound evidence packet passes")
         else:
             result.update(approved=False, reason=verdict["reason"])
