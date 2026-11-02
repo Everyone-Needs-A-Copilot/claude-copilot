@@ -18,6 +18,7 @@ from cc.commands.memory import memory_app
 from cc.commands.onboard import onboard_cmd
 from cc.commands.priorities import priorities_cmd
 from cc.commands.reconcile import reconcile_app
+from cc.commands.resources import resources_app
 from cc.commands.rule import rule_app
 from cc.commands.settings_hook import settings_hook_app
 from cc.commands.status import status_cmd
@@ -57,6 +58,7 @@ app.add_typer(support_app, name="support")
 app.add_typer(settings_hook_app, name="settings-hook")
 app.add_typer(conformance_app, name="conformance")
 app.add_typer(rule_app, name="rule")
+app.add_typer(resources_app, name="resources")
 app.command("priorities")(priorities_cmd)
 app.command("onboard")(onboard_cmd)
 app.command("status")(status_cmd)
