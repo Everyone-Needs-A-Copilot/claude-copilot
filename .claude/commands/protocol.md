@@ -30,10 +30,13 @@ Each flow below includes an invocation example and its route.
 
 ## Fixed Delivery Boundary
 
-Before implementation, state the deliverable, required acceptance criteria,
+Before implementation, set the verification tier (T1 copy, T2 structural, T3
+foundational; `tc task tier`; from the diff, upward only, owner-only downgrades;
+untiered is T3), then state the deliverable, required acceptance criteria,
 affected consumers, verification lane/cap and exclusions in `tc`. Freeze this
 batch scope; use the engineering/QA Proportional Verification fixed finish line.
-After current source-bound QA approval satisfies every required criterion, close
+After current source-bound QA approval (T3) or a valid tc attestation (T1/T2)
+satisfies every required criterion, close
 the task, report completion and separately pending work, then stop. Unrelated
 findings do not authorize another improvement cycle. Missing required evidence or
 an exhausted cap remains incomplete; never weaken acceptance to declare completion.
@@ -212,7 +215,7 @@ Invoking @agent-do for deployment planning...
 
 ### Done Block and Example First (2026-10-29)
 
-Before substantial work, post the five-line done block (Done means / Proven by / Not in scope / Assumptions, at most three, each with how it is checked / First example) and wait for one word; the confirmed block becomes the task contract (`tc task contract <id> --from-done-block <file>`). Flows that build a collection, workflow family, integration or asset family build one populated instance with real content, stop, show it, apply the correction, then expand. Run at most three concurrent subagents unless the done block says otherwise; close each when its piece is done; one QA pass per batch.
+Tier first: T1 copy work is not substantial and skips the done block; T2 and T3 add a sixth `Tier:` line. Before substantial work, post the five-line done block (Done means / Proven by / Not in scope / Assumptions, at most three, each with how it is checked / First example) and wait for one word; the confirmed block becomes the task contract (`tc task contract <id> --from-done-block <file>`). Flows that build a collection, workflow family, integration or asset family build one populated instance with real content, stop, show it, apply the correction, then expand. Run at most three concurrent subagents unless the done block says otherwise; close each when its piece is done; one QA pass per batch (T3 only; T1/T2 attest).
 
 ### Checkpoint Pattern
 
@@ -938,6 +941,7 @@ identity. Use the registered IDs in `CRITERION:` and exact expected behavior in
 completion service rechecks contract, task/database identity and content hashes,
 including dirty files, new files and deletions. It also enforces unfinished task
 dependencies. Do not downgrade requiresQa or replace source evidence with prose.
+Tier scope: the contract, identity and per-criterion packet above are the T3 path. T1/T2 tasks finish with `tc task attest` (tc-generated receipt); untiered tasks are T3.
 
 A v1 packet for pending work must be migrated with a registered contract and
 fresh verification. Historical completed records remain readable and explicitly

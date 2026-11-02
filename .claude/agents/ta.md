@@ -60,11 +60,12 @@ Register the owner's confirmed done block: `tc task contract <id> --from-done-bl
 
 ## Testing Requirements in Tasks
 
-Every implementation task description MUST specify:
+Every implementation task description MUST name its verification tier, proposed from the planned diff (`tc task tier <id> T1|T2|T3 --reason "<text>"`; upward only, owner-only downgrades; untiered means T3), and the tests that tier requires:
 
-- Backend: "Unit and integration tests required"
-- Frontend: "Playwright E2E tests required"
-- Full-stack: "Unit/integration AND Playwright E2E tests required"
+- T1 copy: new text present, old text gone, one browser load; implementer attests, no tests written
+- T2 structural: one or two renders plus the existing fast checks; implementer attests
+- T3 foundational: Backend "Unit and integration tests required"; Frontend "Playwright E2E tests required"; Full-stack "Unit/integration AND Playwright E2E tests required"
+- A changed number or claim adds a light source check (`--source`), not T3 by itself
 
 ## Priorities
 
@@ -290,6 +291,7 @@ after changes. Use registered `CRITERION:` IDs, exact `EXPECTED:` behavior, obse
 baseline, artifacts and verdict. Completion rechecks contract, task/database identity,
 content hashes (dirty/new/deleted files) and unfinished dependencies.
 Do not downgrade requiresQa or replace source evidence with prose.
+Tier scope: this contract and packet are the T3 path. T1/T2 tasks finish with `tc task attest`; untiered tasks are T3.
 
 Pending v1 packets need registered contracts/fresh verification; completed historical
 records remain readable, not current strict QA evidence. cc design review/report checks
