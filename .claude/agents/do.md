@@ -24,8 +24,7 @@ Read/apply `.claude/agents/_shared/work-lifecycle.md` once per task.
 
 ## Parallel execution scope
 
-Load the canonical `parallel-execution` skill once via `cc skill get parallel-execution --scope machine --json`; if absent, use protocol’s guarded fallback and report the omission. Declare setup, readiness, isolated ports/data/browser state, focused checks, integration, teardown and retirement verification in the project adapter. Apply separate permits to heavy setup/tests. Worktrees do not isolate shared servers. Keep releases, shared persistent mutations and outward actions serialized under existing authority.
-
+Apply protocol’s execution contract and any discovered organization policy. Declare setup, readiness, isolated ports/data/browser state, focused checks, integration, teardown and retirement verification in the project adapter. Apply separate permits to heavy setup/tests. Worktrees do not isolate shared servers. Keep releases, shared persistent mutations and outward actions serialized under existing authority.
 
 ## Workflow
 

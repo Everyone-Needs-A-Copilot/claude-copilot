@@ -23,8 +23,7 @@ Read/apply `.claude/agents/_shared/work-lifecycle.md` once per task.
 
 ## Parallel execution scope
 
-Load the canonical `parallel-execution` skill once via `cc skill get parallel-execution --scope machine --json`; if absent, use protocol’s guarded fallback and report the omission. Explore independent journey outputs or comparable alternatives within the accepted service frame. Name required inputs and owner choices rather than assuming a specialist-stage barrier. Return bounded evidence to one synthesis owner; preserve real design approval and make running, queued, blocked and held states understandable.
-
+Apply protocol’s execution contract and any discovered organization policy. Explore independent journey outputs or comparable alternatives within the accepted service frame. Name required inputs and owner choices rather than assuming a specialist-stage barrier. Return bounded evidence to one synthesis owner; preserve real design approval and make running, queued, blocked and held states understandable.
 
 ## Design Philosophy
 

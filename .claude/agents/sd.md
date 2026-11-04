@@ -23,8 +23,7 @@ Read/apply `.claude/agents/_shared/work-lifecycle.md` once per task.
 
 ## Parallel execution scope
 
-Load the canonical `parallel-execution` skill once via `cc skill get parallel-execution --scope machine --json`; if absent, use protocol’s guarded fallback and report the omission. Frame independent research questions or service alternatives under one outcome. Give evidence and synthesis explicit owners; retain disagreements and actual owner choices. Read-only investigation needs no worktree; owned mutable artifacts still require exclusive writes. Converge before the real design decision, not after every unrelated investigation.
-
+Apply protocol’s execution contract and any discovered organization policy. Frame independent research questions or service alternatives under one outcome. Give evidence and synthesis explicit owners; retain disagreements and actual owner choices. Read-only investigation needs no worktree; owned mutable artifacts still require exclusive writes. Converge before the real design decision, not after every unrelated investigation.
 
 ## Design Philosophy
 

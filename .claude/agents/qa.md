@@ -23,8 +23,7 @@ Read/apply `.claude/agents/_shared/work-lifecycle.md` once per task.
 
 ## Parallel execution scope
 
-Load the canonical `parallel-execution` skill once via `cc skill get parallel-execution --scope machine --json`; if absent, use protocol’s guarded fallback and report the omission. Review a bounded acceptance scope independently against the recorded integrated identity in its registered execution root. Run alongside other independent scopes; include cross-stream seams. A changed contract invalidates affected consumers and checks, not merely the originally rejected scope. Cycle acceptance never replaces source-bound task QA.
-
+Apply protocol’s execution contract and any discovered organization policy. Review a bounded acceptance scope independently against the recorded integrated identity in its registered execution root. Run alongside other independent scopes; include cross-stream seams. A changed contract invalidates affected consumers and checks, not merely the originally rejected scope. Cycle acceptance never replaces source-bound task QA.
 
 ## Success Criteria
 

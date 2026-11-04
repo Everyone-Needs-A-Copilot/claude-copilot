@@ -69,9 +69,9 @@
 
 ## Protocol-native parallel execution
 
-After approval of the scoped plan or done block, the coordinator dispatches independent useful work by default, refilling capacity as inputs and worker slots become available. Load the canonical organization policy once with `cc skill get parallel-execution --scope machine --json` and apply its returned content. Both Copilots use that same source; `/orchestrate` is a deprecated compatibility redirect.
+After scoped approval, refill useful independent work within native/resource capacity. Protocol conditionally discovers canonical organization policy with `cc skill list --scope machine --json` and loads the listed `parallel-execution` name once; both Copilots share it. `/orchestrate` redirects there.
 
-If the organization skill is unavailable, report that fallback and use the installed `tc cycle --help` contract: validated exclusive write ownership, actual cwd/branch verification, visible native dispatch within resource/runtime limits, one integration owner, current independent QA, and verified retirement under applicable deletion authority. Read-only research need not create a worktree. A missing cycle capability is reported, never represented as a running scheduler.
+If absent, report fallback: `tc cycle --help` governs exclusive writes, actual cwd/branch, native dispatch, one integrator, current independent QA and authorized safe retirement. Read-only research needs no worktree; report missing cycle capability honestly.
 
 ## Framework Rules
 

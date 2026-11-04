@@ -16,7 +16,7 @@ Claude Code guidance for the Claude Copilot framework.
 | Avoid reading >8 files directly | Delegate to framework agent | Hook: force-delegate (output + file budget) |
 | Keep responses short | Store details via `tc wp store` | Advisory |
 
-**Mechanical enforcement:** The force-delegate rule, QA-gate rule, session-cap advisory, and safety primitives are enforced by hooks in `.claude/hooks/` — not just policy. Past a measured output or distinct-file budget, main-session tool calls are blocked until you delegate or `/compact`. After `@agent-me` completes, all main-session tools are gated until `@agent-qa` provides a pass verdict. **Safety primitives:** `/careful` (destructive-command block/warn via `security-rules.json`) and `/freeze` (edit-boundary lock via `.claude/hooks/state/.freeze`). Escape hatches and debug tools: `.claude/hooks/README.md`.
+**Hook enforcement:** `.claude/hooks/` enforces force-delegate output/file budgets, QA gates, session-cap advisory and safety primitives. Main-session tools block until delegation or `/compact` when budgets are reached; after @agent-me, @agent-qa must pass. `/careful` checks destructive commands against `security-rules.json`; `/freeze` locks edit boundaries in `.claude/hooks/state/.freeze`. Escape hatches/debugging: `.claude/hooks/README.md`.
 
 **Framework agents:** ta, me, qa, do, doc, sd · design chain sd→uxd→uids→uid→ta→me · branches ind/cco/cw · sec · business cs/cpa (15 framework agents; kc is setup-only; `design` retired). Roster is the authoritative list in `.claude/agents/manifest.json`.
 
@@ -24,9 +24,7 @@ Claude Code guidance for the Claude Copilot framework.
 
 ## Output Contract
 
-Canonical source: `.claude/agents/_shared/output-contract.md` (outcome first, proportional depth — content always outranks form). Embedded byte-for-byte in every agent `.md` and `.claude/commands/protocol.md`; the main session and other commands inherit it from this file.
-
-**Two registers:** user-facing output (main-session replies, checkpoint summaries, command reports) gets the full contract; agent-to-agent handoffs and stored work products (work products, memory, QA `ARTIFACT:`/`VERDICT:` lines, Task/WP IDs) stay precision-over-readability and are exempt from its vocabulary/length rules.
+Canonical `.claude/agents/_shared/output-contract.md` is embedded verbatim in agents and protocol; other commands inherit it here. User-facing replies follow the full contract. Agent handoffs and stored records, including QA markers and Task/WP IDs, preserve precision and are exempt from vocabulary/length rules.
 
 **Configurable at setup** (`/setup` machine-wide, overridable per project with `--project`):
 - `cc config set output.verbosity <concise|standard|detailed>` — default `concise` if unset.
@@ -38,7 +36,7 @@ Read via `eval "$(cc env)"` as `$CC_OUTPUT_VERBOSITY` / `$CC_OUTPUT_AUDIENCE`.
 
 ## Overview
 
-**Claude Copilot** solves five challenges:
+**Claude Copilot** addresses:
 
 | Challenge | Solution | Component |
 |-----------|----------|-----------|
@@ -66,7 +64,7 @@ Read via `eval "$(cc env)"` as `$CC_OUTPUT_VERBOSITY` / `$CC_OUTPUT_AUDIENCE`.
 | `/pause [reason]` | Context switch, save state | Session |
 | `/map` | Analyze codebase structure | Project |
 | `/memory` | View memory state and recent activity | Session |
-| `/orchestrate` | Deprecated compatibility redirect to protocol-native execution | Project |
+| `/orchestrate` | Deprecated protocol redirect | Project |
 
 ### Use Case Mapping
 
@@ -79,7 +77,7 @@ Read via `eval "$(cc env)"` as `$CC_OUTPUT_VERBOSITY` / `$CC_OUTPUT_AUDIENCE`.
 | Improve something | `/protocol improve dashboard` | Clarification flow (asks intent) |
 | Skip design stages | `/protocol --skip-sd add feature` | Jumps to specified stage |
 | Resume yesterday's work | `/continue` | Memory loads automatically |
-| Run parallel work streams | `/protocol` | Approve scope → dispatch ready work → converge, verify and disposition resources |
+| Run parallel work streams | `/protocol` | Approve → dispatch → converge, verify and clean up |
 | Search past decisions | `cc memory search "<query>"` | Full-text keyword search across sessions |
 | Load a skill | `cc skill get NAME` | Resolves project → machine → knowledge |
 
@@ -169,9 +167,9 @@ Battle-tested workflow commands.
 
 ## Protocol-native parallel execution
 
-After approval of the scoped plan or done block, the coordinator dispatches independent useful work by default, refilling capacity as inputs and worker slots become available. Load the canonical organization policy once with `cc skill get parallel-execution --scope machine --json` and apply its returned content. Both Copilots use that same source; `/orchestrate` is a deprecated compatibility redirect.
+After scoped approval, refill useful independent work within native/resource capacity. Protocol conditionally discovers canonical organization policy with `cc skill list --scope machine --json` and loads the listed `parallel-execution` name once; both Copilots share it. `/orchestrate` redirects there.
 
-If the organization skill is unavailable, report that fallback and use the installed `tc cycle --help` contract: validated exclusive write ownership, actual cwd/branch verification, visible native dispatch within resource/runtime limits, one integration owner, current independent QA, and verified retirement under applicable deletion authority. Read-only research need not create a worktree. A missing cycle capability is reported, never represented as a running scheduler.
+If absent, report fallback: `tc cycle --help` governs exclusive writes, actual cwd/branch, native dispatch, one integrator, current independent QA and authorized safe retirement. Read-only research needs no worktree; report missing cycle capability honestly.
 
 ## Agent Routing
 
@@ -231,8 +229,7 @@ All agents inherit these; agent files must not repeat them.
 - **Memory — Selective pointers:** Keep decisions/lessons in canonical task records and narratives; add `cc memory` locators only for useful retrieval, never duplicate session prose.
 - **Memory commands:** `cc memory store`, `cc memory search`, `cc memory get`, `cc memory list`, `cc memory export` (not MCP `memory_store`/`memory_search`)
 - **Task Copilot Pattern:** `tc task get` → do work → `tc wp store` → `tc task update --status completed`
-- **Code-Execution Path:** For ≥3 related operations, prefer one `python3` Bash block using `tc.api` or `cc.api`; print only the needed summary, avoiding repeated CLI JSON payloads.
-  - One tool per block (`from tc.api import create_prd, create_task, add_dependency, transaction` or `from cc.api import memory_store, memory_search, memory_list`); CLI for single operations. Usage: `tools/tc/README.md`, `tools/cc/README.md`.
+- **Code-Execution Path:** Batch ≥3 related operations through one `python3` block using `tc.api` or `cc.api`; never mix tools. Print only needed summaries; CLI for single operations. See `tools/tc/README.md` and `tools/cc/README.md`.
 - **Iteration Loop:** Self-manage iterations (max from frontmatter). Pass → complete. Blocked → emit `<promise>BLOCKED</promise>`. Confused → emit `<promise>CONFUSED</promise>`. Else → iterate.
 - **Confused Loop-State:** When mid-task you hit a genuine decision fork that only the user can resolve, emit `<promise>CONFUSED</promise>` and record loop-state in a fenced block immediately after the promise tag:
   ```
@@ -240,7 +237,7 @@ All agents inherit these; agent files must not repeat them.
   RECOMMENDATION: <what you would do, and why>
   CONTEXT: <why the choice matters — consequences of each path>
   ```
-  State the recommendation first. If every option is reversible within current authorization, take the recommendation and report it instead of asking. Otherwise ask in one sentence. Options only for irreversible, outward or budget-affecting choices. Suspend until the user answers, then resume. CONFUSED needs user judgment; BLOCKED means a technical blocker or unmet external prerequisite. (2026-10-29)
+  Take reversible choices within current authorization and report them; otherwise recommend and ask once, then await the answer. Options are for irreversible, outward or budget-affecting choices. CONFUSED needs owner judgment; BLOCKED means a technical blocker or unmet prerequisite. (2026-10-29)
 - **Return Format:** Return ONLY ~100 tokens to main session. Store all details via `tc wp store`.
 - **Context Compaction:** If response exceeds ~14K tokens, store as work product and return summary only.
 - **Knowledge:** Run `cc memory search "<voice/brand query>"` for user-facing features. Never block work for missing knowledge.

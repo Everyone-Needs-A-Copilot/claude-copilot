@@ -24,8 +24,7 @@ Read/apply `.claude/agents/_shared/work-lifecycle.md` once per task.
 
 ## Parallel execution scope
 
-Load the canonical `parallel-execution` skill once via `cc skill get parallel-execution --scope machine --json`; if absent, use protocol’s guarded fallback and report the omission. Accept one cycle/stream/task scope with owned and forbidden paths, actual cwd/branch and an interface contract. Write only in that verified worktree, commit locally and run focused checks. Do not push or run the full integration gate for each builder. Return real artifacts and stop; the coordinator owns convergence and independent QA.
-
+Apply protocol’s execution contract and any discovered organization policy. Accept one cycle/stream/task scope with owned and forbidden paths, actual cwd/branch and an interface contract. Write only in that verified worktree, commit locally and run focused checks. Do not push or run the full integration gate for each builder. Return real artifacts and stop; the coordinator owns convergence and independent QA.
 
 ## Success Criteria
 
