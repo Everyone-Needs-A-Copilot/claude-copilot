@@ -5,12 +5,12 @@ Generated from the registered parser. Command callbacks were not executed. For i
 ## `tc cycle`
 
 ```text
-                                                                                
- Usage: cycle [OPTIONS] COMMAND [ARGS]...                                       
-                                                                                
- Protocol-owned ready-work coordination; no model calls. Guide:                 
- tools/tc/docs/CYCLE.md.                                                        
-                                                                                
+
+ Usage: cycle [OPTIONS] COMMAND [ARGS]...
+
+ Protocol-owned ready-work coordination; no model calls. Guide:
+ tools/tc/docs/CYCLE.md.
+
 ╭─ Options ────────────────────────────────────────────────────────────────────╮
 │ --install-completion          Install completion for the current shell.      │
 │ --show-completion             Show completion for the current shell, to copy │
@@ -48,11 +48,11 @@ Generated from the registered parser. Command callbacks were not executed. For i
 ## `tc cycle validate`
 
 ```text
-                                                                                
- Usage: cycle validate [OPTIONS]                                                
-                                                                                
- Validate ownership and dependencies without a database or dispatch.            
-                                                                                
+
+ Usage: cycle validate [OPTIONS]
+
+ Validate ownership and dependencies without a database or dispatch.
+
 ╭─ Options ────────────────────────────────────────────────────────────────────╮
 │ *  --file        <path>  Schema-1 plan JSON. [required]                      │
 │    --json                                                                    │
@@ -63,11 +63,11 @@ Generated from the registered parser. Command callbacks were not executed. For i
 ## `tc cycle plan`
 
 ```text
-                                                                                
- Usage: cycle plan [OPTIONS]                                                    
-                                                                                
- Persist an approved cycle; identical retries are idempotent.                   
-                                                                                
+
+ Usage: cycle plan [OPTIONS]
+
+ Persist an approved cycle; identical retries are idempotent.
+
 ╭─ Options ────────────────────────────────────────────────────────────────────╮
 │ *  --file        <path>  Approved schema-1 plan JSON. [required]             │
 │    --json                                                                    │
@@ -78,11 +78,11 @@ Generated from the registered parser. Command callbacks were not executed. For i
 ## `tc cycle status`
 
 ```text
-                                                                                
- Usage: cycle status [OPTIONS] {cycle}                                          
-                                                                                
- Read streams, capacity queues, stale evidence and disposition.                 
-                                                                                
+
+ Usage: cycle status [OPTIONS] {cycle}
+
+ Read streams, capacity queues, stale evidence and disposition.
+
 ╭─ Arguments ──────────────────────────────────────────────────────────────────╮
 │ *    cycle      <str>  [required]                                            │
 ╰──────────────────────────────────────────────────────────────────────────────╯
@@ -95,11 +95,11 @@ Generated from the registered parser. Command callbacks were not executed. For i
 ## `tc cycle ready`
 
 ```text
-                                                                                
- Usage: cycle ready [OPTIONS] {cycle}                                           
-                                                                                
- Return ready scopes and concrete wait reasons.                                 
-                                                                                
+
+ Usage: cycle ready [OPTIONS] {cycle}
+
+ Return ready scopes and concrete wait reasons.
+
 ╭─ Arguments ──────────────────────────────────────────────────────────────────╮
 │ *    cycle      <str>  [required]                                            │
 ╰──────────────────────────────────────────────────────────────────────────────╯
@@ -112,11 +112,11 @@ Generated from the registered parser. Command callbacks were not executed. For i
 ## `tc cycle claim`
 
 ```text
-                                                                                
- Usage: cycle claim [OPTIONS] {cycle} {stream}                                  
-                                                                                
- Claim one ready scope after exact execution-root and capacity checks.          
-                                                                                
+
+ Usage: cycle claim [OPTIONS] {cycle} {stream}
+
+ Claim one ready scope after exact execution-root and capacity checks.
+
 ╭─ Arguments ──────────────────────────────────────────────────────────────────╮
 │ *    cycle       <str>  [required]                                           │
 │ *    stream      <str>  [required]                                           │
@@ -134,11 +134,11 @@ Generated from the registered parser. Command callbacks were not executed. For i
 ## `tc cycle prepare`
 
 ```text
-                                                                                
- Usage: cycle prepare [OPTIONS] {cycle} {stream}                                
-                                                                                
- Create the planned new writer worktree/branch, recording its identity.         
-                                                                                
+
+ Usage: cycle prepare [OPTIONS] {cycle} {stream}
+
+ Create the planned new writer worktree/branch, recording its identity.
+
 ╭─ Arguments ──────────────────────────────────────────────────────────────────╮
 │ *    cycle       <str>  [required]                                           │
 │ *    stream      <str>  [required]                                           │
@@ -152,11 +152,11 @@ Generated from the registered parser. Command callbacks were not executed. For i
 ## `tc cycle verify-dispatch`
 
 ```text
-                                                                                
- Usage: cycle verify-dispatch [OPTIONS] {cycle} {stream}                        
-                                                                                
- Consume one running claim's native dispatch permit; duplicate launches refuse. 
-                                                                                
+
+ Usage: cycle verify-dispatch [OPTIONS] {cycle} {stream}
+
+ Consume one running claim's native dispatch permit; duplicate launches refuse.
+
 ╭─ Arguments ──────────────────────────────────────────────────────────────────╮
 │ *    cycle       <str>  [required]                                           │
 │ *    stream      <str>  [required]                                           │
@@ -174,11 +174,11 @@ Generated from the registered parser. Command callbacks were not executed. For i
 ## `tc cycle record`
 
 ```text
-                                                                                
- Usage: cycle record [OPTIONS] {cycle} {stream}                                 
-                                                                                
- Record contract/build/integration/QA/stopped/teardown outcomes.                
-                                                                                
+
+ Usage: cycle record [OPTIONS] {cycle} {stream}
+
+ Record contract/build/integration/QA/stopped/teardown outcomes.
+
 ╭─ Arguments ──────────────────────────────────────────────────────────────────╮
 │ *    cycle       <str>  [required]                                           │
 │ *    stream      <str>  [required]                                           │
@@ -196,11 +196,11 @@ Generated from the registered parser. Command callbacks were not executed. For i
 ## `tc cycle cleanup-plan`
 
 ```text
-                                                                                
- Usage: cycle cleanup-plan [OPTIONS] {cycle}                                    
-                                                                                
- Inspect exact eligible cycle worktrees and preserved holds.                    
-                                                                                
+
+ Usage: cycle cleanup-plan [OPTIONS] {cycle}
+
+ Inspect exact eligible cycle worktrees and preserved holds.
+
 ╭─ Arguments ──────────────────────────────────────────────────────────────────╮
 │ *    cycle      <str>  [required]                                            │
 ╰──────────────────────────────────────────────────────────────────────────────╯
@@ -213,11 +213,11 @@ Generated from the registered parser. Command callbacks were not executed. For i
 ## `tc cycle cleanup`
 
 ```text
-                                                                                
- Usage: cycle cleanup [OPTIONS] {cycle}                                         
-                                                                                
- Retire eligible merged cycle worktrees; preserve branches and every hold.      
-                                                                                
+
+ Usage: cycle cleanup [OPTIONS] {cycle}
+
+ Retire eligible merged cycle worktrees; preserve branches and every hold.
+
 ╭─ Arguments ──────────────────────────────────────────────────────────────────╮
 │ *    cycle      <str>  [required]                                            │
 ╰──────────────────────────────────────────────────────────────────────────────╯
@@ -230,11 +230,11 @@ Generated from the registered parser. Command callbacks were not executed. For i
 ## `tc cycle smoke`
 
 ```text
-                                                                                
- Usage: cycle smoke [OPTIONS]                                                   
-                                                                                
- Handshake overlapping local role processes and verify complete shutdown.       
-                                                                                
+
+ Usage: cycle smoke [OPTIONS]
+
+ Handshake overlapping local role processes and verify complete shutdown.
+
 ╭─ Options ────────────────────────────────────────────────────────────────────╮
 │ --roles        <str>   Comma-separated role identifiers, no provider calls.  │
 │                        [default: ta,me,qa,sec,doc,do,sd,uxd,uids,uid,ind]    │
@@ -247,11 +247,11 @@ Generated from the registered parser. Command callbacks were not executed. For i
 ## `tc cycle finish`
 
 ```text
-                                                                                
- Usage: cycle finish [OPTIONS] {cycle}                                          
-                                                                                
- Close the PRD only when all body tasks, workers and cycle resources resolve.   
-                                                                                
+
+ Usage: cycle finish [OPTIONS] {cycle}
+
+ Close the PRD only when all body tasks, workers and cycle resources resolve.
+
 ╭─ Arguments ──────────────────────────────────────────────────────────────────╮
 │ *    cycle      <str>  [required]                                            │
 ╰──────────────────────────────────────────────────────────────────────────────╯
@@ -264,12 +264,12 @@ Generated from the registered parser. Command callbacks were not executed. For i
 ## `tc cycle adapter`
 
 ```text
-                                                                                
- Usage: cycle adapter [OPTIONS] {project}                                       
-                                                                                
- Discover one project's setup/check/teardown and declared isolation without     
- execution.                                                                     
-                                                                                
+
+ Usage: cycle adapter [OPTIONS] {project}
+
+ Discover one project's setup/check/teardown and declared isolation without
+ execution.
+
 ╭─ Arguments ──────────────────────────────────────────────────────────────────╮
 │ *    project      <path>  [required]                                         │
 ╰──────────────────────────────────────────────────────────────────────────────╯
@@ -278,4 +278,3 @@ Generated from the registered parser. Command callbacks were not executed. For i
 │ --help          Show this message and exit.                                  │
 ╰──────────────────────────────────────────────────────────────────────────────╯
 ```
-
