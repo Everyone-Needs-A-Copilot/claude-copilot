@@ -117,3 +117,37 @@ def test_broad_external_path_cannot_hide_missing_committed_local_file(db_path, r
     with pytest.raises(ValidationError, match="narrow"):
         amend(db_path, fixture, proposal)
     assert snapshot(db_path) == before
+
+
+@pytest.mark.parametrize("case", ["tracked_moved_outside", "untracked", "nested_untracked", "empty_directory"])
+def test_directory_relocation_covers_every_materialized_descendant(db_path, relocation, case):
+    proposal = copy.deepcopy(relocation["proposal"])
+    if case == "tracked_moved_outside":
+        (relocation["repo"] / "docs/b.md").rename(relocation["repo"] / "preserved-b.md")
+        git(relocation["repo"], "add", "-A")
+        git(relocation["repo"], "commit", "-m", "preserve moved descendant outside scope")
+        proposal["externalSources"][0]["ref"] = git(relocation["repo"], "rev-parse", "HEAD")
+    elif case == "untracked":
+        (relocation["authoring"] / "docs/unique.md").write_text("Uncommitted unique evidence must remain covered.\n")
+    elif case == "nested_untracked":
+        (relocation["authoring"] / "docs/new").mkdir()
+        (relocation["authoring"] / "docs/new/unique.md").write_text("Nested unique evidence must remain covered.\n")
+    else:
+        (relocation["authoring"] / "docs/unique-empty").mkdir()
+    before = snapshot(db_path)
+    with pytest.raises(ValidationError, match="narrow"):
+        amend(db_path, relocation, proposal)
+    assert snapshot(db_path) == before
+    assert (relocation["authoring"] / "docs/b.md").exists()
+
+
+def test_directory_relocation_records_inventory_and_ignores_only_qa_runtime_dirs(db_path, relocation):
+    cache = relocation["authoring"] / "docs/__pycache__"
+    cache.mkdir()
+    (cache / "generated.pyc").write_bytes(b"Synthetic ignored runtime cache")
+    result = amend(db_path, relocation)
+    proof = result["amendment"]["source_relocations"][0]
+    assert proof["covered_file_count"] == 2
+    assert proof["covered_directory_count"] == 1
+    assert len(proof["covered_inventory_sha256"]) == 64
+    assert (cache / "generated.pyc").exists()
