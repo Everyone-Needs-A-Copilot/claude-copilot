@@ -262,11 +262,17 @@ LOCK_FILE="${STATE_DIR}/budget-${SESSION_ID}.lock"
 # Budget state does not expire by age: measured bytes stay true for as long
 # as the transcript they came from is the one being continued.
 
-# Acquire a simple lock to prevent concurrent corruption
-# Uses mkdir atomicity (POSIX-guaranteed).
+# CI traces showed concurrent callers passing the old mkdir-based gate.
+# Bash noclobber creates a new file without replacing
+# an existing file, symlink or legacy directory lock; mixed callers must wait.
+BUDGET_LOCK_HELD=0
+BUDGET_LOCK_OWNER_PID=""
+BUDGET_LOCK_OWNER_SUBSHELL=""
+BUDGET_LOCK_TOKEN=""
 acquire_lock() {
-  local i=0
-  while ! mkdir "$LOCK_FILE" 2>/dev/null; do
+  local i=0 owner_pid="${BASHPID:-$$}" owner_subshell="${BASH_SUBSHELL:-0}"
+  local token="${owner_pid}:${owner_subshell}:${RANDOM}:${RANDOM}:${RANDOM}"
+  while ! (set -o noclobber; printf '%s\n' "$token" > "$LOCK_FILE") 2>/dev/null; do
     sleep 0.02
     i=$((i + 1))
     if [[ $i -ge 10 ]]; then
@@ -276,10 +282,25 @@ acquire_lock() {
       return 1
     fi
   done
+  BUDGET_LOCK_TOKEN="$token"
+  BUDGET_LOCK_OWNER_PID="$owner_pid"
+  BUDGET_LOCK_OWNER_SUBSHELL="$owner_subshell"
+  BUDGET_LOCK_HELD=1
 }
 
 release_lock() {
-  rmdir "$LOCK_FILE" 2>/dev/null || true
+  # An inherited EXIT trap must never release the parent's lock. Unknown,
+  # replaced and legacy directory locks retain their original owner's data.
+  [[ "$BUDGET_LOCK_HELD" -eq 1 &&
+     "${BASHPID:-$$}" == "$BUDGET_LOCK_OWNER_PID" &&
+     "${BASH_SUBSHELL:-0}" == "$BUDGET_LOCK_OWNER_SUBSHELL" ]] || return 0
+  BUDGET_LOCK_HELD=0
+  [[ -f "$LOCK_FILE" && ! -L "$LOCK_FILE" ]] || return 0
+  local recorded
+  recorded="$(<"$LOCK_FILE")" || return 0
+  [[ "$recorded" == "$BUDGET_LOCK_TOKEN" &&
+     -f "$LOCK_FILE" && ! -L "$LOCK_FILE" ]] || return 0
+  rm -f "$LOCK_FILE" 2>/dev/null || true
 }
 
 deny() {
