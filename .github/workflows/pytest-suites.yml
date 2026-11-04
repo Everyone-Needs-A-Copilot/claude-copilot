@@ -50,7 +50,7 @@ jobs:
           # Canonical "run all copilot tests" command per pytest.ini's own
           # header comment -- excludes tests/tui (vendored claude_monitor
           # project with its own coverage-gated pytest config).
-          python -m pytest tests/ --ignore=tests/tui -p no:cov
+          python -m pytest tests/ --ignore=tests/tui -p no:cov --showlocals
 
   tc-tests:
     name: tools/tc/tests full suite
