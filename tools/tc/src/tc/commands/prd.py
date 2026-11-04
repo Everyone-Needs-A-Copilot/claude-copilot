@@ -136,3 +136,11 @@ def prd_update(
             print("Nothing to update.")
         else:
             print(f"Updated PRD #{row['id']}: {row['title']}")
+
+
+@prd_app.command("body-status")
+def prd_body_status(prd_id: int, json: bool = typer.Option(False, "--json")):
+    """Inspect unresolved direct, stream and descendant tasks plus active workers."""
+    from tc.services.prds import body_status
+    data = body_status(prd_id=prd_id, db_path=require_db())
+    output_json(data) if json else print(data)

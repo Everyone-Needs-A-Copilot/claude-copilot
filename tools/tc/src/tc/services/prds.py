@@ -185,6 +185,38 @@ def list_prds(
             conn.close()
 
 
+def body_status(*, prd_id: int, conn=None, db_path=None) -> dict:
+    """Resolve all direct, stream-associated and descendant tasks, preserving history."""
+    owns = conn is None
+    if owns:
+        conn = _open_conn(_require_db_path(db_path))
+    try:
+        rows = conn.execute("""WITH RECURSIVE body(id) AS (
+            SELECT id FROM tasks WHERE prd_id=? OR stream_id IN (SELECT id FROM streams WHERE prd_id=?)
+            UNION SELECT t.id FROM tasks t JOIN body b ON t.parent_task_id=b.id
+        ) SELECT t.* FROM tasks t JOIN body b ON t.id=b.id ORDER BY t.id""", (prd_id, prd_id)).fetchall()
+        tasks = [dict(row) for row in rows]
+        unresolved = [dict(id=t["id"], status=t["status"], claimed_by=t["claimed_by"]) for t in tasks
+                      if t["status"] not in {"completed", "cancelled"} or t["claimed_by"]]
+        active_workers = []
+        table = conn.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='protocol_cycles'").fetchone()
+        if table:
+            import json
+            ids = {t["id"] for t in tasks}
+            for row in conn.execute("SELECT id,data FROM protocol_cycles"):
+                data = json.loads(row["data"])
+                for spec in data["plan"]["streams"]:
+                    state = data["streams"][spec["id"]]
+                    from tc.services.cycles import worker_is_active
+                    if spec["task"] in ids and worker_is_active(data, spec["id"]):
+                        active_workers.append({"cycle": row["id"], "stream": spec["id"], "task": spec["task"], "state": state["state"]})
+        return {"prd": prd_id, "counts": {status: sum(t["status"] == status for t in tasks) for status in {"completed", "cancelled", "pending", "in_progress", "blocked"}},
+                "openTasks": unresolved, "activeWorkers": active_workers, "canComplete": not unresolved and not active_workers}
+    finally:
+        if owns:
+            conn.close()
+
+
 def update_prd(
     *,
     prd_id: int,
@@ -222,10 +254,17 @@ def update_prd(
         conn = _open_conn(resolved)
 
     try:
+        if status in {"completed", "archived"} and not conn.in_transaction:
+            conn.execute("BEGIN IMMEDIATE")
         row = conn.execute("SELECT * FROM prds WHERE id = ?", (prd_id,)).fetchone()
         if row is None:
             raise PrdNotFound(f"PRD #{prd_id} not found")
 
+        if status in {"completed", "archived"}:
+            body = body_status(prd_id=prd_id, conn=conn)
+            if not body["canComplete"]:
+                raise ValidationError("PRD cannot close with unresolved tasks or active workers: " + str(body["openTasks"] + body["activeWorkers"]))
+            conn.execute("UPDATE streams SET status='completed', updated_at=datetime('now') WHERE prd_id=? AND status IN ('active','paused')", (prd_id,))
         updates = []
         params = []
         if title is not None:
