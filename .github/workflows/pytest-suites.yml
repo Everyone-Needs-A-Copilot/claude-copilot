@@ -45,9 +45,14 @@ jobs:
           # installing both packages editable keeps import paths real.
           python -m pip install --disable-pip-version-check -e "./tools/cc[dev]" -e "./tools/tc"
 
+      - name: Record actual hook interpreter versions
+        run: |
+          bash --version | head -1
+          /usr/bin/jq --version
+
       - name: Run root pytest suite
         env:
-          PYTEST_ADDOPTS: --showlocals
+          PYTEST_ADDOPTS: --showlocals -vvv
         run: |
           # Canonical "run all copilot tests" command per pytest.ini's own
           # header comment -- excludes tests/tui (vendored claude_monitor
@@ -57,7 +62,7 @@ jobs:
 
       - name: Concurrent budget regression under the CI runtime
         env:
-          PYTEST_ADDOPTS: --showlocals
+          PYTEST_ADDOPTS: --showlocals -vvv
         run: |
           bash --version | head -1
           /usr/bin/jq --version
