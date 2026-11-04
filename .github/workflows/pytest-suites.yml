@@ -46,11 +46,27 @@ jobs:
           python -m pip install --disable-pip-version-check -e "./tools/cc[dev]" -e "./tools/tc"
 
       - name: Run root pytest suite
+        env:
+          PYTEST_ADDOPTS: --showlocals
         run: |
           # Canonical "run all copilot tests" command per pytest.ini's own
           # header comment -- excludes tests/tui (vendored claude_monitor
           # project with its own coverage-gated pytest config).
-          python -m pytest tests/ --ignore=tests/tui -p no:cov --showlocals
+          python -m pytest tests/ --ignore=tests/tui -p no:cov
+
+
+      - name: Concurrent budget regression under the CI runtime
+        env:
+          PYTEST_ADDOPTS: --showlocals
+        run: |
+          bash --version | head -1
+          /usr/bin/jq --version
+          # Bounded repeated checks expose intermittent target loss; any
+          # failed assertion fails the job immediately, never retries it away.
+          for sample in {1..10}; do
+            echo "Concurrent budget sample ${sample}/10"
+            python -m pytest tests/test_force_delegate_budget.py::test_same_session_concurrent_calls_all_record_their_targets -q
+          done
 
   tc-tests:
     name: tools/tc/tests full suite
