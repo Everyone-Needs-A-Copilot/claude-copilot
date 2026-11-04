@@ -4,7 +4,7 @@ Apply to coding, research, design, operations and advice, including direct speci
 
 ## Start or resume
 
-Resolve current task, source identity, owner authority, unfinished obligations and acceptance evidence. Preserve cumulative failures, attempts, spend and frozen scope across handoffs. Search narrowly for relevant lessons; follow original source pointers. Record applicability and the decision/check changed, or searched scope and no relevant lesson.
+Resolve current task, source identity, owner authority, unfinished obligations and acceptance evidence. Preserve cumulative failures, attempts, spend and frozen scope across handoffs. Search relevant lessons; follow original pointers. Record applicability and changed checks, or searched scope/no match.
 
 Before freezing substantial QA-required work, include observable `WORK-LIFECYCLE` acceptance: applicable learning or justified no-match, current checkpoint, artifact disposition, verified holds and required retirement results. Existing source-bound `tc` QA remains authoritative. Do not silently retrofit frozen contracts, reset budgets or replace original acceptance; report omissions and route scope changes to coordinator/owner. Missing required evidence fails its criterion.
 
@@ -32,13 +32,15 @@ Open every handoff with a one-line kickoff the owner can paste to resume ("Read 
 
 Consolidate completed work into its maintained README/equivalent: outcome, decisions, failures/corrections, bounded lessons and unfinished obligations. Supporting documents require current need; no empty scaffolding. Retain legitimate software, deliverables and evidence separately.
 
-Use this sequence for proactive retirement or explicit `/cleanup`:
+For retirement or `/cleanup`:
 
 1. Measure scoped files/directories/bytes and reading path; verify branch, dirty state, unique commits, task authority, consumers, links and evidence dependencies. Age proves nothing.
 2. Distill knowledge into the existing narrative, reconcile contradictions and review preservation fidelity.
 3. Classify required active assets, necessary inactive originals, redundant narratives, reproducible artifacts and unresolved holds. Archive only necessary inactive originals when useful, in one private collection with concise catalog, membership/checksums and tested restoration. Keep active fixtures usable. An in-project archive is not an independent backup.
 4. Prepare exact paths, verified Git/archive recovery or demonstrated regeneration, dependency checks and rollback. Apply the narrow verified merged-worktree exception above; obtain exact approval for other deletion, destructive overwrites/moves or task/memory archival. Routine authorized editing/consolidation needs no new approval. Broad intent and summary quality do not grant destructive approval. Preserve database execution history; uncertainty is a hold.
 5. Execute approved paths only after drift/consumer rechecks. Verify retained dependencies and recovery; remove approved loose duplicates after archive verification. Report actual gross/net file/directory/byte reduction, including archives and process evidence. Inventory, backup, compression or summary alone is not cleanup.
+
+Before finish, reconcile every PRD/body task including parked work: complete verified work through QA, cancel abandoned work with history, clear claims only after worker-stop evidence. No active task may remain in a finished PRD; unresolved required blockers mean unfinished work. Never delete task records.
 
 Report delivery acceptance separately from cleanup. An owned hold satisfies disposition only when acceptance permits; it never satisfies required removal. Retaining it needs no fresh approval. Required cleanup undone means optimization remains incomplete.
 
@@ -50,7 +52,7 @@ Compare fresh-reader accuracy and files/words consulted, changed decisions, recu
 
 ## Compact record template
 
-Use the existing task/WP; explain inapplicable fields:
+Existing task/WP; explain inapplicable fields:
 
 - Task/body, owner, checkpoint, source identity, authority:
 - Lesson/source/boundary or searched scope/no-match:
