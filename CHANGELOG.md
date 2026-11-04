@@ -1,5 +1,12 @@
 # Changelog
 
+## [5.34.1] - 2026-11-04
+
+- Claim each session budget lock through atomic shell noclobber creation, with an owner token, process/subshell identity and held receipt. Release only the unchanged owned regular file; preserve foreign files, symlinks and old directory locks. The existing wait limit, budget thresholds and enforcement remain unchanged.
+- Repair a demonstrated concurrent update loss: CI traces showed two callers admitted by external `mkdir` before either released the same lock, so one state write discarded another target. Preserve the full trace and original failures; do not attribute the utility behavior to an unmeasured implementation. See [the evidence and correction](docs/40-initiatives/parallel-protocol-engine/budget-lock-release.md).
+- Retain complete subprocess diagnostics and ten bounded concurrent-budget checks in CI. A failed sample fails immediately; assertions and tests remain unchanged. Record interpreter and lock-utility identities and an independent utility control.
+- Supersede 5.34.0 for consumer activation. Its signed tag remains immutable: its PR passed, then main verification exposed the pre-existing intermittent budget-lock defect.
+
 ## [5.34.0] - 2026-11-04
 
 ### Added

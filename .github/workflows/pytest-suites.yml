@@ -45,31 +45,32 @@ jobs:
           # installing both packages editable keeps import paths real.
           python -m pip install --disable-pip-version-check -e "./tools/cc[dev]" -e "./tools/tc"
 
-      - name: Record actual hook interpreter versions
+      - name: Record hook lock dependencies
         run: |
           bash --version | head -1
           /usr/bin/jq --version
-
-      - name: Prepare bounded hook lock trace
-        run: |
-          cat > "$RUNNER_TEMP/budget-trace-env.sh" <<'SH'
-          case "$0" in
-            */test_same_session_concurrent_c*/.claude/hooks/pretool-check.sh)
-              PS4='+${EPOCHREALTIME} pid=${BASHPID} sub=${BASH_SUBSHELL} line=${LINENO}: '
-              set -x
-              ;;
-          esac
-          SH
+          command -V mkdir
+          mkdir --version
+          sha256sum "$(command -v mkdir)"
+          python - <<'PYLOCK'
+          import concurrent.futures, os, pathlib, subprocess, tempfile, threading
+          with tempfile.TemporaryDirectory(prefix="mkdir-control-", dir=os.environ["RUNNER_TEMP"]) as root:
+              for sample in range(10):
+                  target = pathlib.Path(root) / str(sample)
+                  barrier = threading.Barrier(4)
+                  def attempt(_):
+                      barrier.wait()
+                      return subprocess.run(["mkdir", str(target)], capture_output=True, text=True).returncode
+                  with concurrent.futures.ThreadPoolExecutor(max_workers=4) as pool:
+                      codes = list(pool.map(attempt, range(4)))
+                  print({"sample": sample + 1, "mkdir_returncodes": codes, "reported_admissions": codes.count(0)})
+          PYLOCK
 
       - name: Concurrent budget regression under the CI runtime
         env:
           PYTEST_ADDOPTS: --showlocals -vvv
-          BASH_ENV: ${{ runner.temp }}/budget-trace-env.sh
         run: |
-          bash --version | head -1
-          /usr/bin/jq --version
-          # Bounded repeated checks expose intermittent target loss; any
-          # failed assertion fails the job immediately, never retries it away.
+          # Any failing sample fails immediately; this never retries a failure away.
           for sample in {1..10}; do
             echo "Concurrent budget sample ${sample}/10"
             python -m pytest tests/test_force_delegate_budget.py::test_same_session_concurrent_calls_all_record_their_targets -q
