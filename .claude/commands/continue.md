@@ -273,7 +273,7 @@ Use Memory Copilot for permanent knowledge:
 
 ## Worktree Management
 
-Git worktrees provide complete isolation for parallel streams, eliminating file conflicts and enabling true concurrent development.
+Git worktrees isolate repository working directories; exclusive output ownership, real cwd verification and separate shared service/data isolation remain required. Resume the existing `tc cycle` instead of recreating completed work.
 
 ### Quick Reference: Common Worktree Commands
 
@@ -283,9 +283,9 @@ Git worktrees provide complete isolation for parallel streams, eliminating file 
 | List all worktrees | `git worktree list` |
 | Check stream completion | `tc stream get Stream-B --json` |
 | Merge completed stream | `git checkout main && git merge stream-b --no-ff` |
-| Remove worktree | `git worktree remove .claude/worktrees/Stream-B` |
-| Clean up stale worktrees | `git worktree prune` |
-| Force remove dirty worktree | `git worktree remove --force .claude/worktrees/Stream-B` |
+| Retire eligible merged worktrees | `tc cycle cleanup CYCLE --json` (fresh identity, cleanliness, inactivity, teardown and recovery checks) |
+| Inspect retirement candidates | `tc cycle cleanup-plan CYCLE --json` |
+| Dirty or unique worktree | Retain it with owner and next action; never force-remove during automatic cleanup |
 
 ### Understanding Worktree Phases
 
@@ -353,24 +353,7 @@ git log --oneline --graph -10
 
 ### Cleanup After Merge
 
-**Important:** Only clean up worktrees AFTER successfully merging and verifying the merge.
-
-1. **Remove the worktree**:
-   ```bash
-   git worktree remove .claude/worktrees/Stream-B
-   ```
-
-2. **Optional: Delete the branch** (if no longer needed):
-   ```bash
-   git branch -d stream-b
-   ```
-
-3. **Prune stale worktree references** (cleanup metadata):
-   ```bash
-   git worktree prune
-   ```
-
-**Safety Note:** Worktree cleanup is intentionally manual to prevent accidental loss of uncommitted work. Always verify your work is committed and merged before removing worktrees.
+Use `tc cycle cleanup-plan CYCLE --json`, then `tc cycle cleanup CYCLE --json` during cleanup. The owner’s narrow exception permits automatic removal only of cycle-recorded fully integrated clean inactive worktrees with unchanged identity, successful teardown, stopped-worker evidence, no active consumers and verified recovery. Preserve branches, the current coordinator checkout and all uncertain resources; branch or other data deletion retains exact approval.
 
 ### Listing All Worktrees
 
@@ -416,12 +399,7 @@ git worktree prune
 
 #### Uncommitted Changes in Worktree
 
-If you need to remove a worktree with uncommitted changes:
-
-```bash
-# Force removal (USE WITH CAUTION)
-git worktree remove --force .claude/worktrees/Stream-B
-```
+A worktree with uncommitted, untracked, ignored or unique work is held. Preserve it with a named owner and next action; automatic cleanup never force-removes it. Resolve and verify its disposition before considering retirement.
 
 #### Switching Streams with Uncommitted Work
 
@@ -442,7 +420,7 @@ git stash push -m "Stream-B checkpoint"
 2. **Keep streams focused** - avoid modifying shared files across streams
 3. **Merge foundation first** - ensure parallel streams branch from latest foundation
 4. **Test after merge** - run tests in main worktree after merging streams
-5. **Retire verified worktrees** — inspect unique commits, dirty work and consumers, prepare recovery, then obtain exact destructive approval before removal.
+5. **Retire verified worktrees** — inspect unique commits, dirty work and consumers, prepare recovery, then apply the narrow automatic merged-worktree rule; obtain exact approval for other deletion.
 
 ## End of Session
 

@@ -66,7 +66,7 @@ Read via `eval "$(cc env)"` as `$CC_OUTPUT_VERBOSITY` / `$CC_OUTPUT_AUDIENCE`.
 | `/pause [reason]` | Context switch, save state | Session |
 | `/map` | Analyze codebase structure | Project |
 | `/memory` | View memory state and recent activity | Session |
-| `/orchestrate` | Set up parallel stream orchestration | Project |
+| `/orchestrate` | Deprecated compatibility redirect to protocol-native execution | Project |
 
 ### Use Case Mapping
 
@@ -79,7 +79,7 @@ Read via `eval "$(cc env)"` as `$CC_OUTPUT_VERBOSITY` / `$CC_OUTPUT_AUDIENCE`.
 | Improve something | `/protocol improve dashboard` | Clarification flow (asks intent) |
 | Skip design stages | `/protocol --skip-sd add feature` | Jumps to specified stage |
 | Resume yesterday's work | `/continue` | Memory loads automatically |
-| Run parallel work streams | `/orchestrate generate` then `/orchestrate start` | Create PRD + tasks → set up worktrees |
+| Run parallel work streams | `/protocol` | Approve scope → dispatch ready work → converge, verify and disposition resources |
 | Search past decisions | `cc memory search "<query>"` | Full-text keyword search across sessions |
 | Load a skill | `cc skill get NAME` | Resolves project → machine → knowledge |
 
@@ -167,9 +167,15 @@ Battle-tested workflow commands.
 
 ---
 
+## Protocol-native parallel execution
+
+After approval of the scoped plan or done block, the coordinator dispatches independent useful work by default, refilling capacity as inputs and worker slots become available. Load the canonical organization policy once with `cc skill get parallel-execution --scope machine --json` and apply its returned content. Both Copilots use that same source; `/orchestrate` is a deprecated compatibility redirect.
+
+If the organization skill is unavailable, report that fallback and use the installed `tc cycle --help` contract: validated exclusive write ownership, actual cwd/branch verification, visible native dispatch within resource/runtime limits, one integration owner, current independent QA, and verified retirement under applicable deletion authority. Read-only research need not create a worktree. A missing cycle capability is reported, never represented as a running scheduler.
+
 ## Agent Routing
 
-Fan-out: at most three concurrent subagents unless the done block says otherwise; close each when its piece is done; one QA pass per batch rather than per step. (2026-10-29)
+Fan-out follows the validated ready set and actual runtime/resource capacity; no arbitrary framework cap. Finish each worker promptly, converge through one owner, and partition independent QA with cross-stream coverage. (2026-11-04)
 
 | From | Routes To | When |
 |------|-----------|------|
@@ -212,7 +218,7 @@ Agents verify their task exists and check environment health before starting wor
 
 ---
 
-Start/resume/new PRD/initiative/finish/merge/pause/handoff: apply `.claude/agents/_shared/work-lifecycle.md`; proactively inspect worktrees; get exact deletion approval.
+Start/resume/new PRD/initiative/finish/merge/pause/handoff: apply `.claude/agents/_shared/work-lifecycle.md`; proactively inspect worktrees; automatically retire eligible recorded merged worktrees during cleanup; get exact approval for other deletion.
 
 ## Agent Shared Behaviors
 

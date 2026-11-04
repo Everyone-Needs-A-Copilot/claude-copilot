@@ -11,7 +11,7 @@
 - This repository owns the public Claude Copilot framework and the shared `cc` / `tc` tools. Keep base agents generic and company-specific behavior in extension tiers.
 - `VERSION.json.framework` is the framework version authority; `package.json.version` mirrors it. Component versions in `VERSION.json.components` are independent; never update the package version alone.
 - When editing Claude agents, preserve their frontmatter (name, description, tools, model), role/mission, Core Behaviors, output format, Route To Other Agent, and Task Copilot Integration. Use industry-standard methods and document decision authority.
-- Claude runtime guardrails, hook schemas, `@agent-*` routing, and slash commands describe the product maintained here; they are not Codex runtime features. Apply Codex specialist playbooks locally unless the user requests delegation.
+- Claude runtime guardrails, hook schemas, `@agent-*` routing, and slash commands describe the product maintained here; they are not Codex runtime features. Use Codex-native playbooks and visible delegation within the approved scoped plan; Claude hook payloads do not enforce Codex behavior.
 - Read the relevant development guidance in `CLAUDE.md` when maintaining framework assets, and the corresponding `tools/cc/` or `tools/tc/` documentation when changing those tools. Do not import Claude session/delegation instructions into Codex.
 - Before publishing/notarization, read `docs/30-operations/20-notarization-credentials.md`.
 - Keep shared rules consistent across CLAUDE.md and AGENTS.md; preserve scope and place tool-specific rules in their own entrypoint.
@@ -67,12 +67,18 @@
 - Store a task-bound `test` work product with matching `CRITERION:` / `EXPECTED:`, actual observations, inspectable `ARTIFACT:` evidence, untested scope, and one `VERDICT:`. Missing required behavior, bare markers, or stale evidence cannot support approval.
 - Before completion, run `tc task check-qa <id> --json` and the setup-installed `scripts/copilot-gate.sh --task <id>`. Never remove `requiresQa` to bypass QA; installed hooks alone prove neither enforcement nor approval.
 
+## Protocol-native parallel execution
+
+After approval of the scoped plan or done block, the coordinator dispatches independent useful work by default, refilling capacity as inputs and worker slots become available. Load the canonical organization policy once with `cc skill get parallel-execution --scope machine --json` and apply its returned content. Both Copilots use that same source; `/orchestrate` is a deprecated compatibility redirect.
+
+If the organization skill is unavailable, report that fallback and use the installed `tc cycle --help` contract: validated exclusive write ownership, actual cwd/branch verification, visible native dispatch within resource/runtime limits, one integration owner, current independent QA, and verified retirement under applicable deletion authority. Read-only research need not create a worktree. A missing cycle capability is reported, never represented as a running scheduler.
+
 ## Framework Rules
 
 - Experience work starts with `$sd` / `$uxd`; visual direction uses `$uids` before `$uid`. Architecture and non-trivial technical work use `$ta`; `$me` implements and `$qa` verifies.
 - Bugs follow `$qa -> $me -> $qa`; security-sensitive work includes `$sec`; infrastructure changes needing implementation follow `$do -> $me -> $qa`.
 - Keep changes focused, preserve user work, omit time estimates, and respect the user's authorization and review boundaries.
-- Use `spawn_agent` only when the user explicitly requests delegation, subagents, or parallel agent work.
+- Approved scoped work uses visible, validated native agent fan-out by default; retain runtime limits, exclusive write ownership and the existing task/QA authority.
 
 ### Delegating to Subagents
 
@@ -100,4 +106,4 @@ When an explanation conflicts with a measurement, follow the measurement and nar
 
 Read `.claude/agents/_shared/work-lifecycle.md` once per task and apply its proportional start/resume, during-work, handoff, finish and later-use checkpoints, including direct invocation. Use the existing task and maintained narrative; selective memory pointers must not duplicate them. Preserve exact destructive approval and recovery, original authority and required assets. Substantial QA-required work needs an observable `WORK-LIFECYCLE` criterion before acceptance freezes; cleanup status and product acceptance remain separate.
 
-At start/resume (including a new PRD or initiative) and finish/merge/pause/handoff, proactively inspect relevant worktrees and surface eligible cleanup with exact paths, recovery and dependency checks, then visibly request deletion approval; do not wait for a cleanup command. Merge alone is insufficient. Record owned holds and pending approval in the existing task, continue unrelated work, and reuse unchanged prior approval after drift checks.
+At start/resume (including a new PRD or initiative) and finish/merge/pause/handoff, proactively inspect relevant worktrees and surface eligible cleanup with exact paths, recovery and dependency checks, then automatically retire eligible recorded merged worktrees during cleanup under the owner’s 4 November 2026 narrow exception; prepare exact approval for any other deletion. Merge alone is insufficient. Record owned holds and pending approval in the existing task, continue unrelated work, and reuse unchanged prior approval after drift checks.
