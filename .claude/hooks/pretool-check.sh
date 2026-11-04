@@ -1240,11 +1240,17 @@ rule_cycle_dispatch() {
   has_envelope="$("$JQ" -r '(.tool_input.prompt // "") | test("(?m)^CYCLE(?:-CWD)?:")' <<< "$PAYLOAD" 2>/dev/null)" || has_envelope=false
   [[ "$has_envelope" != "true" ]] && return 0
   _cycle_dispatch_envelope || deny "Cycle dispatch denied (malformed-cycle-envelope). Use the recorded cycle, stream and execution directory."
-  local role result task
+  local role result task blocked_task
+  local -a verify_args
   role="$("$JQ" -r '.tool_input.subagent_type // ""' <<< "$PAYLOAD" 2>/dev/null)" || role=""
   _is_known_agent "$role" || deny "Cycle dispatch denied (unknown-specialist). Use the stream's registered framework role."
-  if ! result="$("$QA_GATE_TC_BIN" cycle verify-dispatch "$CYCLE_DISPATCH_ID" "$CYCLE_DISPATCH_STREAM" \
-      --role "$role" --cwd "$CYCLE_DISPATCH_CWD" --json 2>/dev/null)"; then
+  verify_args=(cycle verify-dispatch "$CYCLE_DISPATCH_ID" "$CYCLE_DISPATCH_STREAM" --role "$role" --cwd "$CYCLE_DISPATCH_CWD" --json)
+  if [[ "$role" != "qa" && -n "${CYCLE_QA_BLOCKED_TASKS:-}" ]]; then
+    while IFS= read -r blocked_task; do
+      [[ -n "$blocked_task" ]] && verify_args+=(--blocked-task "$blocked_task")
+    done < <("$JQ" -r '.[] | tostring | sub("^TASK-"; "") | select(test("^[0-9]+$"))' <<< "$CYCLE_QA_BLOCKED_TASKS")
+  fi
+  if ! result="$("$QA_GATE_TC_BIN" "${verify_args[@]}" 2>/dev/null)"; then
     deny "Cycle dispatch denied (claim-verification-failed). Inspect tc cycle status before retrying."
   fi
   if ! "$JQ" -e --arg cycle "$CYCLE_DISPATCH_ID" --arg stream "$CYCLE_DISPATCH_STREAM" \
