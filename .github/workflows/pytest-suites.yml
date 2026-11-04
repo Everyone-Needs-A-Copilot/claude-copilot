@@ -50,19 +50,21 @@ jobs:
           bash --version | head -1
           /usr/bin/jq --version
 
-      - name: Run root pytest suite
-        env:
-          PYTEST_ADDOPTS: --showlocals -vvv
+      - name: Prepare bounded hook lock trace
         run: |
-          # Canonical "run all copilot tests" command per pytest.ini's own
-          # header comment -- excludes tests/tui (vendored claude_monitor
-          # project with its own coverage-gated pytest config).
-          python -m pytest tests/ --ignore=tests/tui -p no:cov
-
+          cat > "$RUNNER_TEMP/budget-trace-env.sh" <<'SH'
+          case "$0" in
+            */test_same_session_concurrent_c*/.claude/hooks/pretool-check.sh)
+              PS4='+${EPOCHREALTIME} pid=${BASHPID} sub=${BASH_SUBSHELL} line=${LINENO}: '
+              set -x
+              ;;
+          esac
+          SH
 
       - name: Concurrent budget regression under the CI runtime
         env:
           PYTEST_ADDOPTS: --showlocals -vvv
+          BASH_ENV: ${{ runner.temp }}/budget-trace-env.sh
         run: |
           bash --version | head -1
           /usr/bin/jq --version
@@ -72,6 +74,15 @@ jobs:
             echo "Concurrent budget sample ${sample}/10"
             python -m pytest tests/test_force_delegate_budget.py::test_same_session_concurrent_calls_all_record_their_targets -q
           done
+
+      - name: Run root pytest suite
+        env:
+          PYTEST_ADDOPTS: --showlocals -vvv
+        run: |
+          # Canonical "run all copilot tests" command per pytest.ini's own
+          # header comment -- excludes tests/tui (vendored claude_monitor
+          # project with its own coverage-gated pytest config).
+          python -m pytest tests/ --ignore=tests/tui -p no:cov
 
   tc-tests:
     name: tools/tc/tests full suite
