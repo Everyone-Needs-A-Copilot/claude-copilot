@@ -1,7 +1,7 @@
 interface:
   display_name: "Orchestrate"
-  short_description: "Plan parallel streams"
-  default_prompt: "Use $orchestrate to plan stream-based work and explicit user-approved Codex subagent execution."
+  short_description: "Deprecated: use Protocol"
+  default_prompt: "Use $protocol for this request; $orchestrate is deprecated because useful independent approved work is orchestrated by protocol by default."
 
 policy:
   allow_implicit_invocation: false

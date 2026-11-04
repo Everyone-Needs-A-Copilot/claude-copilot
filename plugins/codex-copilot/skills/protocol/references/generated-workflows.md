@@ -5,6 +5,11 @@
 Primary entrypoint: `$protocol`  
 Delegation entrypoint: `$launcher`
 
+Execution default: `parallel-ready` through `tc cycle`; canonical policy: `parallel-execution`.
+`$orchestrate` is a deprecated compatibility redirect to `$protocol`.
+
+These specialist sequences describe decision/input dependencies, not global barriers across independent deliverables. Dispatch ready scopes continuously within native/resource capacity; one owner converges current evidence and verified resource disposition.
+
 | Request type | Specialist sequence |
 | --- | --- |
 | Defect | `qa -> me -> qa` |
