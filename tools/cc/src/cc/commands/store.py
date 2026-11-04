@@ -242,6 +242,7 @@ def store_verify_cmd(
     scope: str = typer.Option("shared", "--scope", help="Store scope to verify."),
     output_json: bool = typer.Option(False, "--json", help="Output JSON."),
 ) -> None:
+    """Check readiness and authorization of the selected secret-store scope."""
     report = build_store_verify_report(scope=scope)
     if output_json:
         typer.echo(json.dumps(report))

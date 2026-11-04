@@ -32,6 +32,7 @@ from cc.commands.workspaces import workspaces_app
 from cc.core.config import resolve_key
 
 app = typer.Typer(
+    epilog="Guide: tools/cc/CLI.md in the source repository (purpose, intent, output and recovery).",
     name="cc",
     help="Unified Claude Copilot CLI — memory, skills, config, and live docs in one tool.",
     no_args_is_help=True,

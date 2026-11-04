@@ -77,6 +77,7 @@ def support_latest(
         help="Print a paste-ready JSON envelope containing the redacted report.",
     ),
 ) -> None:
+    """Read the latest redacted support report or explain why none is available."""
     report = build_support_latest_report()
     if output_json:
         typer.echo(json.dumps(report, indent=2, sort_keys=True))

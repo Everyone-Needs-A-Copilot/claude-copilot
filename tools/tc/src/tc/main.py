@@ -19,6 +19,7 @@ from tc.commands.repo import repo_app
 from tc.commands.tests_cmd import tests_app
 
 app = typer.Typer(
+    epilog="Guide: tools/tc/CLI.md in the source repository (purpose, intent, output and recovery).",
     name="tc",
     help="Agent-agnostic task management CLI for AI development workflows.",
     no_args_is_help=True,

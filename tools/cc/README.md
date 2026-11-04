@@ -790,3 +790,5 @@ for contract registration and pre-verification identity capture. Required duplic
 skills retain selected names with `duplicate_of` while emitting their content once.
 Project readiness now verifies tc installation provenance and enforcement capability,
 not just command presence; use the reviewed installer to repair a missing receipt.
+
+CLI discovery, intent, effects and recovery: [CLI guide](CLI.md).
