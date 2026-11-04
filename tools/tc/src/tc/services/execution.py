@@ -391,6 +391,70 @@ def succeed_limits(
     return {**p, "round": number}
 
 
+def _source_relocation_proofs(conn, root, before, after):
+    """Prove removed local scopes remain covered by the same committed repository.
+
+    A shared origin alone is insufficient: unrelated clones can have the same
+    remote string. Requiring the canonical Git common directory as well binds
+    relocation to this worktree's actual repository. Existing contract validation
+    and manifest capture still reject missing refs, aliases and unsupported data.
+    """
+    removed = sorted(set(before.get("sources", [])) - set(after.get("sources", [])))
+    if not removed:
+        return []
+    from tc.services import external_sources as ext
+    from tc.services.qa_contract import _safe_path
+
+    root = Path(root).resolve()
+    candidates = [(entry, ext.resolve(conn, entry)) for entry in after.get("externalSources", [])]
+    proofs = []
+    for scope in removed:
+        target = _safe_path(root, scope)
+        if not target.exists():
+            raise ValidationError("Amendment cannot narrow local source coverage: missing relocation source " + scope)
+        directory = target if target.is_dir() else target.parent
+        try:
+            local_top = Path(ext._git(directory, "rev-parse", "--show-toplevel").decode().strip()).resolve()
+            repository_scope = target.resolve().relative_to(local_top).as_posix()
+            common_dir = Path(ext._git(local_top, "rev-parse", "--path-format=absolute", "--git-common-dir").decode().strip()).resolve()
+            origin = ext._git(local_top, "remote", "get-url", "origin").decode().strip()
+        except (ValidationError, ValueError) as exc:
+            raise ValidationError("Amendment cannot narrow local source coverage: source has no verifiable repository identity " + scope) from exc
+        # Use the same materialized inventory and exclusions as QA, including
+        # untracked descendants. A committed container alone proves nothing
+        # about the file scopes it used to contain.
+        members = sorted((record["kind"], (root / record["path"]).relative_to(local_top).as_posix())
+                         for record in source_manifest(root, [scope])
+                         if record["kind"] in {"file", "directory"})
+        match = None
+        for entry, found in candidates:
+            if found["remote"] != origin:
+                continue
+            external_common = Path(ext._git(found["path"], "rev-parse", "--path-format=absolute", "--git-common-dir").decode().strip()).resolve()
+            if external_common != common_dir:
+                continue
+            coverage = next((path for path in entry["paths"] if path == "." or repository_scope == path or repository_scope.startswith(path + "/")), None)
+            if coverage is not None:
+                committed_files = {name for name, *_ in ext._listing(found["path"], found["commit"], [coverage])}
+                committed_directories = {"."}
+                for name in committed_files:
+                    committed_directories.update(parent.as_posix() for parent in Path(name).parents)
+                if any(name not in (committed_files if kind == "file" else committed_directories)
+                       for kind, name in members):
+                    continue
+                match = {"local_source": scope, "local_repository": str(local_top), "repository_scope": repository_scope,
+                         "common_dir": str(common_dir), "origin": origin, "external_repo": entry["repo"],
+                         "external_checkout": str(found["path"]), "commit": found["commit"], "coverage_path": coverage,
+                         "covered_file_count": sum(kind == "file" for kind, _ in members),
+                         "covered_directory_count": sum(kind == "directory" for kind, _ in members),
+                         "covered_inventory_sha256": digest(members)}
+                break
+        if match is None:
+            raise ValidationError("Amendment cannot narrow local source coverage: no same-repository committed coverage for " + scope)
+        proofs.append(match)
+    return proofs
+
+
 def amend_contract(
     *, task_id, contract, expected_contract_sha256, decision, db_path=None
 ):
@@ -426,8 +490,7 @@ def amend_contract(
             raise ValidationError("An attempt is unsettled; settle it before amending")
         if [c["id"] for c in before["criteria"]] != [c["id"] for c in contract["criteria"]]:
             raise ValidationError("Amendment must preserve criterion IDs and order")
-        if not set(before.get("sources", [])) <= set(contract.get("sources", [])):
-            raise ValidationError("Amendment cannot narrow local source coverage")
+        relocations = _source_relocation_proofs(conn, prior["root"], before, contract)
         external = {e["repo"]: e for e in contract.get("externalSources", [])}
         for entry in before.get("externalSources", []):
             if entry["repo"] not in external or not set(entry["paths"]) <= set(
@@ -468,6 +531,7 @@ def amend_contract(
             "before_contract_sha256": before_hash,
             "after_contract_sha256": after_hash,
             "before_source": before_source, "after_source": after_source,
+            **({"source_relocations": relocations} if relocations else {}),
         }
         policy.update(
             kind="amendment", predecessor=previous["round"], amendment=audit,

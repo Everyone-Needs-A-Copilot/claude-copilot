@@ -1,5 +1,25 @@
 # Changelog
 
+## [5.34.0] - 2026-11-04
+
+### Added
+
+- **Parallel execution is the default after plan approval.** Protocol dispatches useful independent research, design, development, QA and operations streams within actual runtime and resource capacity. Typed contract, built, integrated and accepted dependencies let newly ready work start without waiting for a whole phase. Exclusive write ownership, actual checkout/branch preflight, one integration owner and current independent QA remain required. Both Copilots read the same organization `parallel-execution` skill; the shared `tc cycle` service records coordination and permits native dispatch rather than starting models itself.
+- **`tc cycle` lifecycle and cheap smoke.** Plan validation, readiness, claims, explicit worktree preparation, single-use dispatch verification, evidence receipts, adapter discovery, cleanup and finish share one durable authority. `.copilot/worktree-adapter.json` declares project setup/isolation; discovery is read-only and an absent adapter reports filesystem-only isolation. `tc cycle smoke` exercises overlapping local processes and shutdown across supplied role labels with zero provider calls or model tokens. It proves process lifecycle, not native model reasoning, model quality or an end-to-end speed guarantee. See [the cycle guide](tools/tc/docs/CYCLE.md) and [command reference](tools/tc/docs/CYCLE-commands.md).
+- **PRD body closure checks every task.** `tc prd body-status` includes direct, stream-associated and descendant tasks, including parked work. Finish refuses unresolved tasks and workers without current stop evidence; completed and cancelled history is preserved.
+
+### Changed
+
+- **`/orchestrate` is deprecated into protocol.** The existing command remains a compatibility redirect. Protocol, continue, cleanup, specialist guidance and machine command delivery use the same default execution and convergence contract.
+- **Cleanup retires eligible merged worktrees automatically.** Under the owner's 4 November 2026 authority, recorded worktrees are removed only after intended-branch integration, clean tracked/untracked/ignored state, unchanged identity, successful teardown, stopped workers, no consumers and recoverability are verified. Branches remain by default; dirty, unique, unmerged, active, drifted, unknown and evidence-bearing resources are held. Other deletion retains exact approval.
+- Component versions: tc 2.11.0 to 2.12.0, agents 5.13.0 to 5.14.0, commands 5.10.0 to 5.11.0, skills 3.7.0 to 3.8.0. cc remains 2.18.0. The embedded Codex plugin is refreshed to 0.16.0, requiring cc 2.18.0 and tc 2.12.0.
+
+### Fixed
+
+- **Lifecycle evidence stays current.** Capacity is released only after observed worker exit; consumed-contract changes invalidate work; referenced evidence prevents worktree retirement; stale stop receipts cannot close a PRD; symlink aliases cannot bypass ownership; refused QA-gated dispatch preserves its one-shot permit. A verified source relocation can bind accepted coverage to immutable Git refs before an authoring worktree is retired.
+- **Non-Git document attestation has explicit scope.** T1 document attestation binds in-project document files and repeatable hashes without inventing a Git baseline; mutation and code-file substitution are refused.
+- **Ownership test expectation updated for the approved contract.** `test_stream.py` now refuses writers missing declared files instead of ignoring them. [The receipt](docs/40-initiatives/parallel-protocol-engine/test-change-receipt.json) preserves the old/new expectation and owner authority; existing valid acceptance requirements remain intact.
+
 ## [5.33.1] - 2026-11-02
 
 ### Changed

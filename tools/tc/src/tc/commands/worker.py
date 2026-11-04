@@ -135,6 +135,7 @@ def dispatch(
     agent: Optional[str],
     db_path: Optional[Path] = None,
     criterion: Optional[str] = None,
+    cwd: Optional[Path] = None,
 ) -> dict[str, Any]:
     """Execute the dispatch command, record spend, and handle budget breach.
 
@@ -157,6 +158,13 @@ def dispatch(
     try:
         guarded = has_limits(task_id=task_id, conn=conn)
         task = get_task(task_id=task_id, conn=conn)
+        from tc.services.qa_contract import execution_root
+        registered_root = execution_root(task_id, conn)
+        execution_cwd = Path(cwd).resolve() if cwd else registered_root or resolved.parent.parent
+        if not execution_cwd.is_dir():
+            raise ValidationError("Worker execution directory is missing")
+        if registered_root and execution_cwd != registered_root:
+            raise ValidationError("Worker cwd differs from registered execution root")
     finally:
         conn.close()
     metadata = task.get("metadata") or {}
@@ -173,7 +181,7 @@ def dispatch(
                               db_path=resolved, label="worker", usd=budget, worker=True)
         returncode, spend = run["exit_code"], run["spend"]
     else:
-        result = _subprocess.run(cmd, capture_output=True, text=True)
+        result = _subprocess.run(cmd, capture_output=True, text=True, cwd=execution_cwd)
         returncode, spend = result.returncode, _parse_spend(result.stdout)
     breached = is_budget_breach(spend)
 

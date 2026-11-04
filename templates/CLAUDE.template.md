@@ -20,11 +20,17 @@ This project runs on Claude Copilot, the Claude Code layer of the Copilot Soluti
 - **Library docs:** `cc docs get <package> --topic <area> --json` before coding against a third-party API.
 - **Health:** `cc doctor`. A failing `instruction-layer-unenforced` check means the hooks are not registered and nothing above is enforced.
 
+## Protocol-native parallel execution
+
+After approval of the scoped plan or done block, the coordinator dispatches independent useful work by default, refilling capacity as inputs and worker slots become available. Load the canonical organization policy once with `cc skill get parallel-execution --scope machine --json` and apply its returned content. Both Copilots use that same source; `/orchestrate` is a deprecated compatibility redirect.
+
+If the organization skill is unavailable, report that fallback and use the installed `tc cycle --help` contract: validated exclusive write ownership, actual cwd/branch verification, visible native dispatch within resource/runtime limits, one integration owner, current independent QA, and verified retirement under applicable deletion authority. Read-only research need not create a worktree. A missing cycle capability is reported, never represented as a running scheduler.
+
 ## Work lifecycle
 
 Read `.claude/agents/_shared/work-lifecycle.md` once per task and apply its proportional start/resume, during-work, handoff, finish and later-use checkpoints, including direct invocation. Use the existing task and maintained narrative; selective memory pointers must not duplicate them. Preserve exact destructive approval and recovery, original authority and required assets. Substantial QA-required work needs an observable `WORK-LIFECYCLE` criterion before acceptance freezes; cleanup status and product acceptance remain separate.
 
-At start/resume (including a new PRD or initiative) and finish/merge/pause/handoff, proactively inspect relevant worktrees and surface eligible cleanup with exact paths, recovery and dependency checks, then visibly request deletion approval; do not wait for a cleanup command. Merge alone is insufficient. Record owned holds and pending approval in the existing task, continue unrelated work, and reuse unchanged prior approval after drift checks.
+At start/resume (including a new PRD or initiative) and finish/merge/pause/handoff, proactively inspect relevant worktrees and surface eligible cleanup with exact paths, recovery and dependency checks, then automatically retire eligible recorded merged worktrees during cleanup under the owner’s 4 November 2026 narrow exception; prepare exact approval for any other deletion. Merge alone is insufficient. Record owned holds and pending approval in the existing task, continue unrelated work, and reuse unchanged prior approval after drift checks.
 
 Use `/cleanup` for accumulated clutter. Completed bodies keep one maintained README; supporting documents are created only for a current need. No routine retrospective directory or duplicate task board.
 

@@ -17,6 +17,7 @@ Formal initiative documentation lives in `docs/40-initiatives/NN-slug/`, as requ
 | [02-bounded-foundation-rollout](02-bounded-foundation-rollout/README.md) | Bounded foundation rollout | Shared visibility, native compatibility and a fixed finish line | See `tc` acceptance | PRD-6 / TASK-67–70 |
 | [03-ecosystem-extensions](03-ecosystem-extensions/README.md) | Ecosystem Extensions | Layered PERSONAL › DEPARTMENT › ORG › FOUNDATION resolution for agents, skills, commands, and knowledge, plus Copilot Control Tower | Research / Proposed | PRD-TBD |
 | [04-component-sync](04-component-sync/README.md) | Component Sync | Update a framework component once and every project on the machine follows | Planned | PRD-TBD / TASK-TBD |
+| [05-parallel-protocol](05-parallel-protocol/README.md) | Protocol-native parallel execution | Visible ready-work dispatch, convergence, current QA and verified retirement | Source implementation | CSE PRD4 / task12 |
 
 ## Directory Contract
 

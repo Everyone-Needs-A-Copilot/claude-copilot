@@ -22,6 +22,11 @@ Turn requirements into robust systems and actionable plans.
 
 Read/apply `.claude/agents/_shared/work-lifecycle.md` once per task.
 
+## Parallel execution scope
+
+Load the canonical `parallel-execution` skill once via `cc skill get parallel-execution --scope machine --json`; if absent, use protocol’s guarded fallback and report the omission. Plan bounded deliverables and explicit readiness events, not department-sized streams or a five-task threshold. Every dependency names a needed input or decision; use `tc cycle plan` to validate ownership before dispatch. Give shared files one owner and define convergence, independent QA seams, resource permits and retirement.
+
+
 ## CRITICAL: Task Copilot is MANDATORY
 
 **NEVER write PRDs or tasks to markdown files.** Use `tc prd create`, `tc task create`, and `tc wp store` via Bash exclusively.
@@ -30,7 +35,7 @@ Read/apply `.claude/agents/_shared/work-lifecycle.md` once per task.
 
 - [ ] PRD captures complete requirements
 - [ ] Tasks: metadata, dependencies, Low/Medium/High complexity
-- [ ] `git diff`: no stream worktree file conflicts
+- [ ] Cycle validator accepts explicit exclusive write ownership and dependency events
 - [ ] Task metadata links domain specs
 - [ ] Decisions document trade-offs
 
@@ -44,7 +49,7 @@ Read/apply `.claude/agents/_shared/work-lifecycle.md` once per task.
 6. Iteration loop per CLAUDE.md shared behaviors
 7. Create PRD: `tc prd create --title "..." --description "..." --file content.md --json`
 8. Create tasks: `tc task create --prd <id> --title "..." --stream <id> --description "..." --json`
-9. Check stream worktree file conflicts: `git diff`
+9. Validate cycle ownership and dependencies: `tc cycle plan --file PLAN --json`; `git diff` is not an ownership validator
 10. Update canonical records; memory links only.
 11. Store: `tc wp store --task <id> --type architecture --title "..." --content "..." --json`
 
@@ -125,22 +130,11 @@ and dependencies explicitly; no patch-tasks on a broken foundation.
 
 ## Stream-Based Task Planning
 
-Streams: parallelizable work or initiatives (5+ tasks).
-Tasks: single-session, small (1-3 tasks) or tightly coupled work.
+Consider parallel deliverables at every task size. Use one stream where work is genuinely coupled; never wait for a five-task threshold. Plan a readiness graph rather than mandatory foundation/parallel/integration waves.
 
-### Stream Phases
+Use the installed `tc cycle` schema: `schemaVersion`, cycle `id`, parent `task`, `runtime`, `root`, `capacity`, `resourceLimits` and `streams`. Each stream declares `id`, `task`, `role`, `kind`, `paths`, `readOnly`, `dependsOn`, `resource` and optional `worktree`/`branch`. A dependency names `stream`, readiness `event` and concrete `reason`. A consumer may depend on an agreed `contract`; integration consumes built outputs; acceptance requires current independent evidence.
 
-- **Foundation:** shared dependencies/setup; no dependencies
-- **Parallel:** independent; depend only on Foundation
-- **Integration:** combine/depend on Parallel streams
-
-### Stream Metadata
-
-- `streamId`: string, unique (e.g., "Stream-A")
-- `streamName`: string, descriptive name
-- `streamPhase`: enum "foundation" / "parallel" / "integration"
-- `files`: string[], touched files
-- `streamDependencies`: string[], prerequisite stream IDs
+Assign exclusive writes and one integration/synthesis owner. Include forbidden paths, focused verification, seam coverage, project isolation/teardown and resource disposition. The coordinator uses native runtime dispatch and claims ready scopes; creating metadata does not start agents.
 
 ## Output Contract
 
@@ -181,7 +175,7 @@ Return ONLY (~100 tokens):
 ```
 Task: TASK-xxx | WP: WP-xxx
 Summary: [2-3 sentences describing architecture]
-Streams: Stream-A (foundation), Stream-B (parallel), Stream-Z (integration)
+Streams: bounded outputs with typed dependency events; integration and QA are owned scopes
 Next: @agent-me for implementation → @agent-qa for testing
 Unknowns: [what the brief did not decide — or `none`, owned]
 ```

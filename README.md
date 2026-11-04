@@ -40,7 +40,7 @@ It's not separate software. It's markdown files (agents, commands, skills, proje
 | **Auto-Firing Skills** | Skills surface automatically from trigger-rich descriptions; code-bearing skills run executable scripts |
 | **Design Quality** | `cc design`: guides, templates, context, review, audit and reports for UI work |
 | **Task Management** | [PRD](docs/70-reference/05-glossary.md#prd)s, tasks, streams and work products ([WP](docs/70-reference/05-glossary.md#wp-work-product)) via `tc` with minimal context usage |
-| **Parallel Orchestration** | `/orchestrate` scaffolds streams, checks conflicts, creates worktrees and merges them back; the harness dispatches the agents _(unproven at large scale: no proven >5-stream run)_ |
+| **Parallel Execution** | `/protocol` dispatches useful ready work within actual runtime/resource limits, converges through one owner, verifies the integrated result and accounts for temporary resources. `/orchestrate` is deprecated. |
 | **Work Lifecycle** | Start, resume, pause, handoff and finish checkpoints; a PreCompact hook writes a handoff before context is summarized; `/cleanup` consolidates history and retires approved clutter; `/reflect` turns corrections into rules |
 | **Live Docs** | `cc docs get <pkg>`: version-exact package documentation, local-first and offline-safe |
 | **Usage Observability** | `cc usage`: idle-gated Claude quota probe; producers and consumers are split so consumers never corrupt the quota window |
@@ -177,16 +177,11 @@ Experience-first is the default flow: `sd → uxd → uids → uid → ta → me
 | `--no-checkpoints` | Run the chain without pausing |
 | `--verbose` / `--minimal` | Longer or shorter checkpoint summaries |
 
-### Pattern 3: Parallel Streams
+### Pattern 3: Parallel Work Is Built In
 
-For large work, split it into streams that run in isolated worktrees:
+Use `/protocol` and approve the scoped outcome. The coordinator plans independent outputs, dispatches ready native agents, integrates or synthesizes contributions, assigns independent verification and prepares resource retirement. It refills available capacity rather than waiting for whole phases. No separate `/orchestrate` command is needed; legacy invocations redirect to this workflow.
 
-```bash
-/orchestrate generate   # @agent-ta creates the PRD and stream tasks
-/orchestrate start      # validate streams, check conflicts, create worktrees, print dispatch commands
-/orchestrate status     # stream progress and live sessions
-/orchestrate merge      # merge completed worktrees back
-```
+The shared `tc cycle` ledger validates ownership, dependencies, claims and receipts. `tc cycle smoke --roles sd,uxd,uids,uid,ta,me,qa,sec,doc,do,ind --json` checks local process lifecycle without model calls. This smoke does not prove native model behavior or a speed improvement; a minimal native run provides that separate evidence.
 
 ### Pattern 4: Define a New Product
 
@@ -263,7 +258,7 @@ Creates a Git-managed knowledge repository for company information, shareable vi
 | `/protocol [task]` | Start work (done block, then routes to the right agents) |
 | `/continue [stream]` | Resume from memory or a specific stream |
 | `/pause [reason]` | Save a checkpoint for a context switch |
-| `/orchestrate generate\|start\|status\|merge` | Parallel streams in worktrees |
+| `/orchestrate` | Deprecated redirect to protocol-native parallel execution |
 | `/cleanup [scope]` | Consolidate history and retire approved clutter |
 | `/reflect` | Review the session for mistakes and turn corrections into rules |
 | `/memory` | Show memory state |

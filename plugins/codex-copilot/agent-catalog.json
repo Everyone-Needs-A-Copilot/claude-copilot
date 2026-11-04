@@ -1,7 +1,7 @@
 {
   "schemaVersion": "1.0.0",
-  "version": "0.15.0",
-  "updatedAt": "2026-10-29T00:00:00Z",
+  "version": "0.16.0",
+  "updatedAt": "2026-11-04T00:00:00Z",
   "$schema": "./agent-catalog.schema.json",
   "_comment": "Codex-native source of truth for active specialists, optional pack specialists, design chain, and routing workflows. Plugin lifecycle hooks live under hooks/; this catalog drives skills, docs, tests, and explicit tc/script gates.",
   "entrypoints": {
@@ -252,5 +252,17 @@
       "me",
       "qa"
     ]
+  },
+  "execution": {
+    "default": "parallel-ready",
+    "backend": "tc cycle",
+    "policySkill": "parallel-execution",
+    "deprecatedEntrypoints": {
+      "orchestrate": "protocol"
+    },
+    "capacity": "native-and-resource-limits",
+    "writeOwnership": "exclusive",
+    "convergence": "single-owner",
+    "cleanup": "verified-merged-worktrees"
   }
 }

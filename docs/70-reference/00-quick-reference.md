@@ -87,8 +87,8 @@ cp ~/.claude/copilot/.claude/commands/continue.md ~/your-project/.claude/command
 |--------------|----------|--------------|
 | Start fresh work | Protocol | `/protocol` |
 | Resume previous work | Continue | `/continue` |
-| Run parallel work streams | Orchestrate | `/orchestrate start` |
-| Monitor orchestration | Orchestrate | `/orchestrate status` |
+| Run parallel work streams | Protocol | `/protocol` (parallel execution is built in) |
+| Monitor parallel work | Task state | `tc cycle status CYCLE --json` |
 | Get architecture help | Tech Architect agent | `/protocol` → routes to `ta` |
 | Implement code | Engineer agent | `/protocol` → routes to `me` |
 | Security review | Security agent | `/protocol` → routes to `sec` |
@@ -293,7 +293,7 @@ Agents store detailed work products here instead of returning them to the main s
 | `/skills-approve` | User | Browse, search, and manage reusable skills via `cc` CLI |
 | `/protocol` | Project | Start fresh work with Agent-First Protocol |
 | `/continue` | Project | Resume previous work via Memory Copilot |
-| `/orchestrate` | Project | Set up and manage parallel stream orchestration |
+| `/orchestrate` | Project | Deprecated redirect to protocol-native execution |
 
 ---
 

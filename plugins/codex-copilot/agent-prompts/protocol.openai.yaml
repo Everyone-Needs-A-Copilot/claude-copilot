@@ -1,7 +1,7 @@
 interface:
   display_name: "Protocol"
   short_description: "Primary Codex Copilot work entrypoint"
-  default_prompt: "Use $protocol to classify this request and route it through the correct codex-copilot specialist workflow."
+  default_prompt: "Use $protocol to classify this request and route it through the correct specialists, then dispatch useful independent approved work through the native ready queue and converge verified results and resource disposition."
 
 policy:
   allow_implicit_invocation: false
