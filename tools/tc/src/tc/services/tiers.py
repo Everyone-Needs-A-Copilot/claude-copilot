@@ -373,6 +373,21 @@ def record_approval(*, task: dict, conn, wp_id: Optional[int]) -> None:
         return  # best effort: without a manifest the next change needs one normal round
 
 
+def _document_changes(root: Path, paths: list[str]) -> list[dict]:
+    """Explicit artifact scope for research/document work outside Git."""
+    if not paths:
+        raise ValidationError("Non-Git document verification needs an explicit document scope")
+    changes = []
+    for rel in paths:
+        path = (root / rel).resolve()
+        if root.resolve() not in path.parents or path.suffix.lower() not in {".md", ".rst", ".txt", ".html"}:
+            raise ValidationError("Non-Git document scope must contain in-project document files")
+        if not path.is_file():
+            raise ValidationError("Non-Git document source is missing: " + rel)
+        changes.append({"path": rel, "old": None, "new": _read(root, rel), "sha": _sha(root, rel)})
+    return changes
+
+
 def current_changes(task: dict, conn, base: Optional[str] = None) -> tuple[dict, list[dict]]:
     """(basis, changes). Basis is the last approval when one exists, else git against base."""
     from tc.services.qa import task_metadata
@@ -384,6 +399,11 @@ def current_changes(task: dict, conn, base: Optional[str] = None) -> tuple[dict,
         return ({"kind": "approval", "id": approval["id"]}, delta_changes(root, json.loads(approval["files"]), contract["sources"]))
     entry = recorded_tier(metadata) or {}
     ref = base or entry.get("baseRev")
+    if _git(root, "rev-parse", "--is-inside-work-tree").returncode != 0:
+        if ref:
+            raise ValidationError("A Git base cannot be used for a non-Git document scope")
+        paths = metadata.get("documentSources") or []
+        return ({"kind": "document", "paths": paths}, _document_changes(root, paths))
     return ({"kind": "git", "base": ref}, git_changes(root, ref))
 
 
@@ -511,6 +531,12 @@ def attest(*, task_id: int, tier: str, inputs: dict, base: Optional[str] = None,
         if entry is None:
             raise ValidationError("Task has no recorded tier (untiered work is T3); record one first: tc task tier <id> T1|T2 --reason ...")
         root = _task_root(task, conn)
+        if tier == "T1" and _git(root, "rev-parse", "--is-inside-work-tree").returncode != 0:
+            path = inputs.get("in")
+            _document_changes(root, [path] if isinstance(path, str) else [])
+            metadata["documentSources"] = [path]
+            conn.execute("UPDATE tasks SET metadata=? WHERE id=?", (json.dumps(metadata), task_id))
+            task["metadata"] = json.dumps(metadata)
         basis, changes = current_changes(task, conn, base)
         verdict = classify(changes, _map_tiers(conn))
         required = highest(verdict["minimum"], entry["tier"])
@@ -599,6 +625,8 @@ def attestation_status(task: dict, conn) -> dict | None:
 
 def _replay(task: dict, conn, basis: dict) -> tuple[dict, list[dict]]:
     root = _task_root(task, conn)
+    if basis["kind"] == "document":
+        return basis, _document_changes(root, basis["paths"])
     if basis["kind"] == "approval":
         from tc.services.qa import task_metadata
         row = conn.execute("SELECT files FROM qa_approvals WHERE id=? AND task_id=?", (basis["id"], task["id"])).fetchone()

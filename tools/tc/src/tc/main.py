@@ -9,6 +9,7 @@ import typer
 from tc import __version__
 from tc.commands.prd import prd_app
 from tc.commands.stream import stream_app
+from tc.commands.cycle import cycle_app
 from tc.commands.task import task_app
 from tc.commands.wp import wp_app
 from tc.commands.db_cmd import db_app
@@ -20,13 +21,14 @@ from tc.commands.tests_cmd import tests_app
 
 app = typer.Typer(
     name="tc",
-    help="Agent-agnostic task management CLI for AI development workflows.",
+    help="Agent-agnostic task management CLI for AI development workflows. Protocol coordination guide: tools/tc/docs/CYCLE.md.",
     no_args_is_help=True,
 )
 
 # Register command groups
 app.add_typer(prd_app, name="prd")
 app.add_typer(stream_app, name="stream")
+app.add_typer(cycle_app, name="cycle")
 app.add_typer(task_app, name="task")
 app.add_typer(wp_app, name="wp")
 app.add_typer(db_app, name="db")
@@ -272,6 +274,7 @@ def worker_cmd(
         "--agent",
         help="Agent role to invoke (default: me).",
     ),
+    cwd: Optional[Path] = typer.Option(None, "--cwd", help="Explicit worker execution root; must match registered task root."),
     dry_run: bool = typer.Option(
         False,
         "--dry-run",
@@ -329,7 +332,7 @@ def worker_cmd(
     from tc.db.exceptions import TcError
     from tc.utils.errors import error_exit, EXIT_VALIDATION
     try:
-        outcome = dispatch(task_id, cmd=cmd, agent=agent, db_path=db_path, criterion=criterion)
+        outcome = dispatch(task_id, cmd=cmd, agent=agent, db_path=db_path, criterion=criterion, cwd=cwd)
     except (TcError, ValueError, OSError) as exc:
         error_exit(str(exc), EXIT_VALIDATION)
 

@@ -2,6 +2,8 @@
 
 Agent-agnostic task management CLI for AI development workflows. Stores PRDs, tasks, dependencies, and work products in a local SQLite database (`.copilot/tasks.db`).
 
+[Protocol cycle guide](docs/CYCLE.md) · [cycle command reference](docs/CYCLE-commands.md). These cover the new protocol-owned group; existing task/PRD commands remain documented below.
+
 ---
 
 ## Install

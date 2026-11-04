@@ -165,3 +165,12 @@ __all__ = [
 
 # Persistent execution controls, shared by CLI and runners.
 from tc.services.execution import (register_limits, begin_attempt, consume_call, settle_attempt, diagnosis_checkpoint, execution_status, succeed_limits, amend_contract)
+
+# Protocol-native coordination; the same operations back both native harnesses.
+from tc.services.cycles import (
+    validate_plan, create_cycle, cycle_status, claim_stream, record_event,
+    prepare_worktree, verify_dispatch, cleanup_plan, cleanup_cycle, finish_cycle, smoke_roles, inspect_adapter,
+)
+from tc.services.prds import body_status
+__all__ += ["validate_plan", "create_cycle", "cycle_status", "claim_stream", "record_event",
+            "prepare_worktree", "verify_dispatch", "cleanup_plan", "cleanup_cycle", "finish_cycle", "smoke_roles", "inspect_adapter", "body_status"]
