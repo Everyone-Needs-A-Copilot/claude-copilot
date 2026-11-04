@@ -263,16 +263,28 @@ LOCK_FILE="${STATE_DIR}/budget-${SESSION_ID}.lock"
 # as the transcript they came from is the one being continued.
 
 # CI traces showed concurrent callers passing the old mkdir-based gate.
-# Bash noclobber creates a new file without replacing
-# an existing file, symlink or legacy directory lock; mixed callers must wait.
+# Existing paths are refused before noclobber, which alone may open devices
+# or FIFOs. Validate the resulting regular file and token before admission;
+# mixed callers wait on files, symlinks and legacy directory locks.
 BUDGET_LOCK_HELD=0
 BUDGET_LOCK_OWNER_PID=""
 BUDGET_LOCK_OWNER_SUBSHELL=""
 BUDGET_LOCK_TOKEN=""
+_budget_lock_matches() {
+  [[ -f "$LOCK_FILE" && ! -L "$LOCK_FILE" ]] || return 1
+  local recorded
+  recorded="$(<"$LOCK_FILE")" || return 1
+  [[ "$recorded" == "$1" && -f "$LOCK_FILE" && ! -L "$LOCK_FILE" ]]
+}
+_budget_try_create_lock() {
+  [[ ! -e "$LOCK_FILE" && ! -L "$LOCK_FILE" ]] || return 1
+  (set -o noclobber; printf '%s\n' "$1" > "$LOCK_FILE") 2>/dev/null || return 1
+  _budget_lock_matches "$1"
+}
 acquire_lock() {
   local i=0 owner_pid="${BASHPID:-$$}" owner_subshell="${BASH_SUBSHELL:-0}"
   local token="${owner_pid}:${owner_subshell}:${RANDOM}:${RANDOM}:${RANDOM}"
-  while ! (set -o noclobber; printf '%s\n' "$token" > "$LOCK_FILE") 2>/dev/null; do
+  while ! _budget_try_create_lock "$token"; do
     sleep 0.02
     i=$((i + 1))
     if [[ $i -ge 10 ]]; then
@@ -295,11 +307,7 @@ release_lock() {
      "${BASHPID:-$$}" == "$BUDGET_LOCK_OWNER_PID" &&
      "${BASH_SUBSHELL:-0}" == "$BUDGET_LOCK_OWNER_SUBSHELL" ]] || return 0
   BUDGET_LOCK_HELD=0
-  [[ -f "$LOCK_FILE" && ! -L "$LOCK_FILE" ]] || return 0
-  local recorded
-  recorded="$(<"$LOCK_FILE")" || return 0
-  [[ "$recorded" == "$BUDGET_LOCK_TOKEN" &&
-     -f "$LOCK_FILE" && ! -L "$LOCK_FILE" ]] || return 0
+  _budget_lock_matches "$BUDGET_LOCK_TOKEN" || return 0
   rm -f "$LOCK_FILE" 2>/dev/null || true
 }
 
