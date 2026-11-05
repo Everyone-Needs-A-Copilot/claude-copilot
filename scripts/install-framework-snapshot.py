@@ -881,6 +881,56 @@ def _stale_skill_files(skills_root: Path, skill: SkillArtifact) -> list[Path]:
     return sorted(stale)
 
 
+_GUARD_RELATIVE = Path(".claude") / "hooks" / "coordinator-guard.sh"
+_GUARD_MATCHER = "Bash|Read|Grep|Glob|Edit|Write|NotebookEdit|MultiEdit"
+_GUARD_COMMAND = '"$HOME/.claude/hooks/coordinator-guard.sh"'
+
+
+def _load_coordinator_guard(snapshot: Path) -> bytes | None:
+    """The user-level Coordinator guard, if this snapshot ships one."""
+    path = snapshot / _GUARD_RELATIVE
+    if not path.exists() and not path.is_symlink():
+        return None
+    return _read_regular(path, readonly=True)
+
+
+def _settings_with_guard(existing: bytes | None) -> bytes:
+    """settings.json with the guard's PreToolUse entry added once; all else preserved."""
+    if existing is None or not existing.strip():
+        settings: dict = {}
+    else:
+        try:
+            settings = json.loads(existing.decode("utf-8"))
+        except (UnicodeError, json.JSONDecodeError) as exc:
+            raise FrameworkInstallError(
+                "~/.claude/settings.json is not valid JSON; refusing to register the guard"
+            ) from exc
+        if not isinstance(settings, dict):
+            raise FrameworkInstallError("~/.claude/settings.json must be a JSON object")
+    hooks = settings.setdefault("hooks", {})
+    pre = hooks.setdefault("PreToolUse", [])
+    if not isinstance(hooks, dict) or not isinstance(pre, list):
+        raise FrameworkInstallError("~/.claude/settings.json hooks.PreToolUse is malformed")
+    registered = any(
+        isinstance(group, dict)
+        and any(
+            isinstance(hook, dict) and "coordinator-guard.sh" in str(hook.get("command", ""))
+            for hook in (group.get("hooks") or [])
+        )
+        for group in pre
+    )
+    if registered and existing is not None:
+        return existing
+    if not registered:
+        pre.append(
+            {
+                "matcher": _GUARD_MATCHER,
+                "hooks": [{"type": "command", "command": _GUARD_COMMAND, "timeout": 5}],
+            }
+        )
+    return (json.dumps(settings, indent=2) + "\n").encode("utf-8")
+
+
 def _prune_empty_directories(skills_root: Path, skill: SkillArtifact) -> None:
     root = skills_root / skill.name
     if not root.is_dir():
@@ -902,6 +952,7 @@ def _publish_runtime(
     manifest_payload: bytes,
     fail_after_publish: int | None = None,
     tc_target: tuple[Path, bytes, int, str] | None = None,
+    guard_targets: Sequence[tuple[Path, bytes, int, str]] = (),
 ) -> int:
     targets: list[tuple[Path, bytes | None, int, str]] = [
         (commands_root / item.name, item.payload, 0o644, item.checksum)
@@ -925,6 +976,7 @@ def _publish_runtime(
                 if parent not in created_directories:
                     created_directories.append(parent)
                 parent = parent.parent
+    targets.extend(guard_targets)
     shim_payload = _read_regular(staged_shim)
     targets.append((shim, shim_payload, 0o755, _sha256(shim_payload)))
     targets.append(
@@ -1060,6 +1112,26 @@ def install_framework_snapshot(
                     )
                 except CodexPluginError as exc:
                     raise FrameworkInstallError(str(exc)) from exc
+            guard_payload = _load_coordinator_guard(snapshot)
+            guard_targets: list[tuple[Path, bytes, int, str]] = []
+            if guard_payload is not None:
+                settings_path = home_root / ".claude" / "settings.json"
+                current = _capture_regular_file(settings_path)
+                settings_payload = _settings_with_guard(
+                    current.payload if current.exists else None
+                )
+                settings_mode = (
+                    current.mode & 0o777 if current.exists and current.mode else 0o600
+                )
+                guard_targets = [
+                    (
+                        home_root / ".claude" / "hooks" / "coordinator-guard.sh",
+                        guard_payload,
+                        0o755,
+                        _sha256(guard_payload),
+                    ),
+                    (settings_path, settings_payload, settings_mode, _sha256(settings_payload)),
+                ]
             manifest = {
                 "schema_version": "1.0",
                 "source_commit": commit,
@@ -1073,6 +1145,11 @@ def install_framework_snapshot(
                 "machine_commands": [
                     {"name": item.name, "sha256": item.checksum} for item in commands
                 ],
+                **(
+                    {"coordinator_guard": {"sha256": _sha256(guard_payload)}}
+                    if guard_payload is not None
+                    else {}
+                ),
                 "machine_skills": [
                     {
                         "name": skill.name,
@@ -1114,6 +1191,7 @@ def install_framework_snapshot(
                     manifest_payload=manifest_payload,
                     fail_after_publish=_fail_after_publish,
                     tc_target=(shim_root / "tc", tc_payload, 0o755, _sha256(tc_payload)),
+                    guard_targets=guard_targets,
                 )
             except BaseException as publish_error:
                 try:

@@ -14,6 +14,13 @@ HOOK="$PROJECT_ROOT/.claude/hooks/pretool-check.sh"
 STATE_DIR="$PROJECT_ROOT/.claude/hooks/state"
 TEST_SESSION="test-session-$$"
 
+# Hermetic: never defer to a user-level coordinator-guard.sh on the developer machine.
+# rule_force_delegate looks for it under CLAUDE_CONFIG_DIR, so point that at an empty dir.
+ISOLATED_CONFIG_DIR="$(mktemp -d)"
+trap 'rm -rf "$ISOLATED_CONFIG_DIR"' EXIT
+export CLAUDE_CONFIG_DIR="$ISOLATED_CONFIG_DIR"
+unset COPILOT_COORDINATOR
+
 PASS=0
 FAIL=0
 
@@ -549,7 +556,7 @@ test_concurrent_safety() {
   fi
 
   # Sessions must be independent
-  if [[ "$bytes_a" -ge 0 && "$bytes_b" -ge 0 ]]; then
+  if [[ "$bytes_a" =~ ^[0-9]+$ && "$bytes_b" =~ ^[0-9]+$ ]]; then
     ok "concurrent sessions A and B have independent state"
   else
     fail "concurrent sessions A and B state contaminated"
