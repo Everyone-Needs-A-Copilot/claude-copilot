@@ -84,6 +84,27 @@ def main():
     return 0 if bash_ok(cmd) else block("Bash: %s" % cmd[:80])
 
 GIT_READ = {"status", "log", "rev-parse"}
+# Options that can write files, run programs, redirect the repo, or dump project content.
+# Long options match by unique-prefix in git, so any prefix of these is rejected too.
+GIT_DANGER_LONG = ("output", "ext-diff", "textconv", "exec-path", "git-dir", "work-tree", "patch",
+                   "open-files-in-pager", "show-signature", "no-index", "diff-merges", "cc",
+                   "config-env", "super-prefix", "namespace", "paginate", "pager", "exec")
+GIT_DANGER_SHORT = set("pucCO")
+WORKTREE_OK = {"--porcelain", "-v", "--verbose", "-z"}
+
+def git_args_safe(args):
+    for x in args:
+        if x == "--":
+            return True  # the rest are pathspecs
+        if x.startswith("--"):
+            name = x[2:].split("=", 1)[0]
+            if not name or any(d.startswith(name) or name.startswith(d) for d in GIT_DANGER_LONG):
+                return False
+        elif x.startswith("-") and len(x) > 1:
+            if GIT_DANGER_SHORT & set(x[1:]):
+                return False
+    return True
+
 CC_OK = {"status", "list", "progress", "skill"}
 
 def segment_ok(argv):
@@ -104,11 +125,11 @@ def segment_ok(argv):
             return False
         sub, args = rest[0], rest[1:]
         if sub in GIT_READ:
-            return True
+            return git_args_safe(args)
         if sub == "branch":
             return all(x in ("--list", "-l", "-a", "-r", "-v", "-vv", "--show-current", "--all", "--remotes") for x in args)
         if sub == "worktree":
-            return args[:1] == ["list"]
+            return args[:1] == ["list"] and all(x in WORKTREE_OK for x in args[1:])
     return False
 
 def bash_ok(cmd):

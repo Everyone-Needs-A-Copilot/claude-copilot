@@ -253,6 +253,7 @@ def _source_repository(
     omit_source: str | None = None,
     skills: dict[str, dict[str, str]] | None = None,
     skills_roster: tuple[str, ...] | None = None,
+    guard: str | None = None,
 ) -> tuple[Path, str, str]:
     """`skills` maps a skill folder name to its {relative path: content} files."""
 
@@ -270,6 +271,8 @@ def _source_repository(
             for relative, content in skill_files.items():
                 _write(repo / ".claude" / "skills" / skill_name / relative, content)
     _write(repo / "VERSION.json", json.dumps({"components": components}) + "\n")
+    if guard is not None:
+        _write(repo / ".claude" / "hooks" / "coordinator-guard.sh", guard, mode=0o755)
     for name in MACHINE_COMMANDS:
         if name != omit_source:
             _write(repo / ".claude" / "commands" / name, f"# committed {name}\n")
@@ -1053,3 +1056,88 @@ def test_repository_without_machine_skills_roster_installs_no_skills(tmp_path: P
 
     assert report["machine_skills"] == []
     assert list((home / ".claude" / "skills").iterdir()) == []
+
+
+GUARD_SCRIPT = "#!/usr/bin/env bash\nexit 0\n"
+
+
+def _guard_entries(settings: dict) -> list[dict]:
+    return [
+        hook
+        for group in settings["hooks"]["PreToolUse"]
+        for hook in group["hooks"]
+        if "coordinator-guard.sh" in hook["command"]
+    ]
+
+
+def test_coordinator_guard_installs_and_registers_on_fresh_machine(tmp_path: Path):
+    repo, commit, tree = _source_repository(tmp_path, guard=GUARD_SCRIPT)
+    home = tmp_path / "home"
+    _install(repo, commit, tree, home)
+    guard = home / ".claude" / "hooks" / "coordinator-guard.sh"
+    assert guard.read_text() == GUARD_SCRIPT
+    assert guard.stat().st_mode & 0o111
+    settings = json.loads((home / ".claude" / "settings.json").read_text())
+    assert len(_guard_entries(settings)) == 1
+    group = settings["hooks"]["PreToolUse"][0]
+    assert group["matcher"] == "Bash|Read|Grep|Glob|Edit|Write|NotebookEdit|MultiEdit"
+    assert _install(repo, commit, tree, home)["result"] == "up-to-date"
+
+
+def test_coordinator_guard_registration_preserves_other_settings_and_is_idempotent(tmp_path: Path):
+    repo, commit, tree = _source_repository(tmp_path, guard=GUARD_SCRIPT)
+    home = tmp_path / "home"
+    other = {"type": "command", "command": "other-hook.sh"}
+    original = {
+        "permissions": {"defaultMode": "auto"},
+        "hooks": {
+            "Stop": [{"hooks": [other]}],
+            "PreToolUse": [{"matcher": "Bash", "hooks": [other]}],
+        },
+    }
+    _write(home / ".claude" / "settings.json", json.dumps(original))
+    _install(repo, commit, tree, home)
+    settings = json.loads((home / ".claude" / "settings.json").read_text())
+    assert settings["permissions"] == original["permissions"]
+    assert settings["hooks"]["Stop"] == original["hooks"]["Stop"]
+    assert settings["hooks"]["PreToolUse"][0] == original["hooks"]["PreToolUse"][0]
+    assert len(_guard_entries(settings)) == 1
+    before = (home / ".claude" / "settings.json").read_bytes()
+    assert _install(repo, commit, tree, home)["result"] == "up-to-date"
+    assert (home / ".claude" / "settings.json").read_bytes() == before
+
+
+def test_coordinator_guard_keeps_an_existing_registration_byte_for_byte(tmp_path: Path):
+    repo, commit, tree = _source_repository(tmp_path, guard=GUARD_SCRIPT)
+    home = tmp_path / "home"
+    raw = '{"hooks":{"PreToolUse":[{"hooks":[{"type":"command","command":"/x/coordinator-guard.sh"}]}]}}'
+    _write(home / ".claude" / "settings.json", raw)
+    _install(repo, commit, tree, home)
+    assert (home / ".claude" / "settings.json").read_text() == raw
+
+
+def test_coordinator_guard_refuses_invalid_settings_without_mutation(tmp_path: Path):
+    repo, commit, tree = _source_repository(tmp_path, guard=GUARD_SCRIPT)
+    home = tmp_path / "home"
+    _write(home / ".claude" / "settings.json", "{not json")
+    with pytest.raises(installer.FrameworkInstallError, match="not valid JSON"):
+        _install(repo, commit, tree, home)
+    assert (home / ".claude" / "settings.json").read_text() == "{not json"
+    assert not (home / ".claude" / "hooks" / "coordinator-guard.sh").exists()
+
+
+def test_coordinator_guard_publish_failure_rolls_back(tmp_path: Path):
+    repo, commit, tree = _source_repository(tmp_path, guard=GUARD_SCRIPT)
+    home = tmp_path / "home"
+    _write(home / ".claude" / "settings.json", '{"a": 1}')
+    with pytest.raises(installer.FrameworkInstallError, match="injected publish failure"):
+        _install(repo, commit, tree, home, _fail_after_publish=len(MACHINE_COMMANDS) + 2)
+    assert (home / ".claude" / "settings.json").read_text() == '{"a": 1}'
+    assert not (home / ".claude" / "hooks" / "coordinator-guard.sh").exists()
+
+
+def test_repository_without_guard_leaves_settings_untouched(tmp_path: Path):
+    repo, commit, tree = _source_repository(tmp_path)
+    home = tmp_path / "home"
+    _install(repo, commit, tree, home)
+    assert not (home / ".claude" / "settings.json").exists()

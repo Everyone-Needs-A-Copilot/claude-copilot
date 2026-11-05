@@ -74,3 +74,27 @@ def test_off_switch_logged(run):
     r = run('Edit', {'file_path': '/x'}, COPILOT_COORDINATOR='off')
     assert r.returncode == 0
     assert 'COPILOT_COORDINATOR=off' in run.log.read_text()
+
+
+def test_git_read_forms_cannot_write_or_execute(run):
+    for bad in ['git log --output=f', 'git log --out=f', 'git log --output f', 'git log --ext-diff', 'git log --textconv',
+                'git log -p', 'git log --patch', 'git log -u', 'git log -pn1', 'git status --git-dir=/x',
+                'git log --work-tree=/x', 'git rev-parse --exec-path', 'git log -c', 'git log --cc', 'git log -O/bin/sh',
+                'git -c core.pager=sh log', 'git -c alias.x=y status', 'git rev-parse --git-dir',
+                'git log --show-signature', 'git log --open-files-in-pager=sh', 'git log --pager=sh']:
+        assert bash(run, bad) == 2, bad
+    for ok in ['git log --oneline -5', 'git log --stat -n 3', 'git status --short -b', 'git rev-parse --show-toplevel',
+               'git log --format=%h -- src', 'git rev-parse --abbrev-ref HEAD']:
+        assert bash(run, ok) == 0, ok
+
+
+def test_git_branch_and_worktree_listing_only(run):
+    for ok in ['git branch', 'git branch -a', 'git branch -r', 'git branch -v', 'git branch --list', 'git branch --show-current',
+               'git worktree list', 'git worktree list --porcelain']:
+        assert bash(run, ok) == 0, ok
+    for bad in ['git branch -d x', 'git branch -D x', 'git branch -m x', 'git branch -M x', 'git branch -c x y',
+                'git branch -C x y', 'git branch --set-upstream-to=o/x', 'git branch -u o/x', 'git branch newbranch',
+                'git branch --delete x', 'git branch -f x', 'git branch --edit-description', 'git branch -a -D x',
+                'git worktree add x', 'git worktree remove x', 'git worktree prune', 'git worktree list --expire=now',
+                'git worktree', 'git worktree lock x']:
+        assert bash(run, bad) == 2, bad
