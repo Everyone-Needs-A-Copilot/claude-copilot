@@ -2783,7 +2783,28 @@ def _verified_update_boundary(
         raise ComponentSourceConflict(
             "The current project-local Codex plugin could not be inspected safely."
         ) from exc
-    if unsafe_plugin_entry or actual_plugin_paths != recorded_plugin_paths:
+    # An unrecorded plugin file the release now manages, holding the desired
+    # bytes or bytes the framework once committed, is a framework copy (adopted
+    # by the loop above), not foreign content.
+    adoptable: set[str] = set()
+    try:
+        for path in actual_plugin_paths - recorded_plugin_paths:
+            if path not in desired_files:
+                continue
+            current = _bytes_hash((root / path).read_bytes())
+            if current == desired_files[path] or is_prior_framework_version(
+                _source_root(component), path, current
+            ):
+                adoptable.add(path)
+    except OSError as exc:
+        raise ComponentSourceConflict(
+            "The current project-local Codex plugin could not be inspected safely."
+        ) from exc
+    if (
+        unsafe_plugin_entry
+        or recorded_plugin_paths - actual_plugin_paths
+        or actual_plugin_paths - recorded_plugin_paths - adoptable
+    ):
         raise ComponentSourceConflict(
             "The current project-local Codex plugin contains content outside its verified lock boundary."
         )

@@ -67,8 +67,13 @@ _HISTORY_MARKER = ".framework-history.json"
 _HISTORY_PATHSPECS = (
     ".claude/agents",
     ".claude/commands",
+    ".claude/skills",
+    ".claude/evals",
     ".claude/fitness-check.sh",
     ".claude/hooks/copilot-hook.sh",
+    "plugins/codex-copilot",
+    "scripts/copilot-gate.sh",
+    ".agents/plugins/marketplace.json",
 )
 
 
@@ -931,6 +936,45 @@ def _settings_with_guard(existing: bytes | None) -> bytes:
     return (json.dumps(settings, indent=2) + "\n").encode("utf-8")
 
 
+_SNAPSHOT_ROOT_KEYS = ("claude_copilot_root", "codex_copilot_root")
+
+
+def _config_with_snapshot_roots(
+    existing: bytes, snapshots_root: Path, snapshot: Path
+) -> bytes:
+    """Machine config with snapshot-pinned `paths.*_copilot_root` moved to `snapshot`.
+
+    `cc reconcile` reads these keys as the framework source, so a pointer left
+    at an older snapshot makes every project reconcile to that older release.
+    Only a value that already names a snapshot is repointed; a path the owner
+    chose (a checkout, ~/.claude/copilot, a mirror) is never touched.
+    """
+    try:
+        config = json.loads(existing.decode("utf-8"))
+    except (UnicodeError, json.JSONDecodeError) as exc:
+        raise FrameworkInstallError(
+            "~/.claude/cc/config.json is not valid JSON; refusing to repoint the framework source"
+        ) from exc
+    paths = config.get("paths") if isinstance(config, dict) else None
+    if not isinstance(paths, dict):
+        return existing
+    prefixes = (str(snapshots_root) + "/", "~/.copilot/framework-snapshots/")
+    changed = False
+    for key in _SNAPSHOT_ROOT_KEYS:
+        value = paths.get(key)
+        if (
+            isinstance(value, str)
+            and value.startswith(prefixes)
+            and value != str(snapshot)
+        ):
+            paths[key] = str(snapshot)
+            changed = True
+    if not changed:
+        return existing
+    indent = 2 if existing.startswith(b"{\n") else None
+    return (json.dumps(config, indent=indent) + "\n").encode("utf-8")
+
+
 def _prune_empty_directories(skills_root: Path, skill: SkillArtifact) -> None:
     root = skills_root / skill.name
     if not root.is_dir():
@@ -1132,6 +1176,21 @@ def install_framework_snapshot(
                     ),
                     (settings_path, settings_payload, settings_mode, _sha256(settings_payload)),
                 ]
+            config_path = home_root / ".claude" / "cc" / "config.json"
+            config_current = _capture_regular_file(config_path)
+            if config_current.exists:
+                config_payload = _config_with_snapshot_roots(
+                    config_current.payload, snapshots_root, snapshot
+                )
+                if config_payload != config_current.payload:
+                    guard_targets.append(
+                        (
+                            config_path,
+                            config_payload,
+                            config_current.mode & 0o777 or 0o600,
+                            _sha256(config_payload),
+                        )
+                    )
             manifest = {
                 "schema_version": "1.0",
                 "source_commit": commit,

@@ -1141,3 +1141,44 @@ def test_repository_without_guard_leaves_settings_untouched(tmp_path: Path):
     home = tmp_path / "home"
     _install(repo, commit, tree, home)
     assert not (home / ".claude" / "settings.json").exists()
+
+
+def test_install_repoints_snapshot_pinned_config_roots_to_the_new_snapshot(tmp_path: Path):
+    repo, commit, tree = _source_repository(tmp_path)
+    home = (tmp_path / "home").resolve()
+    stale = home / ".copilot" / "framework-snapshots" / ("claude-copilot-" + "8" * 40)
+    config = home / ".claude" / "cc" / "config.json"
+    _write(
+        config,
+        json.dumps(
+            {
+                "paths": {
+                    "claude_copilot_root": str(stale),
+                    "codex_copilot_root": str(stale),
+                    "knowledge_repo": "/keep/me",
+                },
+                "memory": {"embedding_model": "none"},
+            }
+        ),
+    )
+    report = _install(repo, commit, tree, home)
+    data = json.loads(config.read_text())
+    assert data["paths"]["claude_copilot_root"] == report["snapshot"]
+    assert data["paths"]["codex_copilot_root"] == report["snapshot"]
+    assert data["paths"]["knowledge_repo"] == "/keep/me"
+    assert data["memory"] == {"embedding_model": "none"}
+    assert _install(repo, commit, tree, home)["result"] == "up-to-date"
+
+
+def test_install_leaves_owner_chosen_config_roots_alone(tmp_path: Path):
+    repo, commit, tree = _source_repository(tmp_path)
+    home = (tmp_path / "home").resolve()
+    config = home / ".claude" / "cc" / "config.json"
+    raw = json.dumps({"paths": {"claude_copilot_root": "/Users/x/checkout"}})
+    _write(config, raw)
+    _install(repo, commit, tree, home)
+    assert config.read_text() == raw
+    # No machine config at all is not created by the installer.
+    other = (tmp_path / "other").resolve()
+    _install(repo, commit, tree, other)
+    assert not (other / ".claude" / "cc" / "config.json").exists()

@@ -34,12 +34,19 @@ from typing import Mapping
 
 HISTORY_MARKER = ".framework-history.json"
 HISTORY_SCHEMA_VERSION = 1
-# The paths a project install copies from the framework.
+# Every framework-copied path family a project install records in its lock.
+# tests/test_adopt_prior_framework_copies.py asserts this covers
+# project_integration's managed paths; the installer script carries a copy.
 HISTORY_PATHSPECS: tuple[str, ...] = (
     ".claude/agents",
     ".claude/commands",
+    ".claude/skills",
+    ".claude/evals",
     ".claude/fitness-check.sh",
     ".claude/hooks/copilot-hook.sh",
+    "plugins/codex-copilot",
+    "scripts/copilot-gate.sh",
+    ".agents/plugins/marketplace.json",
 )
 _NULL_BLOB = "0" * 40
 

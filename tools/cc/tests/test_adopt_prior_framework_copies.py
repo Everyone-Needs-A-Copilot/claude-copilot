@@ -71,7 +71,17 @@ def _transaction(tmp_path: Path, project: Path, authority: Path):
     return plan, apply
 
 
-def _installed_project(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, on_disk: str):
+SKILL_PATH = ".claude/skills/cleanup/SKILL.md"
+PLUGIN_PATH = "plugins/codex-copilot/skills/added/SKILL.md"
+
+
+def _installed_project(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    on_disk: str,
+    path: str = NEW_PATH,
+    component: str = "claude",
+):
     claude, codex, _ = _reference_sources(tmp_path)
     _configure_sources(monkeypatch, claude, codex)
     authority = tmp_path / "projects"
@@ -79,19 +89,29 @@ def _installed_project(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, on_disk:
     plan, apply = _transaction(tmp_path, project, authority)
     assert apply(plan()["plan_id"])["result"] == "applied"
     # An earlier release left this file behind without the lock recording it.
-    (project / NEW_PATH).write_text(on_disk, encoding="utf-8")
+    (project / path).parent.mkdir(parents=True, exist_ok=True)
+    (project / path).write_text(on_disk, encoding="utf-8")
     subprocess.run(("git", "add", "-A"), cwd=project, check=True)
     subprocess.run(("git", "commit", "-qm", "installed"), cwd=project, check=True)
     lock = json.loads((project / "copilot.lock.json").read_text())
-    claude_entry = next(c for c in lock["components"] if c["component"] == "claude")
-    assert NEW_PATH not in {f["path"] for f in claude_entry["files"]}
+    entry = next(c for c in lock["components"] if c["component"] == component)
+    assert path not in {f["path"] for f in entry["files"]}
     # The new release starts managing the path; its history knows both versions.
-    (claude / NEW_PATH).write_text(NEW, encoding="utf-8")
+    source = claude if component == "claude" else codex
+    (source / path).parent.mkdir(parents=True, exist_ok=True)
+    (source / path).write_text(NEW, encoding="utf-8")
     version = json.loads((claude / "VERSION.json").read_text())
     version["framework"] = "5.13.4"
+    if path == SKILL_PATH:
+        # Declaring cleanup makes the release ship its thin skill and lifecycle.
+        version["components"]["commands"]["projectCommands"].append("cleanup.md")
+        (claude / ".claude/commands/cleanup.md").write_text("cleanup\n")
+        lifecycle = claude / ".claude/agents/_shared/work-lifecycle.md"
+        lifecycle.parent.mkdir(parents=True, exist_ok=True)
+        lifecycle.write_text("lifecycle\n")
     (claude / "VERSION.json").write_text(json.dumps(version))
-    (claude / HISTORY_MARKER).write_text(
-        json.dumps({"schema_version": 1, "paths": {NEW_PATH: [_sha(OLD), _sha(NEW)]}})
+    (source / HISTORY_MARKER).write_text(
+        json.dumps({"schema_version": 1, "paths": {path: [_sha(OLD), _sha(NEW)]}})
     )
     return project, plan, apply
 
@@ -139,3 +159,89 @@ def test_collect_history_reads_every_committed_version(tmp_path):
         subprocess.run((*git, "-C", str(repo), "commit", "-qm", text), check=True)
     history = collect_history(repo)
     assert history == {".claude/commands/reflect.md": sorted([_sha("one\n"), _sha("two\n")])}
+
+
+def test_stale_skill_copy_matching_history_is_adopted(tmp_path, monkeypatch):
+    project, plan, apply = _installed_project(
+        tmp_path, monkeypatch, OLD, path=SKILL_PATH
+    )
+    assert component_lock_update_required(project, "claude") is True
+    assert apply(plan()["plan_id"])["result"] == "applied"
+    assert (project / SKILL_PATH).read_text() == NEW
+
+
+def test_modified_skill_still_blocks(tmp_path, monkeypatch):
+    project, _plan, _apply = _installed_project(
+        tmp_path, monkeypatch, "the project rewrote this skill\n", path=SKILL_PATH
+    )
+    with pytest.raises(ComponentSourceConflict):
+        component_lock_update_required(project, "claude")
+    assert (project / SKILL_PATH).read_text() == "the project rewrote this skill\n"
+
+
+def test_stale_plugin_copy_matching_history_is_adopted(tmp_path, monkeypatch):
+    project, plan, apply = _installed_project(
+        tmp_path, monkeypatch, OLD, path=PLUGIN_PATH, component="codex"
+    )
+    assert component_lock_update_required(project, "codex") is True
+    assert apply(plan()["plan_id"])["result"] == "applied"
+    assert (project / PLUGIN_PATH).read_text() == NEW
+
+
+def test_history_pathspecs_cover_every_managed_path_family():
+    from cc.core.ecosystem import project_integration as pi
+    from cc.core.ecosystem.framework_history import HISTORY_PATHSPECS
+
+    def covered(path: str, specs) -> bool:
+        return any(path == s or path.startswith(s + "/") for s in specs)
+
+    generated = set(pi._MANAGED_OUTPUT_TARGET_KINDS["claude"]) | set(
+        pi._MANAGED_OUTPUT_TARGET_KINDS["codex"]
+    )
+    families = [
+        p
+        for p in (*pi._CLAUDE_RELEVANT_PATHS, *pi._CODEX_RELEVANT_PATHS)
+        if p not in generated
+    ]
+    assert families
+    missing = [p for p in families if not covered(p, HISTORY_PATHSPECS)]
+    assert not missing, missing
+    # Skills and the plugin payload are the families that once went missing.
+    assert covered(".claude/skills/cleanup/SKILL.md", HISTORY_PATHSPECS)
+    assert covered("plugins/codex-copilot/skills/me/SKILL.md", HISTORY_PATHSPECS)
+
+
+def test_installer_history_pathspecs_match_cc():
+    import importlib.util
+    import sys
+
+    from cc.core.ecosystem.framework_history import HISTORY_PATHSPECS
+
+    script = Path(__file__).resolve().parents[3] / "scripts/install-framework-snapshot.py"
+    spec = importlib.util.spec_from_file_location("installer_for_pathspecs", script)
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = module
+    spec.loader.exec_module(module)
+    assert tuple(module._HISTORY_PATHSPECS) == tuple(HISTORY_PATHSPECS)
+
+
+def test_modified_plugin_file_still_blocks(tmp_path, monkeypatch):
+    project, _plan, _apply = _installed_project(
+        tmp_path, monkeypatch, "project edit\n", path=PLUGIN_PATH, component="codex"
+    )
+    with pytest.raises(ComponentSourceConflict):
+        component_lock_update_required(project, "codex")
+
+
+def test_collect_history_covers_skills_and_plugin_payload(tmp_path):
+    repo = tmp_path / "framework"
+    git = ("git", "-c", "user.name=T", "-c", "user.email=t@test.invalid", "-c",
+           "commit.gpgsign=false")
+    subprocess.run(("git", "init", "-q", str(repo)), check=True)
+    paths = (".claude/skills/cleanup/SKILL.md", "plugins/codex-copilot/skills/me/SKILL.md")
+    for rel in paths:
+        (repo / rel).parent.mkdir(parents=True, exist_ok=True)
+        (repo / rel).write_text("old\n")
+    subprocess.run((*git, "-C", str(repo), "add", "-A"), check=True)
+    subprocess.run((*git, "-C", str(repo), "commit", "-qm", "x"), check=True)
+    assert set(collect_history(repo)) == set(paths)
