@@ -1,5 +1,7 @@
 # Worktree Isolation
 
+Current parallel execution uses the [protocol-native cycle contract](01-orchestration-workflow.md). Historical command examples below do not authorize resource deletion; apply the shared work lifecycle and current cycle receipts before cleanup.
+
 **Status:** Implemented
 **Version:** 1.0.0
 
@@ -7,7 +9,7 @@
 
 ## Overview
 
-Worktree isolation enables tasks to run in dedicated git worktrees, providing complete filesystem isolation for parallel work. This eliminates file conflicts when multiple agents or streams are working simultaneously.
+Worktree isolation gives repository writers separate working directories. Exclusive path ownership and actual cwd verification remain required; worktrees do not isolate ports, credentials, databases, browsers or caches. Parallel dispatch and retirement are managed within protocol.
 
 ## Key Features
 

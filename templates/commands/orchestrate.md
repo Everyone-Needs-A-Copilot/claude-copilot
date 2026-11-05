@@ -1,121 +1,44 @@
 ---
 name: orchestrate
-description: Set up parallel stream scaffolding for native Task agent execution
+description: Deprecated compatibility redirect; parallel execution is built into protocol
 alwaysAllow: true
 ---
 
-# Orchestrate Command
+# Orchestrate — deprecated
 
-Scaffolding layer for parallel streams. Claude Code's native `Task` tool handles actual agent execution.
+Parallel execution is part of `/protocol`; no separate orchestration workflow is required. Retain this entrypoint for old prompts and references, without creating another task board or a second approval gate.
 
-```
-/orchestrate generate  # Create PRD + stream tasks via @agent-ta
-/orchestrate start     # Validate streams, create worktrees, print launch instructions
-/orchestrate status    # Show stream progress
-/orchestrate merge     # Merge completed worktrees back to main branch
-```
+Follow `.claude/commands/protocol.md` with the existing scoped plan/cycle. Its conditional organization-policy discovery loads one canonical source when present; otherwise report the guarded `tc cycle` fallback. Legacy arguments select protocol actions below, never a separate scheduler.
+| Legacy request | Protocol action |
+|---|---|
+| no argument / `generate` | Frame the requested outcome and establish its scoped plan; reuse existing approval. |
+| `start` | Validate the cycle, claim useful ready scopes, and actually dispatch native agents within resource/runtime limits. |
+| `status` | Read `tc cycle status CYCLE --json` and summarize running, queued, blocked, integrated, accepted and held work. |
+| `merge` | Route completed contributions to the single integration owner, then current independent verification and resource disposition. |
 
----
+## `generate` (legacy planning compatibility)
 
-## `generate` (default if no subcommand)
+Map the requested outcome through protocol and @agent-ta's normal planning. Reuse the current PRD, scoped approval and task board; inspect existing streams/tasks before writing and reuse their IDs. Only create a PRD when none covers this outcome. Preserve the approved scope, dependencies and verification tiers; a legacy invocation never grants new spending or bypasses a real owner decision.
 
-Creates PRD and tasks with stream metadata. Prompt user for feature description if not provided.
-
-1. Invoke **@agent-ta** to design architecture and return structured JSON:
+The architecture output associates each task with `metadata.streamId` (a label), `streamName`, explicit owned `files` and input `dependencies`. For example:
 
 ```json
-{
-  "prd": { "title": "...", "description": "...", "content": "# PRD..." },
-  "tasks": [{
-    "title": "...", "description": "...",
-    "metadata": {
-      "streamId": "Stream-A", "streamName": "Foundation",
-      "files": ["src/auth.ts"], "dependencies": []
-    }
-  }]
-}
+{"title":"Build auth middleware","metadata":{"streamId":"Stream-A","streamName":"Foundation","files":["src/auth.ts"],"dependencies":[]}}
 ```
 
-2. Parse JSON, validate (no cycles, at least one task with `dependencies: []`)
-3. `tc prd create --title "..." --description "..." --json` then `tc task create --title "..." --prd <id> --json` for each task
-4. Display plan summary and ask user to approve
+Persist actual stream/task rows for the existing PRD:
 
----
+1. If needed, `tc prd create --title "..." --description "..." --json`; capture the PRD ID. Otherwise keep its existing numeric ID.
+2. For each distinct label without an existing stream, run `tc stream create --name "<streamName>" --prd <prd-id> --json`. Map the label to the returned **numeric** `id`; never pass `Stream-A` to a numeric option. Reuse matching existing stream IDs.
+3. Per new task: `tc task create --title "..." --prd <prd-id> --stream <numeric-id> --description "..." --metadata '<json>' --json`. Preserve the full validated metadata JSON, including files and dependencies; keep already recorded tasks rather than duplicating them.
+4. Read back `tc task list --stream <numeric-id> --json` and run `tc stream conflicts --json`. Missing ownership or overlapping writers must be resolved before dispatch. Persist actual task dependency links and the cycle's typed readiness events; labels in metadata alone do not enforce readiness.
 
-## `start`
+This mapping keeps stream-scoped task queries and ownership checks connected to the plan. Omitting either stream membership or metadata silently leaves those consumers without the rows/files they need. Store the architecture work product and validate the same approved plan with `tc cycle plan --file PLAN --json`; planning records authorize no native worker by themselves.
 
-Validates streams, creates an isolated git worktree per ready stream, and prints
-launch instructions. Claude Code's native `Task` tool runs the agents —
-`/orchestrate` does not spawn background workers.
+## `start` (protocol execution)
 
-1. `tc stream list --json` -- stop if no streams (tell user to run `generate` first)
-2. Preflight: confirm `tc` is on PATH, you're inside a git repo, and the working tree is clean
-3. Check for file overlaps between parallel streams (compare each stream's `files` metadata) -- stop if two parallel streams touch the same file
-4. For each stream whose dependencies are all satisfied, create an isolated worktree:
-   ```bash
-   git worktree add .worktrees/<stream-id> -b stream/<stream-id>
-   ```
-5. Print launch instructions: dispatch one native `Task` agent per ready stream. Each agent works in its `.worktrees/<stream-id>` directory on that stream's tasks:
-   ```bash
-   tc task list --stream <stream-id> --json   # the agent's work list
-   ```
-6. As streams finish, run `/orchestrate merge` to integrate them.
+Use the validated ready set and actual native capacity. Claim each owned scope and verify its execution root before native dispatch; record observed starts and exits. Refill free slots as inputs become ready, without waiting for unrelated streams to merge. Builders commit locally; one integration owner converges outputs and current independent QA covers the assembled seams.
 
-> **Note:** Agent execution is handled by the native `Task` tool, not a background
-> worker pool. Dependency ordering is your call — only start a stream once the
-> streams it depends on have merged.
+For an explicitly authorized budget-capped Claude worker, the real CLI shape is `tc worker <task-id> --max-budget-usd <remaining-authorized-cap>`. The flag limits that worker; it never raises the project's lifetime paid-call allowance. Provider-free cycle smoke needs neither a paid call nor a live benchmark.
 
----
-
-## `status`
-
-1. `tc progress --json` -- overall completion
-2. `tc stream list --json` -- per-stream status
-3. Print compact table:
-
-```
-Stream     | Status      | Progress
------------|-------------|----------
-Stream-A   | completed   | 100%
-Stream-B   | in_progress | 60%
-Stream-C   | pending     | 0%
-```
-
----
-
-## `merge`
-
-Merges completed stream worktrees back into the main branch using plain git.
-
-1. `tc stream list --json` to find completed streams
-2. For each completed stream, merge its branch:
-   ```bash
-   git merge stream/<stream-id> --no-ff -m "Merge <stream-id>: <description>"
-   ```
-3. If the merge reports conflicts: list the conflicting files and stop for manual resolution (do not auto-resolve)
-4. If clean: remove the worktree and branch:
-   ```bash
-   git worktree remove .worktrees/<stream-id>
-   git branch -d stream/<stream-id>
-   ```
-
-| Outcome | Action |
-|---------|--------|
-| Clean merge | Remove worktree + branch, report success |
-| Conflicts | Report conflicting files, leave for manual `git` resolution |
-| Not complete | Skip stream, note in output |
-
----
-
-## Tool Reference
-
-| Tool / Command | Used In | Purpose |
-|------|---------|---------|
-| `tc prd create` | generate | Create PRD |
-| `tc task create` | generate | Create stream tasks |
-| `tc task list --stream <id>` | start | The work list for each stream's agent |
-| `tc stream list` | start, status, merge | List streams |
-| `tc progress` | status | Overall progress |
-| `git worktree add` | start | Create isolated worktree per stream |
-| `git merge --no-ff` | merge | Merge a stream branch to main |
-| `git worktree remove` / `git branch -d` | merge | Clean up after a successful merge |
+Do not print launch instructions as if work had started. Do not wait for unrelated streams to merge before dispatching a contract-ready consumer. Builders do not push. A clean merge alone never proves a worktree disposable. Prepare candidates with `tc cycle cleanup-plan CYCLE --json`, then `tc cycle cleanup CYCLE --json` automatically removes only receipt-matched fully integrated clean inactive worktrees after identity, teardown, stopped-agent, consumer and recovery checks. Preserve branches and uncertain resources; branch/other deletion retains exact approval.

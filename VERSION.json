@@ -1,6 +1,6 @@
 {
-  "framework": "5.33.1",
-  "lastUpdated": "2026-11-02",
+  "framework": "5.34.1",
+  "lastUpdated": "2026-11-04",
   "components": {
     "cc": {
       "version": "2.18.0",
@@ -29,12 +29,12 @@
       ]
     },
     "tc": {
-      "version": "2.11.0",
+      "version": "2.12.0",
       "path": "tools/tc",
       "installCommand": "bash ~/.claude/copilot/tools/tc/install.sh"
     },
     "agents": {
-      "version": "5.13.0",
+      "version": "5.14.0",
       "path": ".claude/agents",
       "count": 16,
       "_countNote": "16 total manifest entries: 15 framework agents + 1 setup-only (kc). See frameworkAgents for the authoritative list.",
@@ -72,7 +72,7 @@
       ]
     },
     "commands": {
-      "version": "5.10.0",
+      "version": "5.11.0",
       "path": ".claude/commands",
       "projectCommands": [
         "protocol.md",
@@ -91,11 +91,15 @@
         "update-project.md",
         "update-copilot.md",
         "setup-copilot.md",
-        "knowledge-copilot.md"
+        "knowledge-copilot.md",
+        "protocol.md",
+        "orchestrate.md",
+        "cleanup.md",
+        "continue.md"
       ]
     },
     "skills": {
-      "version": "3.7.0",
+      "version": "3.8.0",
       "path": ".claude/skills",
       "machineSkills": [
         "new-product"

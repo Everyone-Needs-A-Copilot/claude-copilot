@@ -6,7 +6,7 @@ import typer
 
 from tc.formatting import output_json, output_table, output_error_json
 from tc.utils.errors import error_exit, require_db, EXIT_NOT_FOUND, EXIT_VALIDATION
-from tc.db.exceptions import ConflictError, PrdNotFound
+from tc.db.exceptions import ConflictError, PrdNotFound, ValidationError
 
 stream_app = typer.Typer(name="stream", help="Stream management commands.")
 
@@ -97,7 +97,13 @@ def stream_conflicts(
     from tc.services.streams import find_conflicts as _find_conflicts
 
     db_path = require_db()
-    conflicts = _find_conflicts(db_path=db_path)
+    try:
+        conflicts = _find_conflicts(db_path=db_path)
+    except ValidationError as exc:
+        if json:
+            output_error_json(str(exc), EXIT_VALIDATION)
+            raise typer.Exit(EXIT_VALIDATION)
+        error_exit(str(exc), EXIT_VALIDATION)
 
     if json:
         output_json(conflicts)

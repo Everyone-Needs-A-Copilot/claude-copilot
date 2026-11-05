@@ -262,11 +262,29 @@ LOCK_FILE="${STATE_DIR}/budget-${SESSION_ID}.lock"
 # Budget state does not expire by age: measured bytes stay true for as long
 # as the transcript they came from is the one being continued.
 
-# Acquire a simple lock to prevent concurrent corruption
-# Uses mkdir atomicity (POSIX-guaranteed).
+# CI traces showed concurrent callers passing the old mkdir-based gate.
+# Existing paths are refused before noclobber, which alone may open devices
+# or FIFOs. Validate the resulting regular file and token before admission;
+# mixed callers wait on files, symlinks and legacy directory locks.
+BUDGET_LOCK_HELD=0
+BUDGET_LOCK_OWNER_PID=""
+BUDGET_LOCK_OWNER_SUBSHELL=""
+BUDGET_LOCK_TOKEN=""
+_budget_lock_matches() {
+  [[ -f "$LOCK_FILE" && ! -L "$LOCK_FILE" ]] || return 1
+  local recorded
+  recorded="$(<"$LOCK_FILE")" || return 1
+  [[ "$recorded" == "$1" && -f "$LOCK_FILE" && ! -L "$LOCK_FILE" ]]
+}
+_budget_try_create_lock() {
+  [[ ! -e "$LOCK_FILE" && ! -L "$LOCK_FILE" ]] || return 1
+  (set -o noclobber; printf '%s\n' "$1" > "$LOCK_FILE") 2>/dev/null || return 1
+  _budget_lock_matches "$1"
+}
 acquire_lock() {
-  local i=0
-  while ! mkdir "$LOCK_FILE" 2>/dev/null; do
+  local i=0 owner_pid="${BASHPID:-$$}" owner_subshell="${BASH_SUBSHELL:-0}"
+  local token="${owner_pid}:${owner_subshell}:${RANDOM}:${RANDOM}:${RANDOM}"
+  while ! _budget_try_create_lock "$token"; do
     sleep 0.02
     i=$((i + 1))
     if [[ $i -ge 10 ]]; then
@@ -276,10 +294,21 @@ acquire_lock() {
       return 1
     fi
   done
+  BUDGET_LOCK_TOKEN="$token"
+  BUDGET_LOCK_OWNER_PID="$owner_pid"
+  BUDGET_LOCK_OWNER_SUBSHELL="$owner_subshell"
+  BUDGET_LOCK_HELD=1
 }
 
 release_lock() {
-  rmdir "$LOCK_FILE" 2>/dev/null || true
+  # An inherited EXIT trap must never release the parent's lock. Unknown,
+  # replaced and legacy directory locks retain their original owner's data.
+  [[ "$BUDGET_LOCK_HELD" -eq 1 &&
+     "${BASHPID:-$$}" == "$BUDGET_LOCK_OWNER_PID" &&
+     "${BASH_SUBSHELL:-0}" == "$BUDGET_LOCK_OWNER_SUBSHELL" ]] || return 0
+  BUDGET_LOCK_HELD=0
+  _budget_lock_matches "$BUDGET_LOCK_TOKEN" || return 0
+  rm -f "$LOCK_FILE" 2>/dev/null || true
 }
 
 deny() {
@@ -588,6 +617,7 @@ QA_GATE_SAFE_PREFIXES=(
   "tc handoff"
   "tc prd"
   "tc stream"
+  "tc cycle"
   "python3 -m pytest"
   "pytest"
 )
@@ -616,6 +646,26 @@ is_safe_bash_command() {
   return 1
 }
 
+# A cycle envelope is only a routing hint here. The consuming authority runs
+# LAST, after extension, safety and journey/prompt/Knowledge checks. A prompt
+# marker alone never authorizes dispatch or consumes a claim.
+_cycle_dispatch_envelope() {
+  local envelope
+  envelope="$("$JQ" -r '
+    (.tool_input.prompt // "") as $p |
+    ([ $p | scan("(?m)^CYCLE: [a-zA-Z0-9][a-zA-Z0-9._-]{0,127} STREAM: [a-zA-Z0-9][a-zA-Z0-9._-]{0,127}$") ] | length) as $cycles |
+    ([ $p | scan("(?m)^CYCLE-CWD: /[^\\t\\r\\n]+$") ] | length) as $cwds |
+    if $cycles == 1 and $cwds == 1 then
+      ($p | capture("(?m)^CYCLE: (?<cycle>[a-zA-Z0-9][a-zA-Z0-9._-]{0,127}) STREAM: (?<stream>[a-zA-Z0-9][a-zA-Z0-9._-]{0,127})$")) as $ids |
+      ($p | capture("(?m)^CYCLE-CWD: (?<cwd>/[^\\t\\r\\n]+)$")) as $dir |
+      [$ids.cycle, $ids.stream, $dir.cwd] | @tsv
+    else empty end
+  ' <<< "$PAYLOAD" 2>/dev/null)" || return 1
+  [[ -n "$envelope" ]] || return 1
+  IFS=$'\t' read -r CYCLE_DISPATCH_ID CYCLE_DISPATCH_STREAM CYCLE_DISPATCH_CWD <<< "$envelope"
+  [[ -n "$CYCLE_DISPATCH_ID" && -n "$CYCLE_DISPATCH_STREAM" && -n "$CYCLE_DISPATCH_CWD" ]]
+}
+
 # Rework-only state: QA rejected the task with a clean, well-formed verdict.
 # Allow @agent-me (and @agent-qa) dispatch plus read/edit tools so the
 # rejection can be fixed; deny everything else. Never reached while any task
@@ -639,6 +689,10 @@ _qa_gate_rework_only() {
         || subagent_type=""
       if [[ "$subagent_type" == "me" || "$subagent_type" == "qa" ]]; then
         return 0
+      fi
+      if _is_known_agent "$subagent_type" && _cycle_dispatch_envelope; then
+        CYCLE_QA_BLOCKED_TASKS="$rework_json"
+        return 0  # provisional; rule_cycle_dispatch must authorize last
       fi
       deny "QA gate rework: ${ids} was rejected by @agent-qa. Dispatch @agent-me to fix the rejection (then @agent-qa must re-verify); other agents are blocked until it is approved."
       ;;
@@ -840,6 +894,10 @@ rule_qa_gate() {
     if [[ "$is_known" -eq 0 ]] && [[ -n "$subagent_type" ]]; then
       # Unknown agent — deny with guidance (may be a typo or retired agent)
       deny "QA gate active: ${blocking_ids} require @agent-qa verification. Unknown agent '${subagent_type}' — use @agent-qa to unblock. Valid agents: ${VALID_AGENT_LIST}."
+    fi
+    if [[ "$is_known" -eq 1 ]] && _cycle_dispatch_envelope; then
+      CYCLE_QA_BLOCKED_TASKS="$pending_json"
+      return 0  # provisional; consuming cycle verifier runs after journey
     fi
     # All other known Agent calls are denied while gate is active
     deny "QA gate active: ${blocking_ids} require @agent-qa verification before further work. Invoke @agent-qa to unblock."
@@ -1203,6 +1261,43 @@ rule_path_scope() {
   return 0
 }
 
+# Consumes one current cycle claim only after all other rules pass. This
+# supplements journey authorization; it does not approve a task or its QA.
+rule_cycle_dispatch() {
+  [[ "$TOOL_NAME" != "Agent" ]] && return 0
+  local has_envelope
+  has_envelope="$("$JQ" -r '(.tool_input.prompt // "") | test("(?m)^CYCLE(?:-CWD)?:")' <<< "$PAYLOAD" 2>/dev/null)" || has_envelope=false
+  [[ "$has_envelope" != "true" ]] && return 0
+  _cycle_dispatch_envelope || deny "Cycle dispatch denied (malformed-cycle-envelope). Use the recorded cycle, stream and execution directory."
+  local role result task blocked_task
+  local -a verify_args
+  role="$("$JQ" -r '.tool_input.subagent_type // ""' <<< "$PAYLOAD" 2>/dev/null)" || role=""
+  _is_known_agent "$role" || deny "Cycle dispatch denied (unknown-specialist). Use the stream's registered framework role."
+  verify_args=(cycle verify-dispatch "$CYCLE_DISPATCH_ID" "$CYCLE_DISPATCH_STREAM" --role "$role" --cwd "$CYCLE_DISPATCH_CWD" --json)
+  if [[ "$role" != "qa" && -n "${CYCLE_QA_BLOCKED_TASKS:-}" ]]; then
+    while IFS= read -r blocked_task; do
+      [[ -n "$blocked_task" ]] && verify_args+=(--blocked-task "$blocked_task")
+    done < <("$JQ" -r '.[] | tostring | sub("^TASK-"; "") | select(test("^[0-9]+$"))' <<< "$CYCLE_QA_BLOCKED_TASKS")
+  fi
+  if ! result="$("$QA_GATE_TC_BIN" "${verify_args[@]}" 2>/dev/null)"; then
+    deny "Cycle dispatch denied (claim-verification-failed). Inspect tc cycle status before retrying."
+  fi
+  if ! "$JQ" -e --arg cycle "$CYCLE_DISPATCH_ID" --arg stream "$CYCLE_DISPATCH_STREAM" \
+      --arg role "$role" --arg cwd "$CYCLE_DISPATCH_CWD" '
+      .allowed == true and .cycle == $cycle and .stream == $stream and
+      .role == $role and .cwd == $cwd and (.task | type == "number") and
+      (.leaseToken | type == "string" and length > 0)
+    ' <<< "$result" >/dev/null 2>&1; then
+    deny "Cycle dispatch denied (malformed-claim-receipt). Restore the cycle verifier before retrying."
+  fi
+  task="$("$JQ" -r '.task' <<< "$result")"
+  if [[ "$role" != "qa" && -n "${CYCLE_QA_BLOCKED_TASKS:-}" ]] && \
+      "$JQ" -e --arg task "TASK-$task" --arg bare "$task" 'any(.[]; tostring == $task or tostring == $bare)' \
+        <<< "$CYCLE_QA_BLOCKED_TASKS" >/dev/null 2>&1; then
+    deny "Cycle dispatch denied (scope-awaits-independent-qa). The pending scope requires QA; only an unrelated ready claim may proceed."
+  fi
+}
+
 # ---------------------------------------------------------------------------
 # Dispatch — rule sets run in order; first deny wins
 # ---------------------------------------------------------------------------
@@ -1212,5 +1307,6 @@ rule_extension_resolution
 rule_destructive_command
 rule_path_scope
 rule_journey_dispatch
+rule_cycle_dispatch
 
 exit 0

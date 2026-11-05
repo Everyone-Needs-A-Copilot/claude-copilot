@@ -4,7 +4,7 @@ Apply to coding, research, design, operations and advice, including direct speci
 
 ## Start or resume
 
-Resolve current task, source identity, owner authority, unfinished obligations and acceptance evidence. Preserve cumulative failures, attempts, spend and frozen scope across handoffs. Search narrowly for relevant lessons; follow original source pointers. Record applicability and the decision/check changed, or searched scope and no relevant lesson.
+Resolve current task, source identity, owner authority, unfinished obligations and acceptance evidence. Preserve cumulative failures, attempts, spend and frozen scope across handoffs. Search relevant lessons; follow original pointers. Record applicability and changed checks, or searched scope/no match.
 
 Before freezing substantial QA-required work, include observable `WORK-LIFECYCLE` acceptance: applicable learning or justified no-match, current checkpoint, artifact disposition, verified holds and required retirement results. Existing source-bound `tc` QA remains authoritative. Do not silently retrofit frozen contracts, reset budgets or replace original acceptance; report omissions and route scope changes to coordinator/owner. Missing required evidence fails its criterion.
 
@@ -14,7 +14,9 @@ At start/resume, including a new PRD or initiative, and at finish, merge, pause 
 
 For retirement candidates, verify integration into the intended branch, unique commits, tracked/untracked/ignored work, active processes/consumers, links and evidence dependencies. Merge alone never proves eligibility. Hold dirty or unique work until explicitly preserved and dispositioned; hold active dependencies. Each hold names owner, reason and next action. Do not remove another developer's work or the checkout running this session.
 
-When eligible, prepare exact paths, verified recovery, dependency checks and rollback using the sequence below, then visibly ask: “Work is complete. These worktrees can be removed: [exact packet]. Recovery and dependency checks passed. Approve removal?” At start, say “Previous work has cleanup candidates” instead of claiming new work is complete. Do not bury the request in a work product or wait for the user to remember cleanup. Reuse unchanged prior approval; recheck drift before execution. Otherwise keep approval pending in the existing record without blocking unrelated new work. If none qualify, record no candidates or owned holds. After approval, execute and verify; preparation is not removal.
+At cleanup, automatically remove only cycle-recorded merged worktrees under the owner's 4 November 2026 authority: require full integration, clean tracked/untracked/ignored state, unchanged identity, no active consumers, successful teardown, stopped-worker evidence and verified recovery. Preserve branches and the current coordinator checkout. Hold uncertain resources with owner and next action. For other deletion, prepare exact paths/recovery and visibly request approval; reuse unchanged approval after drift checks. Preparation is not removal; verify actual retirement.
+
+For approved parallel work, apply the canonical `parallel-execution` skill once; `tc cycle` receipts bind created resources to owners and retirement conditions. Finishing retires eligible merged worktrees automatically; other deletion retains exact approval.
 
 ## During work
 
@@ -30,13 +32,15 @@ Open every handoff with a one-line kickoff the owner can paste to resume ("Read 
 
 Consolidate completed work into its maintained README/equivalent: outcome, decisions, failures/corrections, bounded lessons and unfinished obligations. Supporting documents require current need; no empty scaffolding. Retain legitimate software, deliverables and evidence separately.
 
-Use this sequence for proactive retirement or explicit `/cleanup`:
+For retirement or `/cleanup`:
 
 1. Measure scoped files/directories/bytes and reading path; verify branch, dirty state, unique commits, task authority, consumers, links and evidence dependencies. Age proves nothing.
 2. Distill knowledge into the existing narrative, reconcile contradictions and review preservation fidelity.
 3. Classify required active assets, necessary inactive originals, redundant narratives, reproducible artifacts and unresolved holds. Archive only necessary inactive originals when useful, in one private collection with concise catalog, membership/checksums and tested restoration. Keep active fixtures usable. An in-project archive is not an independent backup.
-4. Prepare exact paths, verified Git/archive recovery or demonstrated regeneration, dependency checks and rollback. Obtain exact human approval before deletion, destructive overwrites/moves or task/memory archival. Routine authorized editing/consolidation needs no new approval. Broad intent and summary quality do not grant destructive approval. Preserve database execution history; uncertainty is a hold.
+4. Prepare exact paths, verified Git/archive recovery or demonstrated regeneration, dependency checks and rollback. Apply the narrow verified merged-worktree exception above; obtain exact approval for other deletion, destructive overwrites/moves or task/memory archival. Routine authorized editing/consolidation needs no new approval. Broad intent and summary quality do not grant destructive approval. Preserve database execution history; uncertainty is a hold.
 5. Execute approved paths only after drift/consumer rechecks. Verify retained dependencies and recovery; remove approved loose duplicates after archive verification. Report actual gross/net file/directory/byte reduction, including archives and process evidence. Inventory, backup, compression or summary alone is not cleanup.
+
+Before finish, reconcile every PRD/body task including parked work: complete verified work through QA, cancel abandoned work with history, clear claims only after worker-stop evidence. No active task may remain in a finished PRD; unresolved required blockers mean unfinished work. Never delete task records.
 
 Report delivery acceptance separately from cleanup. An owned hold satisfies disposition only when acceptance permits; it never satisfies required removal. Retaining it needs no fresh approval. Required cleanup undone means optimization remains incomplete.
 
@@ -48,7 +52,7 @@ Compare fresh-reader accuracy and files/words consulted, changed decisions, recu
 
 ## Compact record template
 
-Use the existing task/WP; explain inapplicable fields:
+Existing task/WP; explain inapplicable fields:
 
 - Task/body, owner, checkpoint, source identity, authority:
 - Lesson/source/boundary or searched scope/no-match:

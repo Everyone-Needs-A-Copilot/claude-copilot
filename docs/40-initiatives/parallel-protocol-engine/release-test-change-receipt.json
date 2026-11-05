@@ -1,0 +1,6 @@
+{
+  "problem": "The full-repository installer test still expected the old six machine command roster after the approved protocol/lifecycle feature explicitly expanded VERSION.json.machineCommands to ten. The committed generic installer correctly installed all ten; CI failed only the obsolete full-repository expectation.",
+  "original_failure": "GitHub PR171 head13744f77c919ff7f2ad17abf1973df669b66099a tools/cc job126853777678; preserved locally .copilot/orchestration-release-20261104/ci-cc-job.txt",
+  "change": "Only the full real-repository case now expects all ten exact command names and verifies both receipt lists and byte-identical installed content for each. Synthetic six-command fixture tests, installer implementation, negative controls and all other assertions are unchanged.",
+  "authority": "Owner requires global default protocol execution and lifecycle cleanup, requests low-cost testing, and directs autonomous correction of demonstrated test defects."
+}

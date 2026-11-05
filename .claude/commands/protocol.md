@@ -6,7 +6,7 @@ You are starting a new conversation. **The Agent-First Protocol is now active.**
 
 Read `.claude/agents/_shared/work-lifecycle.md` once per task and apply its proportional start/resume, during-work, handoff, finish and later-use checkpoints, including direct invocation. Use the existing task and maintained narrative; selective memory pointers must not duplicate them. Preserve exact destructive approval and recovery, original authority and required assets. Substantial QA-required work needs an observable `WORK-LIFECYCLE` criterion before acceptance freezes; cleanup status and product acceptance remain separate.
 
-At start/resume (including a new PRD or initiative) and finish/merge/pause/handoff, proactively inspect relevant worktrees and surface eligible cleanup with exact paths, recovery and dependency checks, then visibly request deletion approval; do not wait for a cleanup command. Merge alone is insufficient. Record owned holds and pending approval in the existing task, continue unrelated work, and reuse unchanged prior approval after drift checks.
+At start/resume (including a new PRD or initiative) and finish/merge/pause/handoff, proactively inspect relevant worktrees and surface eligible cleanup with exact paths, recovery and dependency checks, then automatically retire eligible recorded merged worktrees during cleanup under the owner’s 4 November 2026 narrow exception; prepare exact approval for other deletion. Merge alone is insufficient. Record owned holds and pending approval in the existing task, continue unrelated work, and reuse unchanged prior approval after drift checks.
 
 ## Project Protocol Precedence
 
@@ -40,6 +40,24 @@ satisfies every required criterion, close
 the task, report completion and separately pending work, then stop. Unrelated
 findings do not authorize another improvement cycle. Missing required evidence or
 an exhausted cap remains incomplete; never weaken acceptance to declare completion.
+
+## Protocol-native parallel execution
+
+After approval of the scoped plan or done block, the coordinator dispatches independent useful work by default, refilling capacity as inputs and worker slots become available. Discover organization policy with `cc skill list --scope machine --json`; if `parallel-execution` is listed, load its returned name once with `cc skill get "$name" --scope machine --json` and apply that canonical content. Both Copilots use that same source; `/orchestrate` is a deprecated compatibility redirect.
+
+If the organization skill is unavailable, report that fallback and use the installed `tc cycle --help` contract: validated exclusive write ownership, actual cwd/branch verification, visible native dispatch within resource/runtime limits, one integration owner, current independent QA, and safe retirement under applicable deletion authority. Read-only research need not create a worktree. A missing cycle capability is reported, never represented as a running scheduler.
+
+### Execution contract
+
+The specialist sequences below express required thinking and real decision dependencies; they do not serialize independent scopes or require global phase barriers. The coordinator, not the owner, manages dispatch and convergence after the scope is approved.
+
+- Register a validated `tc cycle plan --file PLAN --json` using schemaVersion 1, typed `dependsOn` events with concrete reasons, exclusive output ownership, native capacity and resource permits.
+- Query `tc cycle ready CYCLE --json`, claim ready scopes with `tc cycle claim CYCLE STREAM --agent ID --cwd PATH --branch REF --json`, then invoke the native Agent tool concurrently for the ready subset. Omit the branch option for an inapplicable read-only scope. Record actual starts/results separately from authorization.
+- Include the exact unique lines `CYCLE: <id> STREAM: <id>` and `CYCLE-CWD: /absolute/execution/root` after any required journey Knowledge envelope, plus task identity, role, owned and forbidden paths, verified cwd/branch, interfaces, evidence location and stop condition in each dispatch. The final hook consumes one current claim through `tc cycle verify-dispatch`; malformed, replayed or mismatched claims are denied. Creating a worktree or adding an accessible directory never establishes the worker's cwd.
+- One integration agent owns branch mutations and pushes. Builders commit owned changes locally and run focused checks. Integrate ready contributions while unrelated work continues; QA partitions the assembled state and covers its seams. Changed source invalidates affected evidence.
+- Record actual events with `tc cycle record CYCLE STREAM --event EVENT --file RECEIPT --json`; use `status` for one durable view, `cleanup-plan` for retirement candidates/holds, and `cleanup` for the authorized safe removal of recorded merged worktrees. Preserve their branches. Current task QA gates remain authoritative.
+- Before finish, use `tc prd body-status PRD --json` to enumerate every PRD/body task and stream including parked work. Complete only verified work through QA; cancel abandoned work with handoff/history preserved; clear claims only after actual worker-stop evidence. Do not delete tasks. Refuse finish or PRD closure while any active task remains, and never auto-complete an unresolved blocker. `tc cycle finish CYCLE --json` requires current acceptance and verified cleanup, then invokes the authoritative PRD gate.
+- Use `tc cycle smoke --roles sd,uxd,uids,uid,ta,me,qa,sec,doc,do,ind --json` for cheap provider-free process-lifecycle checks; distinguish these from a capped native dispatch test. No full model benchmark is needed to verify a lifecycle-only change.
 
 ## Intent Detection & Flow Routing
 
@@ -215,7 +233,7 @@ Invoking @agent-do for deployment planning...
 
 ### Done Block and Example First (2026-10-29)
 
-Tier first: T1 copy work is not substantial and skips the done block; T2 and T3 add a sixth `Tier:` line. Before substantial work, post the five-line done block (Done means / Proven by / Not in scope / Assumptions, at most three, each with how it is checked / First example) and wait for one word; the confirmed block becomes the task contract (`tc task contract <id> --from-done-block <file>`). Flows that build a collection, workflow family, integration or asset family build one populated instance with real content, stop, show it, apply the correction, then expand. Run at most three concurrent subagents unless the done block says otherwise; close each when its piece is done; one QA pass per batch (T3 only; T1/T2 attest).
+Tier first: T1 copy work is not substantial and skips the done block; T2 and T3 add a sixth `Tier:` line. Before substantial work not already covered by explicit approval, post the five-line done block (Done means / Proven by / Not in scope / Assumptions, at most three, each with how it is checked / First example) and wait for one word; the confirmed block becomes the task contract (`tc task contract <id> --from-done-block <file>`). Flows that build a collection, workflow family, integration or asset family build one populated instance with real content, stop, show it, apply the correction, then expand. Dispatch all useful ready scopes within native slots and resource permits, with no arbitrary framework cap; finish each worker promptly. Independent QA partitions T3 work and covers seams; T1/T2 retain attestation.
 
 ### Checkpoint Pattern
 
@@ -668,96 +686,19 @@ When routing to agents or making technical decisions, reference Constitution con
 
 ## Main Session Orchestration
 
-**CRITICAL: The main session orchestrates agent chains. You must follow these execution patterns.**
+**The main session owns an approved dependency graph and continuously dispatches its ready scopes. The stage examples below preserve real decisions; they are not global worker barriers.**
 
-### Orchestration Flow: Experience-First (Flow A)
+### Execution by work type
 
-```
-1. User: /protocol add user profiles
-2. Main Session: Detect intent (experience keywords detected)
-3. Main Session: Show protocol declaration
-   [PROTOCOL: EXPERIENCE | Agent: @agent-sd | Action: INVOKING]
+| Work | Required decisions and useful parallel work | Convergence |
+|---|---|---|
+| Experience | Establish the service frame and real owner design choices; explore independent questions/concepts concurrently. Once interfaces and scope are approved, dispatch bounded UI, backend and supporting outputs together. | One design synthesis owner; one software integration owner; independent scoped QA and seam checks. |
+| Defect | QA reproduces the failure before a fix when possible. Investigate independent causes concurrently; after diagnosis, dispatch disjoint fixes, then affected independent verification. | Preserve original failures, integrate fixes and evaluate current evidence. |
+| Technical | TA names deliverables, interfaces and actual dependency events. A stable contract unlocks consumers before provider implementation finishes. | One integrator, required checks per candidate and source-bound QA. |
+| Infrastructure | DO names shared state, isolation and outward authority. Independent local preparation may overlap; shared mutations and release lanes stay serialized. | One operational owner; no outward step without its existing authority. |
+| Research | Divide questions, segments, sources or competing hypotheses with bounded evidence contracts. Read-only workers do not need software checkout setup. | Synthesize evidence and retain contradictions; surface the real decision. |
 
-   Routing to experience-first flow:
-   sd (journey mapping) → uxd (interactions) → uids (visual design) → uid (components) → ta (tasks) → me (implementation)
-
-   Invoking @agent-sd for service design...
-
-4. Wait for @agent-sd checkpoint summary
-5. Present checkpoint to user with options 1-5
-6. User responds:
-   - Option 1 (Approve): Extract handoff context, invoke @agent-uxd
-   - Option 2 (Changes): Re-invoke @agent-sd with feedback
-   - Option 3 (Skip): Show skip warning, invoke @agent-uxd
-   - Option 4 (Go back): Not applicable (first stage)
-   - Option 5 (Show details): Run `tc wp get <id>`, display, re-present options
-7. Repeat steps 4-6 for @agent-uxd, @agent-uids, @agent-uid, @agent-ta
-8. After @agent-ta (final design stage):
-   - User approves: Ask "Ready to begin implementation?"
-   - If yes: Invoke @agent-me with task IDs
-   - If no/pause: Save checkpoint, provide resume instructions
-9. After @agent-me (if invoked): Present completion summary
-```
-
-### Orchestration Flow: Defect (Flow B)
-
-```
-1. User: /protocol fix login bug OR /fix login bug
-2. Main Session: Detect intent (defect keywords detected)
-3. Main Session: Show protocol declaration
-   [PROTOCOL: DEFECT | Agent: @agent-qa | Action: INVOKING]
-
-   Routing to defect flow:
-   qa (diagnosis) → me (fix) → qa (verification)
-
-   Invoking @agent-qa for issue investigation...
-
-4. Wait for @agent-qa diagnosis checkpoint
-5. State the diagnosis in one sentence and invoke @agent-me with the handoff context (no menu)
-6. Wait for @agent-me fix, then invoke @agent-qa for verification
-7. Wait for @agent-qa verification
-8. Present verification results (no checkpoint needed - final stage)
-```
-
-### Orchestration Flow: Technical-Only (Flow C)
-
-```
-1. User: /protocol --technical refactor auth OR /refactor auth
-2. Main Session: Detect intent (technical keywords or --technical flag)
-3. Main Session: Show protocol declaration
-   [PROTOCOL: TECHNICAL | Agent: @agent-ta | Action: INVOKING]
-
-   Routing to technical-only flow:
-   ta (planning) → me (implementation)
-
-   Invoking @agent-ta for refactor planning...
-
-4. Wait for @agent-ta checkpoint
-5. State the plan outcome in one sentence and invoke @agent-me with task IDs (no menu)
-6. After @agent-me: Present completion summary (no checkpoint needed)
-```
-
-### Orchestration Flow: Infrastructure (Flow E)
-
-```
-1. User: /protocol set up staging for the auth service OR /protocol --infra deploy auth
-2. Main Session: Detect intent (infra keywords detected OR --infra flag)
-3. Main Session: Show protocol declaration
-   [PROTOCOL: INFRA | Agent: @agent-do | Action: INVOKING]
-
-   Routing to infrastructure flow:
-   do (deploy planning) → me (config/code changes) → qa (deploy + verification)
-
-   Invoking @agent-do for deployment planning...
-
-4. Wait for @agent-do planning checkpoint
-5. State the plan outcome in one sentence and invoke @agent-me (no menu); ask before any deploy or other outward step, recommendation first, in one sentence
-6. Wait for @agent-me (skip when no code or config changes), then invoke @agent-qa with the plan
-7. Wait for @agent-qa verification
-   - @agent-qa uses `tc deploy wait <app> --test <spec>` for deploy verification (Phase 3)
-   - If tc deploy wait unavailable: @agent-qa verifies manually via health checks
-8. Present verification results (no checkpoint needed - final stage)
-```
+Approval of an already presented plan authorizes its local execution; do not ask “Ready to begin implementation?” again. New scope, unresolved owner design decisions, budget overruns and outward actions remain their real boundaries. Cleanup automatically removes only eligible recorded merged worktrees under the owner’s narrow exception; branches and other deletion retain exact approval. If a completed builder awaits QA, another independent claimed cycle scope may be dispatched only through the cycle-verified hook path; no bare prompt marker bypasses the QA gate. Claims and printed launch instructions do not prove workers ran.
 
 ### Checkpoint Handling Logic
 

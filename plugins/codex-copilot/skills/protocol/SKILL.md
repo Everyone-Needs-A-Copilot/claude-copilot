@@ -20,8 +20,8 @@ It should behave like the Claude Copilot `/protocol` command in intent:
 
 In Codex, that means:
 
-- invoke specialist skills in the main session by default
-- use `spawn_agent` only when the user explicitly asks for subagents or parallel execution
+- apply the immediate blocking specialist lens locally
+- dispatch useful independent work through native `spawn_agent` within the approved plan by default
 - use `tc` as the durable record for substantial work
 
 ## Repository Decision Instruments
@@ -62,7 +62,7 @@ Keep these instruments separate:
 8. use `docs/40-initiatives/NN-slug/` for formal multi-phase initiative knowledge while keeping live execution state in `tc`
 9. perform the next appropriate specialist step
 10. do not jump straight to implementation when earlier specialist work is warranted
-11. do not use `spawn_agent` unless the user explicitly asked for delegation or parallel work
+11. apply `references/parallel-execution.md`: validate the ready-work graph, dispatch within measured capacity, converge current evidence and prepare verified resource disposition
 
 For experience work that does not materially change screens, components, or interface states, `$uid` may be skipped only when the checkpoint states why.
 
@@ -103,7 +103,7 @@ One question, not a checklist. State the recommendation first; if every option i
 
 **Resolving a genuine ambiguity silently is a defect, not efficiency.** Measured on an identical brief carrying a real contradiction ("Level 4 finish throughout" against "Garage included"): the arm with no framework asked, got the answer, and priced 25 fewer labour hours. The arm running the full design chain asked nothing and priced a guess. Inferring an answer where the brief is undecided converts the user's decision into your hidden assumption and buries it in a deliverable, where it resurfaces as rework. Guessing is acceptable only when the guess is stated as one.
 
-This applies with more force here than in a delegating framework, not less: running the lenses inline means no handoff document exists where an unstated assumption might be caught by the next specialist reading it.
+Every dispatched scope carries explicit assumptions and unresolved decisions. The coordinator reconciles them at convergence and surfaces decision-changing ambiguity; parallel workers must not turn an undecided owner choice into an implicit agreement.
 
 ## Checkpoints
 
@@ -140,7 +140,7 @@ Optional pack specialists (`kc`, `cco`, `cw`, `cs`, `cpa`) are activated per pro
 
 ## Delegated pattern
 
-If the user explicitly asks for delegation or parallel work, use `$launcher` to map the needed specialists onto native Codex spawned-agent roles.
+Approved work uses `$launcher` to map useful independent scopes onto native Codex spawned-agent roles by default. Read `references/parallel-execution.md` before dispatch. `$orchestrate` is a deprecated compatibility redirect; orchestration is part of this protocol, not another owner-operated stage.
 
 ## Task Copilot
 
@@ -200,7 +200,7 @@ per task, including direct invocation of this skill: start/resume, maintain,
 pause/handoff, finish and later reuse. Keep the checkpoint proportional in the
 existing record; a small answer does not need a new task or document.
 
-At start/resume (including a new PRD or initiative) and finish/merge/pause/handoff, proactively inspect relevant worktrees and surface eligible cleanup with exact paths, recovery and dependency checks, then visibly request deletion approval; do not wait for a cleanup command. Merge alone is insufficient. Record owned holds and pending approval in the existing task, continue unrelated work, and reuse unchanged prior approval after drift checks.
+At start/resume (including a new PRD or initiative) and finish/merge/pause/handoff, proactively inspect relevant worktrees. During cleanup automatically retire only recorded, fully integrated, clean and inactive merged worktrees after identity, recovery, consumer and project-teardown checks; never remove the coordinator’s current tree. Preserve branch history and hold dirty, unmerged, drifted, active or unknown work with an owner and next action. Other deletion requires exact approval; continue unrelated work while that approval is pending.
 
 For substantial QA-required work, include an observable `WORK-LIFECYCLE` (or
 equivalent) criterion before acceptance is frozen. QA inspects the maintained

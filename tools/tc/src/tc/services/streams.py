@@ -223,40 +223,45 @@ def find_conflicts(
             statuses,
         ).fetchall()
 
-        file_to_streams: dict[str, dict[int, str]] = {}
+        from tc.services.cycles import normalize_path, paths_overlap
+        db_file = conn.execute("PRAGMA database_list").fetchone()[2]
+        root = Path(db_file).resolve().parent.parent if db_file else Path.cwd()
+        claims = []
         for stream_row in stream_rows:
-            stream_id = stream_row["id"]
-            stream_name = stream_row["name"]
-            task_rows = conn.execute(
-                "SELECT metadata FROM tasks WHERE stream_id = ?", (stream_id,)
-            ).fetchall()
-            for task_row in task_rows:
-                raw = task_row["metadata"]
-                if not raw:
-                    continue
+            stream_id, name = stream_row["id"], stream_row["name"]
+            rows = conn.execute("SELECT id, metadata FROM tasks WHERE stream_id=?", (stream_id,)).fetchall()
+            if not rows:
+                raise ValidationError(f"Stream {name} has no task ownership declarations")
+            paths = set()
+            for row in rows:
                 try:
-                    meta = json.loads(raw)
-                except (json.JSONDecodeError, TypeError):
+                    meta = json.loads(row["metadata"] or "null")
+                except (json.JSONDecodeError, TypeError) as exc:
+                    raise ValidationError(f"Task {row['id']} has malformed ownership metadata") from exc
+                if not isinstance(meta, dict):
+                    raise ValidationError(f"Task {row['id']} is missing ownership metadata")
+                files = meta.get("files")
+                extra = meta.get("streamPaths", [])
+                if not isinstance(files, list) or not isinstance(extra, list):
+                    raise ValidationError(f"Task {row['id']} needs files and optional streamPaths lists")
+                if meta.get("readOnly") is True:
+                    if files or extra:
+                        raise ValidationError("Read-only tasks cannot claim write paths")
                     continue
-                files = meta.get("files") if isinstance(meta, dict) else None
-                if not isinstance(files, list):
-                    continue
-                for f in files:
-                    if isinstance(f, str):
-                        file_to_streams.setdefault(f, {})[stream_id] = stream_name
-
-        conflicts = []
-        for f, streams_map in sorted(file_to_streams.items()):
-            if len(streams_map) > 1:
-                conflicts.append(
-                    {
-                        "file": f,
-                        "streams": [
-                            {"id": sid, "name": streams_map[sid]}
-                            for sid in sorted(streams_map)
-                        ],
-                    }
-                )
+                if not files and not extra:
+                    raise ValidationError(f"Task {row['id']} writer has empty ownership")
+                paths.update(normalize_path(path, root) for path in files + extra)
+            claims.append((stream_id, name, paths))
+        grouped = {}
+        for index, (sid, name, paths) in enumerate(claims):
+            for other_id, other_name, other_paths in claims[index + 1:]:
+                for left in paths:
+                    for right in other_paths:
+                        if paths_overlap(left, right):
+                            key = left if left == right else f"{left} <-> {right}"
+                            owners = grouped.setdefault(key, {})
+                            owners[sid], owners[other_id] = name, other_name
+        conflicts = [{"file": key, "streams": [{"id": sid, "name": name} for sid, name in sorted(owners.items())]} for key, owners in sorted(grouped.items())]
         return conflicts
     finally:
         if owns_conn:

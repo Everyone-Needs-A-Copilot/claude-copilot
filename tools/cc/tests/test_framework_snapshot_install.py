@@ -847,11 +847,14 @@ def test_full_repository_real_installer_succeeds_in_isolated_home(
         codex_runner=_FakeCodexRunner(),
     )
 
+    # The real release publishes protocol and lifecycle entrypoints globally;
+    # synthetic six-command fixtures elsewhere retain their original contract.
+    release_commands = (*MACHINE_COMMANDS, "protocol.md", "orchestrate.md", "cleanup.md", "continue.md")
     snapshot = Path(report["snapshot"])
     shim = home / ".local" / "bin" / "cc"
     active = json.loads((home / ".copilot" / "framework-runtime.json").read_text())
     assert report["result"] == "installed"
-    assert report["machine_commands"] == list(MACHINE_COMMANDS)
+    assert report["machine_commands"] == list(release_commands)
     assert report["machine_skills"] == ["new-product"]
     installed_skill = home / ".claude" / "skills" / "new-product"
     assert (installed_skill / "SKILL.md").is_file()
@@ -874,9 +877,9 @@ def test_full_repository_real_installer_succeeds_in_isolated_home(
     assert active["source_tree"] == tree
     assert active["snapshot"] == str(snapshot)
     assert [item["name"] for item in active["machine_commands"]] == list(
-        MACHINE_COMMANDS
+        release_commands
     )
-    for name in MACHINE_COMMANDS:
+    for name in release_commands:
         assert (home / ".claude" / "commands" / name).read_bytes() == (
             snapshot / ".claude" / "commands" / name
         ).read_bytes()

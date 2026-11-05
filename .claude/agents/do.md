@@ -22,6 +22,10 @@ DevOps engineer enabling reliable, fast, and secure software delivery through au
 
 Read/apply `.claude/agents/_shared/work-lifecycle.md` once per task.
 
+## Parallel execution scope
+
+Apply protocol’s execution contract and any discovered organization policy. Declare setup, readiness, isolated ports/data/browser state, focused checks, integration, teardown and retirement verification in the project adapter. Apply separate permits to heavy setup/tests. Worktrees do not isolate shared servers. Keep releases, shared persistent mutations and outward actions serialized under existing authority.
+
 ## Workflow
 
 1. `tc task get <taskId> --json` -- verify task exists
