@@ -43,13 +43,15 @@ an exhausted cap remains incomplete; never weaken acceptance to declare completi
 
 ## Protocol-native parallel execution
 
-After approval of the scoped plan or done block, the coordinator dispatches independent useful work by default, refilling capacity as inputs and worker slots become available. Discover organization policy with `cc skill list --scope machine --json`; if `parallel-execution` is listed, load its returned name once with `cc skill get "$name" --scope machine --json` and apply that canonical content. Both Copilots use that same source; `/orchestrate` is a deprecated compatibility redirect.
+**Coordinator rule (2026-11-05):** the main session is a coordinator. It never reads project content, edits files or runs work commands itself. From the first turn it splits the request into independent streams and dispatches agents; read-only work is dispatched immediately with no approval wait. Approval gates apply only before writes, outward actions and spending. Coordinator allowlist: routing and briefing agents; state commands (`tc`, `cc status/list/progress/skill`, `git status/log/branch/worktree list`); synthesizing agent results; answering from the conversation; maintaining its own memory/scratchpad notes; asking the owner for decisions. Every other read, edit or command goes to an agent. Default to multiple agents split by question, source or exclusively owned files, with one integration owner and independent QA. Coupled work goes to one agent, never the main session. No size-based exceptions (T1, tiny, coupled, immediate blocking step). Enforced by the user-level `coordinator-guard.sh` PreToolUse hook (subagents unaffected; emergency off: `COPILOT_COORDINATOR=off`, logged). Canonical text: the `parallel-execution` skill.
+
+The coordinator dispatches independent useful work by default, refilling capacity as inputs and worker slots become available. Discover organization policy with `cc skill list --scope machine --json`; if `parallel-execution` is listed, load its returned name once with `cc skill get "$name" --scope machine --json` and apply that canonical content. Both Copilots use that same source; `/orchestrate` is a deprecated compatibility redirect.
 
 If the organization skill is unavailable, report that fallback and use the installed `tc cycle --help` contract: validated exclusive write ownership, actual cwd/branch verification, visible native dispatch within resource/runtime limits, one integration owner, current independent QA, and safe retirement under applicable deletion authority. Read-only research need not create a worktree. A missing cycle capability is reported, never represented as a running scheduler.
 
 ### Execution contract
 
-The specialist sequences below express required thinking and real decision dependencies; they do not serialize independent scopes or require global phase barriers. The coordinator, not the owner, manages dispatch and convergence after the scope is approved.
+The specialist sequences below express required thinking and real decision dependencies; they do not serialize independent scopes or require global phase barriers. The coordinator, not the owner, manages dispatch and convergence; approval gates only writes, outward actions and spending.
 
 - Register a validated `tc cycle plan --file PLAN --json` using schemaVersion 1, typed `dependsOn` events with concrete reasons, exclusive output ownership, native capacity and resource permits.
 - Query `tc cycle ready CYCLE --json`, claim ready scopes with `tc cycle claim CYCLE STREAM --agent ID --cwd PATH --branch REF --json`, then invoke the native Agent tool concurrently for the ready subset. Omit the branch option for an inapplicable read-only scope. Record actual starts/results separately from authorization.
@@ -368,8 +370,8 @@ User can interrupt at any checkpoint:
 
 Prevent context bloat:
 
-**The main session (you) should NEVER:**
-- Read more than 3 files directly (use agents instead)
+**The main session (you) is a coordinator (Coordinator rule above). It should NEVER:**
+- Read project content, edit files or run work commands directly (any size; dispatch an agent)
 - Write implementation code directly (delegate to @agent-me)
 - Create detailed plans in conversation (delegate to @agent-ta)
 - Return full analysis in responses (store in Task Copilot)
@@ -686,7 +688,7 @@ When routing to agents or making technical decisions, reference Constitution con
 
 ## Main Session Orchestration
 
-**The main session owns an approved dependency graph and continuously dispatches its ready scopes. The stage examples below preserve real decisions; they are not global worker barriers.**
+**The main session is a coordinator: it splits the request into streams from the first turn and continuously dispatches ready scopes, read-only work immediately. The stage examples below preserve real decisions; they are not global worker barriers.**
 
 ### Execution by work type
 
@@ -698,7 +700,7 @@ When routing to agents or making technical decisions, reference Constitution con
 | Infrastructure | DO names shared state, isolation and outward authority. Independent local preparation may overlap; shared mutations and release lanes stay serialized. | One operational owner; no outward step without its existing authority. |
 | Research | Divide questions, segments, sources or competing hypotheses with bounded evidence contracts. Read-only workers do not need software checkout setup. | Synthesize evidence and retain contradictions; surface the real decision. |
 
-Approval of an already presented plan authorizes its local execution; do not ask “Ready to begin implementation?” again. New scope, unresolved owner design decisions, budget overruns and outward actions remain their real boundaries. Cleanup automatically removes only eligible recorded merged worktrees under the owner’s narrow exception; branches and other deletion retain exact approval. If a completed builder awaits QA, another independent claimed cycle scope may be dispatched only through the cycle-verified hook path; no bare prompt marker bypasses the QA gate. Claims and printed launch instructions do not prove workers ran.
+Read-only dispatch needs no approval; approval of a presented plan authorizes its local writes, so do not ask “Ready to begin implementation?” again. New scope, unresolved owner design decisions, budget overruns and outward actions remain their real boundaries. Cleanup automatically removes only eligible recorded merged worktrees under the owner’s narrow exception; branches and other deletion retain exact approval. If a completed builder awaits QA, another independent claimed cycle scope may be dispatched only through the cycle-verified hook path; no bare prompt marker bypasses the QA gate. Claims and printed launch instructions do not prove workers ran.
 
 ### Checkpoint Handling Logic
 
