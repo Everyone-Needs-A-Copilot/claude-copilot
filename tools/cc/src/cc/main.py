@@ -474,6 +474,24 @@ def freshness_cmd(
     raise typer.Exit(0)
 
 
+def _repoint_framework_roots() -> None:
+    """After a real `cc update`, move snapshot-pinned framework roots to the installed snapshot."""
+    from pathlib import Path
+
+    from cc.core.config_paths import machine_config_path
+    from cc.core.framework_roots import ConfigRepointError, sync_machine_config_to_active_runtime
+
+    try:
+        config_path = machine_config_path()
+        if not config_path.is_file():
+            return  # nothing to repoint; do not resolve the home directory
+        sync_machine_config_to_active_runtime(
+            config_path=config_path, copilot_root=Path.home() / ".copilot"
+        )
+    except (ConfigRepointError, OSError) as exc:
+        typer.echo(f"update: framework source pointer not refreshed: {exc}", err=True)
+
+
 @app.command("update")
 def update_cmd(
     output_json: bool = typer.Option(
@@ -675,6 +693,8 @@ def update_cmd(
 
     if "error" in report:
         exit_code = 2
+    elif not dry_run:
+        _repoint_framework_roots()
 
     if output_json:
         typer.echo(_json.dumps(report))

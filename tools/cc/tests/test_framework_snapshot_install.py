@@ -1182,3 +1182,42 @@ def test_install_leaves_owner_chosen_config_roots_alone(tmp_path: Path):
     other = (tmp_path / "other").resolve()
     _install(repo, commit, tree, other)
     assert not (other / ".claude" / "cc" / "config.json").exists()
+
+
+def _codex_cache(home: Path) -> Path:
+    return home / ".codex" / "plugins" / "cache"
+
+
+def test_invalid_machine_config_refuses_before_any_side_effect(tmp_path: Path):
+    repo, commit, tree = _source_repository(tmp_path)
+    home = (tmp_path / "home").resolve()
+    config = home / ".claude" / "cc" / "config.json"
+    _write(config, "{bad")
+    with pytest.raises(installer.FrameworkInstallError, match="not valid JSON"):
+        _install(repo, commit, tree, home, claude_only=False)
+    assert config.read_text() == "{bad"
+    assert not (home / ".copilot" / "framework-snapshots" / f"claude-copilot-{commit}").exists()
+    # Refused before the Codex step ran at all: no runner was ever created for it.
+    assert home not in _FAKE_CODEX_RUNNERS or _FAKE_CODEX_RUNNERS[home].plugins == {}
+    assert not _codex_cache(home).exists()
+    assert not (home / ".copilot" / "framework-runtime.json").exists()
+
+
+def test_refused_settings_after_plugin_install_rolls_the_plugin_back(tmp_path: Path):
+    repo, commit, tree = _source_repository(tmp_path, guard=GUARD_SCRIPT)
+    home = (tmp_path / "home").resolve()
+    _write(home / ".claude" / "settings.json", "{not json")
+    with pytest.raises(installer.FrameworkInstallError, match="settings.json"):
+        _install(repo, commit, tree, home, claude_only=False)
+    assert _FAKE_CODEX_RUNNERS[home].plugins == {}
+
+
+def test_config_repoint_preserves_existing_indent(tmp_path: Path):
+    repo, commit, tree = _source_repository(tmp_path)
+    home = (tmp_path / "home").resolve()
+    stale = home / ".copilot" / "framework-snapshots" / ("claude-copilot-" + "8" * 40)
+    config = home / ".claude" / "cc" / "config.json"
+    raw = '{\n    "paths": {\n        "claude_copilot_root": "%s"\n    }\n}\n' % stale
+    _write(config, raw)
+    report = _install(repo, commit, tree, home)
+    assert config.read_text() == raw.replace(str(stale), report["snapshot"])

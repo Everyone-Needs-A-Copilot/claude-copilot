@@ -942,12 +942,13 @@ _SNAPSHOT_ROOT_KEYS = ("claude_copilot_root", "codex_copilot_root")
 def _config_with_snapshot_roots(
     existing: bytes, snapshots_root: Path, snapshot: Path
 ) -> bytes:
-    """Machine config with snapshot-pinned `paths.*_copilot_root` moved to `snapshot`.
+    """Standard-library copy of cc's framework_roots.config_with_snapshot_roots().
 
-    `cc reconcile` reads these keys as the framework source, so a pointer left
-    at an older snapshot makes every project reconcile to that older release.
-    Only a value that already names a snapshot is repointed; a path the owner
-    chose (a checkout, ~/.claude/copilot, a mirror) is never touched.
+    `cc reconcile` reads `paths.*_copilot_root` as the framework source, so a
+    pointer left at an older snapshot makes every project reconcile to that
+    release. Only a value that already names a snapshot is repointed; a path the
+    owner chose is never touched. Keep in step with the cc copy (a test compares
+    them).
     """
     try:
         config = json.loads(existing.decode("utf-8"))
@@ -962,17 +963,15 @@ def _config_with_snapshot_roots(
     changed = False
     for key in _SNAPSHOT_ROOT_KEYS:
         value = paths.get(key)
-        if (
-            isinstance(value, str)
-            and value.startswith(prefixes)
-            and value != str(snapshot)
-        ):
+        if isinstance(value, str) and value.startswith(prefixes) and value != str(snapshot):
             paths[key] = str(snapshot)
             changed = True
     if not changed:
         return existing
-    indent = 2 if existing.startswith(b"{\n") else None
-    return (json.dumps(config, indent=indent) + "\n").encode("utf-8")
+    match = re.search(rb"^\{\s*\n([ \t]+)\S", existing)
+    indent = match.group(1).decode("ascii") if match else None
+    text = json.dumps(config, indent=indent)
+    return (text + ("\n" if existing.endswith(b"\n") or indent else "")).encode("utf-8")
 
 
 def _prune_empty_directories(skills_root: Path, skill: SkillArtifact) -> None:
@@ -1103,6 +1102,23 @@ def install_framework_snapshot(
     lock_path = copilot_root / "framework-install.lock"
     with _install_lock(lock_path):
         snapshot = snapshots_root / f"claude-copilot-{commit}"
+        # Every precondition that can refuse the install is checked before the
+        # first side effect (snapshot, cc build, Codex plugin), so a refusal
+        # leaves the machine exactly as it was.
+        config_path = home_root / ".claude" / "cc" / "config.json"
+        config_current = _capture_regular_file(config_path)
+        config_guard_target: tuple[Path, bytes, int, str] | None = None
+        if config_current.exists:
+            config_payload = _config_with_snapshot_roots(
+                config_current.payload, snapshots_root, snapshot
+            )
+            if config_payload != config_current.payload:
+                config_guard_target = (
+                    config_path,
+                    config_payload,
+                    config_current.mode & 0o777 or 0o600,
+                    _sha256(config_payload),
+                )
         existed_before = snapshot.exists() or snapshot.is_symlink()
         snapshot = _materialize_snapshot(source, snapshots_root, commit, tree)
         operation_root = copilot_root / f".framework-install-{uuid.uuid4().hex}"
@@ -1156,88 +1172,89 @@ def install_framework_snapshot(
                     )
                 except CodexPluginError as exc:
                     raise FrameworkInstallError(str(exc)) from exc
-            guard_payload = _load_coordinator_guard(snapshot)
-            guard_targets: list[tuple[Path, bytes, int, str]] = []
-            if guard_payload is not None:
-                settings_path = home_root / ".claude" / "settings.json"
-                current = _capture_regular_file(settings_path)
-                settings_payload = _settings_with_guard(
-                    current.payload if current.exists else None
-                )
-                settings_mode = (
-                    current.mode & 0o777 if current.exists and current.mode else 0o600
-                )
-                guard_targets = [
-                    (
-                        home_root / ".claude" / "hooks" / "coordinator-guard.sh",
-                        guard_payload,
-                        0o755,
-                        _sha256(guard_payload),
-                    ),
-                    (settings_path, settings_payload, settings_mode, _sha256(settings_payload)),
-                ]
-            config_path = home_root / ".claude" / "cc" / "config.json"
-            config_current = _capture_regular_file(config_path)
-            if config_current.exists:
-                config_payload = _config_with_snapshot_roots(
-                    config_current.payload, snapshots_root, snapshot
-                )
-                if config_payload != config_current.payload:
-                    guard_targets.append(
-                        (
-                            config_path,
-                            config_payload,
-                            config_current.mode & 0o777 or 0o600,
-                            _sha256(config_payload),
-                        )
+            # Steps between the Codex plugin install and publication can still
+            # refuse (invalid settings.json, malformed guard); undo the plugin
+            # so a refusal never leaves it installed.
+            try:
+                guard_payload = _load_coordinator_guard(snapshot)
+                guard_targets: list[tuple[Path, bytes, int, str]] = []
+                if guard_payload is not None:
+                    settings_path = home_root / ".claude" / "settings.json"
+                    current = _capture_regular_file(settings_path)
+                    settings_payload = _settings_with_guard(
+                        current.payload if current.exists else None
                     )
-            manifest = {
-                "schema_version": "1.0",
-                "source_commit": commit,
-                "source_tree": tree,
-                "snapshot": str(snapshot),
-                "cc": {
-                    "path": str(home_root / ".local" / "bin" / "cc"),
-                    "sha256": shim_checksum,
-                },
-                "tc": {**tc_receipt, "path": str(shim_root / "tc"), "sha256": _sha256(tc_payload)},
-                "machine_commands": [
-                    {"name": item.name, "sha256": item.checksum} for item in commands
-                ],
-                **(
-                    {"coordinator_guard": {"sha256": _sha256(guard_payload)}}
-                    if guard_payload is not None
-                    else {}
-                ),
-                "machine_skills": [
-                    {
-                        "name": skill.name,
-                        "files": {item.relative: item.checksum for item in skill.files},
+                    settings_mode = (
+                        current.mode & 0o777 if current.exists and current.mode else 0o600
+                    )
+                    guard_targets = [
+                        (
+                            home_root / ".claude" / "hooks" / "coordinator-guard.sh",
+                            guard_payload,
+                            0o755,
+                            _sha256(guard_payload),
+                        ),
+                        (settings_path, settings_payload, settings_mode, _sha256(settings_payload)),
+                    ]
+                if config_guard_target is not None:
+                    guard_targets.append(config_guard_target)
+                manifest = {
+                    "schema_version": "1.0",
+                    "source_commit": commit,
+                    "source_tree": tree,
+                    "snapshot": str(snapshot),
+                    "cc": {
+                        "path": str(home_root / ".local" / "bin" / "cc"),
+                        "sha256": shim_checksum,
+                    },
+                    "tc": {**tc_receipt, "path": str(shim_root / "tc"), "sha256": _sha256(tc_payload)},
+                    "machine_commands": [
+                        {"name": item.name, "sha256": item.checksum} for item in commands
+                    ],
+                    **(
+                        {"coordinator_guard": {"sha256": _sha256(guard_payload)}}
+                        if guard_payload is not None
+                        else {}
+                    ),
+                    "machine_skills": [
+                        {
+                            "name": skill.name,
+                            "files": {item.relative: item.checksum for item in skill.files},
+                        }
+                        for skill in skills
+                    ],
+                }
+                if plugin_transaction is not None:
+                    plugin = plugin_transaction.receipt
+                    manifest["codex_plugin"] = {
+                        "plugin_id": plugin.plugin_id,
+                        "marketplace": plugin.marketplace,
+                        "marketplace_source": plugin.marketplace_source,
+                        "plugin_source": plugin.plugin_source,
+                        "installed_path": plugin.installed_path,
+                        "manifest_sha256": plugin.manifest_sha256,
+                        "tree_sha256": plugin.tree_sha256,
                     }
-                    for skill in skills
-                ],
-            }
-            if plugin_transaction is not None:
-                plugin = plugin_transaction.receipt
-                manifest["codex_plugin"] = {
-                    "plugin_id": plugin.plugin_id,
-                    "marketplace": plugin.marketplace,
-                    "marketplace_source": plugin.marketplace_source,
-                    "plugin_source": plugin.plugin_source,
-                    "installed_path": plugin.installed_path,
-                    "manifest_sha256": plugin.manifest_sha256,
-                    "tree_sha256": plugin.tree_sha256,
-                }
-            else:
-                # Do not copy a stale receipt or imply unselected Codex was
-                # inspected. Its registrations and files remain untouched.
-                manifest["installation_scope"] = {
-                    "selected": ["claude", "cc", "tc"],
-                    "unselected": ["codex"],
-                }
-            manifest_payload = (
-                json.dumps(manifest, indent=2, sort_keys=True) + "\n"
-            ).encode("utf-8")
+                else:
+                    # Do not copy a stale receipt or imply unselected Codex was
+                    # inspected. Its registrations and files remain untouched.
+                    manifest["installation_scope"] = {
+                        "selected": ["claude", "cc", "tc"],
+                        "unselected": ["codex"],
+                    }
+                manifest_payload = (
+                    json.dumps(manifest, indent=2, sort_keys=True) + "\n"
+                ).encode("utf-8")
+            except BaseException as prepare_error:
+                try:
+                    if plugin_transaction is not None:
+                        plugin_transaction.rollback()
+                except BaseException as rollback_error:
+                    raise FrameworkInstallError(
+                        "install refused and Codex plugin rollback was "
+                        f"incomplete: {rollback_error}"
+                    ) from prepare_error
+                raise
             try:
                 published_changed = _publish_runtime(
                     commands=commands,
