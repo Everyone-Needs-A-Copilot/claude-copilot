@@ -25,6 +25,7 @@ PROFILES = {
     "ops": ("postgres:18", "/var/lib/postgresql", "ops_dev_local"),
     "convoco": ("pgvector/pgvector:pg16", "/var/lib/postgresql/data", "postgres"),
     "postgres": ("postgres:16-alpine", "/var/lib/postgresql/data", "postgres"),
+    "mysql": ("mysql:8.4", "/var/lib/mysql", "h3_testing"),
 }
 RETENTION = 48 * 3600
 
@@ -305,6 +306,8 @@ class Manager:
             docker = self.docker or Docker()
             docker.capacity()
             image, mount, database = PROFILES[profile]
+            mysql = profile == "mysql"
+            server_port = "3306" if mysql else "5432"
             image_id = docker.call("image", "inspect", image, "--format", "{{.Id}}")
             if not image_id.startswith("sha256:"):
                 raise Hold(
@@ -329,6 +332,7 @@ class Manager:
                 mount=mount,
                 image_id=image_id,
                 database=database,
+                engine="mysql" if mysql else "postgres",
                 status="creating",
             )
             record["labels"] = {
@@ -370,13 +374,28 @@ class Manager:
                     "--mount",
                     f"type=volume,src={record['volume']},dst={mount}",
                     "-p",
-                    "127.0.0.1::5432",
-                    "-e",
-                    "POSTGRES_USER=cc_synthetic",
-                    "-e",
-                    "POSTGRES_PASSWORD=" + password,
-                    "-e",
-                    "POSTGRES_DB=" + database,
+                    "127.0.0.1::" + server_port,
+                    *(
+                        [
+                            "-e",
+                            "MYSQL_USER=cc_synthetic",
+                            "-e",
+                            "MYSQL_PASSWORD=" + password,
+                            "-e",
+                            "MYSQL_DATABASE=" + database,
+                            "-e",
+                            "MYSQL_ROOT_PASSWORD=" + secrets.token_hex(24),
+                        ]
+                        if mysql
+                        else [
+                            "-e",
+                            "POSTGRES_USER=cc_synthetic",
+                            "-e",
+                            "POSTGRES_PASSWORD=" + password,
+                            "-e",
+                            "POSTGRES_DB=" + database,
+                        ]
+                    ),
                     image_id,
                 )
                 self.save(record)
@@ -384,44 +403,96 @@ class Manager:
                 docker.call("start", record["container"])
                 deadline = time.monotonic() + 60
                 while time.monotonic() < deadline:
-                    ready = docker.call(
-                        "exec",
-                        record["container"],
-                        "pg_isready",
-                        "-h",
-                        "127.0.0.1",
-                        "-U",
-                        "cc_synthetic",
-                        "-d",
-                        database,
-                        check=False,
+                    readiness = (
+                        [
+                            "exec",
+                            "-e",
+                            "MYSQL_PWD=" + password,
+                            record["container"],
+                            "mysql",
+                            "--protocol=tcp",
+                            "-h",
+                            "127.0.0.1",
+                            "-u",
+                            "cc_synthetic",
+                            "-Nse",
+                            "SELECT 1",
+                            database,
+                        ]
+                        if mysql
+                        else [
+                            "exec",
+                            record["container"],
+                            "pg_isready",
+                            "-h",
+                            "127.0.0.1",
+                            "-U",
+                            "cc_synthetic",
+                            "-d",
+                            database,
+                        ]
                     )
-                    if "accepting connections" in ready:
+                    ready = docker.call(*readiness, check=False)
+                    if ready == "1" if mysql else "accepting connections" in ready:
                         break
                     time.sleep(0.5)
                 else:
-                    raise Hold("Test PostgreSQL readiness timed out after 60 seconds.")
+                    raise Hold("Test database readiness timed out after 60 seconds.")
                 port = json.loads(docker.call("inspect", record["container"]))[0][
                     "NetworkSettings"
-                ]["Ports"]["5432/tcp"]
+                ]["Ports"][server_port + "/tcp"]
                 if len(port) != 1 or port[0]["HostIp"] != "127.0.0.1":
-                    raise Hold("Test PostgreSQL was not bound exclusively to loopback.")
+                    raise Hold("Test database was not bound exclusively to loopback.")
                 record.update(port=port[0]["HostPort"], status="active")
                 self.save(record)
-                url = f"postgresql+asyncpg://cc_synthetic:{password}@127.0.0.1:{record['port']}/{database}"
+                if mysql:
+                    url = f"mysql://cc_synthetic:{password}@127.0.0.1:{record['port']}/{database}"
+                    settings = dict(
+                        DB_CONNECTION="mysql-test",
+                        DB_HOST="127.0.0.1",
+                        DB_PORT=record["port"],
+                        DB_DATABASE=database,
+                        DB_USERNAME="cc_synthetic",
+                        DB_PASSWORD=password,
+                        DB_TEST_HOST="127.0.0.1",
+                        DB_TEST_PORT=record["port"],
+                        DB_TEST_DATABASE=database,
+                        DB_TEST_USERNAME="cc_synthetic",
+                        DB_TEST_PASSWORD=password,
+                        MYSQL_HOST="127.0.0.1",
+                        MYSQL_TCP_PORT=record["port"],
+                        MYSQL_USER="cc_synthetic",
+                        MYSQL_PWD=password,
+                        MYSQL_DATABASE=database,
+                        DATABASE_URL=url,
+                        TEST_DATABASE_URL=url,
+                        DB_URL=url,
+                    )
+                else:
+                    url = f"postgresql+asyncpg://cc_synthetic:{password}@127.0.0.1:{record['port']}/{database}"
+                    settings = dict(
+                        PGHOST="127.0.0.1",
+                        PGPORT=record["port"],
+                        PGUSER="cc_synthetic",
+                        PGPASSWORD=password,
+                        PGDATABASE=database,
+                        DATABASE_URL=url,
+                        TEST_DATABASE_URL=url,
+                        OPS_M1_TEST_SERVER=url,
+                    )
                 env = dict(
                     os.environ,
-                    PGHOST="127.0.0.1",
-                    PGPORT=record["port"],
-                    PGUSER="cc_synthetic",
-                    PGPASSWORD=password,
-                    PGDATABASE=database,
-                    DATABASE_URL=url,
-                    TEST_DATABASE_URL=url,
-                    OPS_M1_TEST_SERVER=url,
+                    **settings,
                     CC_TEST_RUN_ID=run_id,
                     CC_TEST_TOKEN=record["labels"][PREFIX + "token"],
                 )
+                if mysql:
+                    for key in list(env):
+                        if key.startswith("PG") or key in {
+                            "OPS_M1_TEST_SERVER",
+                            "MYSQL_ROOT_PASSWORD",
+                        }:
+                            env.pop(key, None)
                 # Never inherit URLs pointing to application servers into managed runs.
                 for key in (
                     "ASK_TEST_DATABASE_URL",
@@ -520,10 +591,39 @@ class Manager:
             or not container["State"]["Running"]
             or record["project"] != str(Path(project).resolve())
             or os.environ.get("CC_TEST_TOKEN") != record["labels"][PREFIX + "token"]
-            or os.environ.get("PGHOST") != "127.0.0.1"
-            or os.environ.get("PGPORT") != record["port"]
-            or os.environ.get("PGUSER") != env.get("POSTGRES_USER")
-            or os.environ.get("PGPASSWORD") != env.get("POSTGRES_PASSWORD")
+        ):
+            raise Hold(
+                "Connection settings do not match the active managed test server."
+            )
+        mysql = record.get("engine") == "mysql"
+        if mysql:
+            expected = {
+                "DB_CONNECTION": "mysql-test",
+                "DB_HOST": "127.0.0.1",
+                "DB_PORT": record["port"],
+                "DB_DATABASE": record["database"],
+                "DB_USERNAME": env.get("MYSQL_USER"),
+                "DB_PASSWORD": env.get("MYSQL_PASSWORD"),
+                "DB_TEST_HOST": "127.0.0.1",
+                "DB_TEST_PORT": record["port"],
+                "DB_TEST_DATABASE": record["database"],
+                "DB_TEST_USERNAME": env.get("MYSQL_USER"),
+                "DB_TEST_PASSWORD": env.get("MYSQL_PASSWORD"),
+                "MYSQL_HOST": "127.0.0.1",
+                "MYSQL_TCP_PORT": record["port"],
+                "MYSQL_USER": env.get("MYSQL_USER"),
+                "MYSQL_PWD": env.get("MYSQL_PASSWORD"),
+                "MYSQL_DATABASE": record["database"],
+            }
+        else:
+            expected = {
+                "PGHOST": "127.0.0.1",
+                "PGPORT": record["port"],
+                "PGUSER": env.get("POSTGRES_USER"),
+                "PGPASSWORD": env.get("POSTGRES_PASSWORD"),
+            }
+        if any(
+            not value or os.environ.get(key) != value for key, value in expected.items()
         ):
             raise Hold(
                 "Connection settings do not match the active managed test server."
@@ -534,17 +634,24 @@ class Manager:
             "OPS_M1_TEST_SERVER",
             "ASK_TEST_DATABASE_URL",
             "SESSION_TEST_DATABASE_URL",
+            *(["DB_URL"] if mysql else []),
         ):
             if not os.environ.get(key):
                 continue
             url = urlsplit(os.environ[key])
             if (
                 url.scheme
-                not in {"postgresql", "postgresql+asyncpg", "postgresql+psycopg"}
+                not in (
+                    {"mysql", "mysql+pymysql"}
+                    if mysql
+                    else {"postgresql", "postgresql+asyncpg", "postgresql+psycopg"}
+                )
                 or url.hostname != "127.0.0.1"
                 or str(url.port) != record["port"]
-                or url.username != env.get("POSTGRES_USER")
-                or url.password != env.get("POSTGRES_PASSWORD")
+                or url.username != env.get("MYSQL_USER" if mysql else "POSTGRES_USER")
+                or url.password
+                != env.get("MYSQL_PASSWORD" if mysql else "POSTGRES_PASSWORD")
+                or (mysql and url.path != "/" + record["database"])
                 or url.query
                 or url.fragment
             ):
@@ -562,17 +669,34 @@ class Manager:
                     docker, container, _ = self.verify(record)
                     item["running"] = bool(container and container["State"]["Running"])
                     if item["running"]:
-                        count = docker.call(
-                            "exec",
-                            record["container"],
-                            "psql",
-                            "-U",
-                            "cc_synthetic",
-                            "-d",
-                            "postgres",
-                            "-Atc",
-                            "SELECT count(*) FROM pg_database WHERE NOT datistemplate",
-                        )
+                        if record.get("engine") == "mysql":
+                            credentials = dict(
+                                item.split("=", 1)
+                                for item in container["Config"]["Env"]
+                            )
+                            count = docker.call(
+                                "exec",
+                                "-e",
+                                "MYSQL_PWD=" + credentials["MYSQL_PASSWORD"],
+                                record["container"],
+                                "mysql",
+                                "-u",
+                                "cc_synthetic",
+                                "-Nse",
+                                "SELECT count(*) FROM information_schema.schemata",
+                            )
+                        else:
+                            count = docker.call(
+                                "exec",
+                                record["container"],
+                                "psql",
+                                "-U",
+                                "cc_synthetic",
+                                "-d",
+                                "postgres",
+                                "-Atc",
+                                "SELECT count(*) FROM pg_database WHERE NOT datistemplate",
+                            )
                         item["databases"] = int(count)
                 except (Hold, OSError, ValueError, subprocess.SubprocessError) as exc:
                     item["hold"] = str(exc)

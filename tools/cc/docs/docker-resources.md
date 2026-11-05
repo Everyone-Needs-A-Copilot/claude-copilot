@@ -110,3 +110,53 @@ runner or incomplete creation receipt is a reported hold requiring inspection,
 not a license to guess ownership. The hourly report retains the current result;
 run receipts retain bounded diagnostic evidence. Task/source worktrees and the
 installed snapshot remain active deliverables; no old audit history was deleted.
+
+## MySQL synthetic servers
+
+The `mysql` profile adds a fresh upstream `mysql:8.4` server at `/var/lib/mysql`
+with database `h3_testing` and user `cc_synthetic`. It has the same private creation
+receipts, exclusive volume ownership, project locks, capacity limits, loopback-only
+random published port, stopped failure retention and identity-checked cleanup as
+PostgreSQL profiles. Only the locally cached image is used (`--pull=never`). Do not
+substitute an application container snapshot for a missing upstream image.
+MySQL 8.4 satisfies H3's MySQL 8.0+ runtime requirement; it does not establish
+byte-for-byte parity with another deployed MySQL minor version.
+
+Use `--profile mysql` with the existing command. The child receives `DB_*` and
+`DB_TEST_*` host/port/database/username/password settings, `DB_CONNECTION=mysql-test`,
+`MYSQL_HOST`, `MYSQL_TCP_PORT`, `MYSQL_USER`, `MYSQL_PWD`, `MYSQL_DATABASE`, and
+matching `DATABASE_URL`, `TEST_DATABASE_URL` and `DB_URL`. PostgreSQL settings and
+inherited application URLs are removed or replaced. Passwords are freshly generated;
+the root password remains inside the synthetic container and is not supplied to the
+child. Neither password is written into the private creation receipt.
+
+Run `cc resources validate-env --project PATH` before migrations or fixtures. It
+checks the active run, task ownership token, exact project, Docker identity, MySQL
+connection settings and URLs, rejecting application hosts, ports, databases,
+credentials, query overrides and PostgreSQL URL schemes. A containerized application
+adapter should first validate the host-side managed environment and then explicitly
+translate only the connection route into its own isolated container; do not expose
+an application database fallback. Never import production data into this server.
+
+This is one shared `cc` implementation for Claude Copilot and Codex Copilot. Both
+runtimes invoke the same `cc resources` commands; no agent-specific engine or
+second registry exists. For a retained development checkout without system-wide
+installation, use its source explicitly:
+
+```sh
+PYTHONPATH=/path/to/claude-copilot/tools/cc/src \
+  /path/to/verified/cc-venv/bin/python -m cc.main resources run \
+  --project /path/to/project --task TASK-ID --profile mysql -- COMMAND
+```
+
+Use the same prefix with `resources validate-env`, `status` or `finish RUN_ID`.
+The selected Python needs the existing cc CLI dependencies; focused test development
+also needs pytest. No installer, hourly job or system-wide executable change is
+required for this scoped invocation. Preserve the source checkout while a run uses
+it; inspect and finish any retained failures before retiring its recovery path.
+
+Task-108 supporting-tool verification covered the unchanged 33 original manager
+checks plus 33 MySQL cases, and real MySQL success cleanup, failed-run stopped
+retention, explicit finish, and preservation of every pre-existing container and
+volume. These checks prove managed infrastructure behavior; H3 application behavior
+requires its own synthetic fixtures and acceptance evidence.
