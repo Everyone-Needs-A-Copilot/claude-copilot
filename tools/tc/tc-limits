@@ -1,0 +1,6 @@
+#!/bin/sh
+# Compatibility name: use the maintained tc interpreter and command surface.
+case "${1:-}" in
+  --help|-h) printf "%s\n" "tc-limits is a compatibility alias of tc. Guide: tools/tc/CLI.md in claude-copilot." ;;
+esac
+exec tc "$@"

@@ -43,6 +43,7 @@ def journey_begin(
     session: str = typer.Option(..., "--session"),
     output_json: bool = typer.Option(False, "--json"),
 ) -> None:
+    """Record a task journey with runtime, prompt and planned specialist evidence."""
     del output_json
     _emit(lambda: begin_run(
         task_id=task, runtime=runtime, classification=classification,
@@ -57,6 +58,7 @@ def journey_prepare(
     specialist: str = typer.Option(..., "--specialist"),
     output_json: bool = typer.Option(False, "--json"),
 ) -> None:
+    """Prepare the next specialist dispatch and return its evidence marker."""
     del output_json
     _emit(lambda: prepare_run(run, specialist).public_dict())
 
@@ -66,6 +68,7 @@ def journey_inspect(
     run: str = typer.Option(..., "--run"),
     output_json: bool = typer.Option(False, "--json"),
 ) -> None:
+    """Read the recorded state of one journey run."""
     del output_json
     _emit(lambda: inspect_run(run))
 
@@ -87,6 +90,7 @@ def journey_pause(
     run: str = typer.Option(..., "--run"),
     output_json: bool = typer.Option(False, "--json"),
 ) -> None:
+    """Record a continuation point for the selected journey."""
     del output_json
     _emit(lambda: pause_run(run))
 
@@ -109,6 +113,7 @@ def journey_resume(
     run: str | None = typer.Option(None, "--run"),
     output_json: bool = typer.Option(False, "--json"),
 ) -> None:
+    """Resume a recorded journey for the selected task."""
     del output_json
     _emit(lambda: resume_run(task, run_id=run))
 
@@ -122,6 +127,7 @@ def journey_verify_dispatch(
     knowledge_sha256: str = typer.Option("", "--knowledge-sha256"),
     output_json: bool = typer.Option(False, "--json"),
 ) -> None:
+    """Verify a dispatch against its session, specialist and exact prompt identity."""
     del output_json
     try:
         value = verify_dispatch(

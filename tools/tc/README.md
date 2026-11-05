@@ -525,3 +525,5 @@ authorization references without turning them into QA approval.
 These controls are local execution discipline, not a security boundary against
 an actor who can edit the SQLite database, manufacture reports, or bypass tc.
 Existing QA evidence and test-integrity requirements remain the acceptance gate.
+
+CLI discovery, intent, effects and recovery: [CLI guide](CLI.md).
