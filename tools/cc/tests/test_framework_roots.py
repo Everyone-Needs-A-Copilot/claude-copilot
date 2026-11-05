@@ -59,7 +59,7 @@ def test_cc_update_repoints_stale_snapshot_roots(tmp_path, monkeypatch):
     assert result.exit_code == 0, result.output
     paths = json.loads(config.read_text())["paths"]
     assert paths["claude_copilot_root"] == str(snaps / f"claude-copilot-{NEW}")
-    assert paths["codex_copilot_root"] == str(snaps / f"claude-copilot-{NEW}")
+    assert paths["codex_copilot_root"] == str(snaps / f"claude-copilot-{OLD}")
     assert paths["repositories_root"] == "/keep"
     assert config.read_text().startswith('{\n  "paths"')
 
@@ -105,3 +105,93 @@ def test_installer_and_cc_repoint_functions_agree(tmp_path):
         assert module._config_with_snapshot_roots(raw.encode(), snaps, new) == (
             config_with_snapshot_roots(raw.encode(), snaps, new)
         )
+
+
+# --- Codex root: the pinned codex-foundation layer, never a Claude snapshot -----
+
+import subprocess  # noqa: E402
+
+import pytest  # noqa: E402
+import yaml  # noqa: E402
+from cc.core.ecosystem.reconciliation_recipes import (  # noqa: E402
+    _lock_entry,
+    validated_source_root,
+)
+from cc.core.framework_roots import (  # noqa: E402
+    codex_foundation_root,
+    effective_codex_root,
+    names_claude_snapshot,
+)
+
+
+def _plugin(root: Path, version: str) -> None:
+    manifest = root / "plugins/codex-copilot/.codex-plugin/plugin.json"
+    manifest.parent.mkdir(parents=True, exist_ok=True)
+    manifest.write_text(json.dumps({"name": "codex-copilot", "version": version}))
+    gate = root / "scripts/copilot-gate.sh"
+    gate.parent.mkdir(parents=True, exist_ok=True)
+    gate.write_text("#!/bin/sh\n")
+
+
+def _foundation(tmp_path: Path, version: str = "0.16.3") -> tuple[Path, Path]:
+    repo = tmp_path / "codex-copilot"
+    repo.mkdir()
+    _plugin(repo, version)
+    git = ("git", "-c", "user.name=T", "-c", "user.email=t@t.invalid", "-c", "commit.gpgsign=false", "-c", "tag.gpgsign=false")
+    subprocess.run(("git", "init", "-q", str(repo)), check=True)
+    subprocess.run((*git, "-C", str(repo), "add", "-A"), check=True)
+    subprocess.run((*git, "-C", str(repo), "commit", "-qm", "r"), check=True)
+    subprocess.run((*git, "-C", str(repo), "tag", f"v{version}"), check=True)
+    manifest = tmp_path / "copilot.layers.yml"
+    manifest.write_text(yaml.safe_dump({"version": 1, "layers": [{
+        "id": "codex-foundation", "role": "foundation", "rank": 40, "product": "codex",
+        "source": {"repo": "https://example.invalid/codex-copilot.git",
+                   "ref": f"v{version}", "path": str(repo)},
+        "auth": "anon", "activation": "always", "policy": {"allowed_signers": ["x"]},
+    }]}))
+    return repo, manifest
+
+
+def test_claude_snapshot_is_recognised_and_other_paths_are_not(tmp_path):
+    snap = f"/h/.copilot/framework-snapshots/claude-copilot-{NEW}"
+    assert names_claude_snapshot(snap) and names_claude_snapshot(snap + "/plugins/x")
+    assert not names_claude_snapshot("/Volumes/Dev/Sites/CSE/codex-copilot")
+    assert not names_claude_snapshot(f"/h/claude-copilot-{NEW}")
+
+
+def test_codex_root_pointing_at_a_claude_snapshot_resolves_to_the_pinned_foundation(tmp_path):
+    repo, manifest = _foundation(tmp_path)
+    snap = f"/h/.copilot/framework-snapshots/claude-copilot-{NEW}"
+    assert codex_foundation_root(manifest) == repo
+    assert effective_codex_root(snap, manifest) == repo
+    assert effective_codex_root("/mine/codex", manifest) == "/mine/codex"
+
+
+def test_foundation_not_at_its_pinned_ref_is_refused(tmp_path):
+    repo, manifest = _foundation(tmp_path)
+    (repo / "x").write_text("x")
+    git = ("git", "-c", "user.name=T", "-c", "user.email=t@t.invalid", "-c", "commit.gpgsign=false")
+    subprocess.run(("git", "-C", str(repo), "add", "-A"), check=True)
+    subprocess.run((*git, "-C", str(repo), "commit", "-qm", "later"), check=True)
+    assert codex_foundation_root(manifest) is None
+
+
+def test_delivered_codex_files_match_the_recorded_version(tmp_path, monkeypatch):
+    """The lock's Codex version and the plugin files delivered come from one release.
+
+    A Claude snapshot bundles Codex 0.16.0; the pinned foundation is 0.16.3.
+    """
+    repo, manifest = _foundation(tmp_path, "0.16.3")
+    bundled = tmp_path / "home/.copilot/framework-snapshots" / f"claude-copilot-{NEW}"
+    _plugin(bundled, "0.16.0")
+    monkeypatch.setenv("CC_LAYERS_MANIFEST", str(manifest))
+    monkeypatch.setenv("CC_PATHS_CODEX_COPILOT_ROOT", str(bundled))
+    monkeypatch.setenv("CC_PATHS_MIRRORS_ROOT", str(tmp_path / "mirrors"))
+    bundled.chmod(0o755)
+    source = validated_source_root("codex")
+    assert source == repo.resolve()
+    entry = _lock_entry(source, "codex", codex_binding=None)
+    delivered = json.loads(
+        (source / "plugins/codex-copilot/.codex-plugin/plugin.json").read_text()
+    )["version"]
+    assert entry["version"] == delivered == "0.16.3"

@@ -25,6 +25,7 @@ from cc.core.ecosystem.canonical_transaction import (
     claude_support_files,
 )
 from cc.core.ecosystem.framework_history import is_prior_framework_version
+from cc.core.framework_roots import effective_codex_root
 from cc.core.ecosystem.project_ownership import declares_project_owner
 from cc.core.ecosystem.codex_plugin_source import (
     CodexPluginSource,
@@ -822,6 +823,8 @@ def validated_source_root(component: str, configured: Path | str | None = None) 
         if configured is not None
         else resolve_key(f"paths.{component}_copilot_root")
     )
+    if component == "codex":
+        configured = effective_codex_root(configured)
     if not configured:
         raise RecipeValidationError(
             f"The authoritative {component.title()} source is unavailable."

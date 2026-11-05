@@ -936,7 +936,9 @@ def _settings_with_guard(existing: bytes | None) -> bytes:
     return (json.dumps(settings, indent=2) + "\n").encode("utf-8")
 
 
-_SNAPSHOT_ROOT_KEYS = ("claude_copilot_root", "codex_copilot_root")
+# Only the Claude root names a framework snapshot. codex_copilot_root must be
+# the Codex foundation: a Claude snapshot just bundles an older Codex plugin.
+_SNAPSHOT_ROOT_KEYS = ("claude_copilot_root",)
 
 
 def _config_with_snapshot_roots(
@@ -1282,6 +1284,16 @@ def install_framework_snapshot(
             changed = published_changed + (
                 plugin_transaction.changed if plugin_transaction is not None else 0
             )
+        except BaseException as install_error:
+            # Whatever refused after the snapshot was created, a failed install
+            # leaves no new snapshot behind. A snapshot a Codex plugin may still
+            # reference (its rollback was incomplete) is kept for recovery.
+            if not existed_before and "rollback was incomplete" not in str(install_error):
+                try:
+                    _remove_created_snapshot(snapshot)
+                except BaseException as cleanup_error:
+                    raise install_error from cleanup_error
+            raise
         finally:
             shutil.rmtree(operation_root, ignore_errors=True)
 

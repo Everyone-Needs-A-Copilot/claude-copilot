@@ -1164,7 +1164,8 @@ def test_install_repoints_snapshot_pinned_config_roots_to_the_new_snapshot(tmp_p
     report = _install(repo, commit, tree, home)
     data = json.loads(config.read_text())
     assert data["paths"]["claude_copilot_root"] == report["snapshot"]
-    assert data["paths"]["codex_copilot_root"] == report["snapshot"]
+    # A Claude snapshot only bundles an older Codex plugin: never a Codex root.
+    assert data["paths"]["codex_copilot_root"] == str(stale)
     assert data["paths"]["knowledge_repo"] == "/keep/me"
     assert data["memory"] == {"embedding_model": "none"}
     assert _install(repo, commit, tree, home)["result"] == "up-to-date"
@@ -1210,6 +1211,8 @@ def test_refused_settings_after_plugin_install_rolls_the_plugin_back(tmp_path: P
     with pytest.raises(installer.FrameworkInstallError, match="settings.json"):
         _install(repo, commit, tree, home, claude_only=False)
     assert _FAKE_CODEX_RUNNERS[home].plugins == {}
+    assert not (home / ".copilot" / "framework-snapshots" / f"claude-copilot-{commit}").exists()
+    assert not (home / ".copilot" / "framework-runtime.json").exists()
 
 
 def test_config_repoint_preserves_existing_indent(tmp_path: Path):

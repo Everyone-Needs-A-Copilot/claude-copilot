@@ -83,6 +83,7 @@ from pathlib import Path
 from typing import Any, Callable, Iterable, Optional, Sequence
 
 from cc.core.config import resolve_key
+from cc.core.framework_roots import effective_codex_root
 from cc.core.ecosystem.canonical_transaction import (
     claude_reference_roster,
     claude_support_files,
@@ -913,6 +914,8 @@ class ActivationError(RuntimeError):
 
 def _resolved_framework_root(config_key: str, supplied: Optional[Path | str]) -> Path:
     raw = supplied if supplied is not None else resolve_key(config_key)
+    if config_key == "paths.codex_copilot_root":
+        raw = effective_codex_root(raw)
     if not raw:
         raise ActivationError("The required Copilot installer is not available on this Mac.")
     return Path(str(raw)).expanduser()

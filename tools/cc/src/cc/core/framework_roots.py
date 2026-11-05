@@ -20,9 +20,82 @@ import re
 import tempfile
 from pathlib import Path
 
-SNAPSHOT_ROOT_KEYS = ("claude_copilot_root", "codex_copilot_root")
+# Only the Claude root is a framework snapshot. `codex_copilot_root` must be the
+# Codex foundation (see `codex_foundation_root`); a Claude snapshot only bundles
+# whatever older Codex plugin its release shipped, so it is never a valid target.
+SNAPSHOT_ROOT_KEYS = ("claude_copilot_root",)
 _TILDE_SNAPSHOTS = "~/.copilot/framework-snapshots/"
 _OBJECT_ID = re.compile(r"[0-9a-f]{40}")
+
+
+_CLAUDE_SNAPSHOT_DIR = re.compile(r"claude-copilot-[0-9a-f]{40}")
+
+
+def names_claude_snapshot(raw: object) -> bool:
+    """Whether `raw` is, or lies inside, a Claude framework snapshot directory."""
+    parts = Path(str(raw)).expanduser().parts
+    return any(
+        _CLAUDE_SNAPSHOT_DIR.fullmatch(part) and index > 0
+        and parts[index - 1] == "framework-snapshots"
+        for index, part in enumerate(parts)
+    )
+
+
+def codex_foundation_root(manifest_path: object = None) -> Path | None:
+    """The pinned `codex-foundation` layer's local source, only if it is at its pinned ref.
+
+    This is the checkout whose signed tree the reconcile binding verifies, so
+    the files delivered by install/migrate/setup and the version reconcile
+    records come from the same release. None when the layer, its path or its
+    ref cannot be established.
+    """
+    import subprocess
+
+    from cc.core.config import resolve_key
+    from cc.core.ecosystem.manifest import ManifestError, load_layers
+    from cc.core.ecosystem.mirror import synthesize_effective_layers
+
+    configured = resolve_key("layers.manifest") if manifest_path is None else manifest_path
+    if not configured:
+        return None
+    try:
+        layers = load_layers(configured)
+        base = Path(str(resolve_key("paths.mirrors_root"))).expanduser()
+        effective = synthesize_effective_layers(layers, mirror_root_base=base)
+    except (ManifestError, OSError, ValueError):
+        return None
+    layer = next(
+        (
+            row for row in effective
+            if row.get("product") == "codex" and row.get("role") == "foundation"
+        ),
+        None,
+    )
+    source = (layer or {}).get("source") or {}
+    path, ref = source.get("path"), source.get("ref")
+    if not path or not isinstance(ref, str):
+        return None
+    root = Path(str(path)).expanduser()
+    if not root.is_dir():
+        return None
+    try:
+        head, pinned = (
+            subprocess.run(
+                ("git", "-C", str(root), "rev-parse", f"{rev}^{{commit}}"),
+                check=True, capture_output=True, text=True, timeout=30,
+            ).stdout.strip()
+            for rev in ("HEAD", ref)
+        )
+    except (OSError, subprocess.SubprocessError):
+        return None
+    return root if head == pinned else None
+
+
+def effective_codex_root(raw: object, manifest_path: object = None) -> object:
+    """`raw`, unless it names a Claude snapshot; then the pinned Codex foundation (or None)."""
+    if raw and names_claude_snapshot(raw):
+        return codex_foundation_root(manifest_path)
+    return raw
 
 
 class ConfigRepointError(ValueError):
