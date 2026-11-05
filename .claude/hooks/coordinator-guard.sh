@@ -83,53 +83,96 @@ def main():
     cmd = ti.get("command", "")
     return 0 if bash_ok(cmd) else block("Bash: %s" % cmd[:80])
 
-GIT_READ = {"status", "log", "rev-parse"}
-# Options that can write files, run programs, redirect the repo, or dump project content.
-# Long options match by unique-prefix in git, so any prefix of these is rejected too.
-GIT_DANGER_LONG = ("output", "ext-diff", "textconv", "exec-path", "git-dir", "work-tree", "patch",
-                   "open-files-in-pager", "show-signature", "no-index", "diff-merges", "cc",
-                   "config-env", "super-prefix", "namespace", "paginate", "pager", "exec")
-GIT_DANGER_SHORT = set("pucCO")
-WORKTREE_OK = {"--porcelain", "-v", "--verbose", "-z"}
+REV_RE = re.compile(r"^[A-Za-z0-9._/@^~:-]+$")
+POS_INT = re.compile(r"^[0-9]+$")
 
-def git_args_safe(args):
-    for x in args:
-        if x == "--":
-            return True  # the rest are pathspecs
-        if x.startswith("--"):
-            name = x[2:].split("=", 1)[0]
-            if not name or any(d.startswith(name) or name.startswith(d) for d in GIT_DANGER_LONG):
+def is_rev(a):
+    return not a.startswith("-") and bool(REV_RE.match(a))
+
+# Allowlist (shared semantics with the Codex guard): every git argument, after per-token quote
+# removal, must be an explicitly listed form; anything unlisted is denied.
+def git_args_ok(sub, args):
+    if sub == "status":
+        return all(a in ("-s", "--short", "-b", "--branch", "--porcelain", "--porcelain=v1", "--porcelain=v2") for a in args)
+    if sub == "log":
+        dashdash = False
+        i = 0
+        while i < len(args):
+            a = args[i]; i += 1
+            if dashdash:
+                continue
+            if a == "--":
+                dashdash = True
+            elif a in ("--oneline", "--graph", "--decorate", "--all", "--stat", "--name-only", "--name-status",
+                       "--first-parent", "--no-merges"):
+                pass
+            elif a == "-n":
+                if i >= len(args) or not POS_INT.match(args[i]):
+                    return False
+                i += 1
+            elif re.match(r"^-[0-9]", a):
+                if not re.match(r"^-[0-9]+$", a):
+                    return False
+            elif a.startswith("--max-count="):
+                if not POS_INT.match(a.split("=", 1)[1]):
+                    return False
+            elif a.startswith(("--format=", "--pretty=", "--since=", "--until=", "--author=")):
+                pass
+            elif a.startswith("-"):
                 return False
-        elif x.startswith("-") and len(x) > 1:
-            if GIT_DANGER_SHORT & set(x[1:]):
+            elif ".." in a:
+                if not REV_RE.match(a):
+                    return False
+            elif not is_rev(a):
                 return False
-    return True
+        return True
+    if sub == "branch":
+        listing = "--list" in args
+        for a in args:
+            if a in ("-a", "-r", "-v", "-vv", "--list", "--show-current"):
+                continue
+            if a.startswith("-") or not listing:
+                return False
+        return True
+    if sub == "worktree":
+        if args[:1] != ["list"] or len(args) > 2:
+            return False
+        return len(args) < 2 or args[1] == "--porcelain"
+    if sub == "rev-parse":
+        for a in args:
+            if a in ("--abbrev-ref", "--short", "--show-toplevel", "--git-dir", "--is-inside-work-tree") or re.match(r"^--short=[0-9]", a):
+                continue
+            if not is_rev(a):
+                return False
+        return True
+    return False
 
 CC_OK = {"status", "list", "progress", "skill"}
 
-def segment_ok(argv):
+def segment_ok(argv, raw_unsafe=False):
     if not argv:
         return False
     a0 = argv[0]
-    if a0 in ("pwd", "date", "readlink"):
-        return True
     if a0 == "tc":
         return True
     if a0 == "cc":
         return len(argv) > 1 and (argv[1] in CC_OK or argv[1] in ("--help", "--version"))
+    # Remaining commands are allowlisted strictly: no backslashes, `$`, or quotes left in any token.
+    if raw_unsafe or any("\\" in t or "$" in t or "'" in t or '"' in t for t in argv):
+        return False
+    if a0 == "pwd":
+        return all(x in ("-P", "-L") for x in argv[1:])
+    if a0 == "date":
+        return all(x == "-u" or x.startswith("+") for x in argv[1:])
+    if a0 == "readlink":
+        return len(argv) == 2 and not argv[1].startswith("-")
     if a0 == "git":
         rest = argv[1:]
         while len(rest) >= 2 and rest[0] == "-C":
             rest = rest[2:]
         if not rest:
             return False
-        sub, args = rest[0], rest[1:]
-        if sub in GIT_READ:
-            return git_args_safe(args)
-        if sub == "branch":
-            return all(x in ("--list", "-l", "-a", "-r", "-v", "-vv", "--show-current", "--all", "--remotes") for x in args)
-        if sub == "worktree":
-            return args[:1] == ["list"] and all(x in WORKTREE_OK for x in args[1:])
+        return git_args_ok(rest[0], rest[1:])
     return False
 
 def bash_ok(cmd):
@@ -158,7 +201,8 @@ def bash_ok(cmd):
     for s in segs:
         s = [t for t in s if not re.fullmatch(r"\d?>>?(/dev/null)?|2>&1|&>|/dev/null", t)]
         clean.append(s)
-    return all(segment_ok(s) for s in clean)
+    raw_unsafe = "\\" in cmd or "$" in cmd
+    return all(segment_ok(s, raw_unsafe) for s in clean)
 
 sys.exit(main())
 PY
