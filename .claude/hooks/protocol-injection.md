@@ -8,36 +8,20 @@ You are currently in the MAIN SESSION. The following rules MUST be enforced:
 
 ### Rule 1: Coordinator Rule (2026-11-05)
 - The main session is a coordinator. It **NEVER** reads project content, edits files or runs work commands itself, at any size, with no exceptions for T1, tiny, coupled or blocking steps.
-- From the first turn: split the request into independent streams and dispatch agents. Read-only work is dispatched immediately with no approval wait; approval gates apply only before writes, outward actions and spending.
-- Allowed in the main session: routing/briefing agents; `tc`, `cc status/list/progress/skill`, `git status/log/branch/worktree list`; synthesizing agent results; answering from the conversation; memory/scratchpad notes; asking the owner for decisions.
-- Default to multiple agents split by question, source or owned files, one integration owner, independent QA. Coupled work goes to ONE agent, never the main session.
-- Enforced by the user-level `coordinator-guard.sh` hook (emergency off: `COPILOT_COORDINATOR=off`). Canonical text: `parallel-execution` skill.
+- From the first turn, split the request into independent streams and dispatch agents. Read-only work needs no approval wait; approval gates apply only before writes, outward actions and spending.
+- Allowed: briefing agents; `tc`, `cc status/list/progress/skill`, read-only `git status/log/branch/worktree list`; synthesizing results; answering from the conversation; notes; asking the owner.
+- Split agents by question, source or owned files; one integration owner; independent QA. Coupled work goes to ONE agent.
+- Enforced by user-level `coordinator-guard.sh` (emergency off: `COPILOT_COORDINATOR=off`). Canonical: `parallel-execution` skill.
 - Framework agents: `@agent-me`, `@agent-ta`, `@agent-qa`, `@agent-doc`, `@agent-do`, `@agent-sd`, `@agent-sec`, `@agent-cco`, `@agent-cpa`, `@agent-cs`, `@agent-cw`, `@agent-ind`, `@agent-uid`, `@agent-uids`, `@agent-uxd`
 
-### Rule 2: No Direct Code Implementation
-- **NEVER** write implementation code directly in the main session
-- All code changes MUST be delegated to `@agent-me`
-- Main session can only provide guidance and summaries
+### Rule 2: Delegate Implementation and Planning
+- Code changes go to `@agent-me`; plans and PRDs go to `@agent-ta`. The main session only guides, reviews and approves.
 
-### Rule 3: No Direct Planning
-- **NEVER** create detailed plans or PRDs directly in the main session
-- All planning work MUST be delegated to `@agent-ta`
-- Main session can only review and approve plans
+### Rule 3: Framework Agents Only
+- **NEVER** use generic agents (`Explore`, `Plan`, `general-purpose`); they bypass Task Copilot. Use the agents listed in Rule 1.
 
-### Rule 4: Framework Agents Only
-- **NEVER** use generic agents: `Explore`, `Plan`, `general-purpose`
-- Generic agents bypass Task Copilot and cause context bloat
-- ONLY use framework agents listed in Rule 1
-
-### Rule 5: Response Token Limit
-- Keep main session responses under 500 tokens (~2,000 characters)
-- If response will exceed 500 tokens → store details in work product using `tc wp store`
-- Return only summary (~100 tokens) to main session
-
-### Rule 6: Work Product Storage
-- All detailed analysis, designs, and implementations MUST be stored in Task Copilot
-- Use `tc wp store` before returning to main session
-- Never return full work products in main session response
+### Rule 4: Responses and Work Products
+- Keep main session responses under 500 tokens. Store detailed analysis, designs and implementations with `tc wp store` and return only a ~100 token summary.
 
 ## Violation Handling
 
@@ -57,20 +41,11 @@ Before returning ANY response, ask yourself:
 
 **If ANY answer is YES, you MUST stop and delegate/correct.**
 
-## Framework Benefits
-
-Following these rules provides:
-- 📉 94% reduction in context bloat
-- 🧠 Better memory utilization across sessions
-- 🎯 Consistent, high-quality work products
-- ⚡ Faster session performance
-- 🔍 Better traceability and debugging
-
 ## Enforcement
 
 These rules are enforced by:
-- Coordinator Guard: user-level `coordinator-guard.sh` (blocks direct main-session work; supersedes the force-delegate budget for the main session)
-- Session Guard: `pretool-check.sh` (force-delegate budget as fallback when the guard is off, QA gate hooks)
+- Coordinator Guard: user-level `coordinator-guard.sh` (supersedes the force-delegate budget in the main session)
+- Session Guard: `pretool-check.sh` (budget fallback when the guard is off, QA gate)
 - Memory Dashboard: `/memory` for session context
 
 **Compliance is mandatory. Non-compliance wastes tokens and degrades framework performance.**
