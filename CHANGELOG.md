@@ -1,5 +1,9 @@
 # Changelog
 
+## [5.34.5] - 2026-11-05
+
+- **Reconcile adopts stale framework skill and plugin files that match history.** Unrecorded framework skill and plugin copies whose bytes match a prior release are adopted instead of blocking reconcile. The snapshot installer and `cc update` repoint `paths.claude_copilot_root` to the installed snapshot, the Codex root resolves to the pinned codex-foundation checkout and never a Claude snapshot, and installer refusals clean up the created snapshot and plugin. The cc component version is unchanged.
+
 ## [5.34.4] - 2026-11-05
 
 - **Divide and conquer applies to every role and stage, including testing.** Protocol fans out every role per stage and agent definitions carry partition lines. T3 verification is partitioned across parallel QA streams with one QA convergence owner who synthesizes the verdict. Companion to the organization `parallel-execution` skill 1.11.7 and Codex Copilot 0.16.3.
