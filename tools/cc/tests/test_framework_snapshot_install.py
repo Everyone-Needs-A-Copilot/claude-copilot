@@ -1175,7 +1175,7 @@ def test_install_leaves_owner_chosen_config_roots_alone(tmp_path: Path):
     repo, commit, tree = _source_repository(tmp_path)
     home = (tmp_path / "home").resolve()
     config = home / ".claude" / "cc" / "config.json"
-    raw = json.dumps({"paths": {"claude_copilot_root": "/Users/x/checkout"}})
+    raw = json.dumps({"paths": {"claude_copilot_root": "/x/checkout"}})
     _write(config, raw)
     _install(repo, commit, tree, home)
     assert config.read_text() == raw

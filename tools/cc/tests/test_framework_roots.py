@@ -78,7 +78,7 @@ def test_dry_run_update_does_not_touch_the_config(tmp_path, monkeypatch):
 
 
 def test_sync_leaves_owner_paths_missing_manifest_and_foreign_snapshots_alone(tmp_path):
-    raw = json.dumps({"paths": {"claude_copilot_root": "/Users/x/checkout"}})
+    raw = json.dumps({"paths": {"claude_copilot_root": "/x/checkout"}})
     _, config, _ = _machine(tmp_path, raw)
     copilot = tmp_path / "home" / ".copilot"
     assert sync_machine_config_to_active_runtime(config_path=config, copilot_root=copilot) is False
@@ -155,7 +155,7 @@ def _foundation(tmp_path: Path, version: str = "0.16.3") -> tuple[Path, Path]:
 def test_claude_snapshot_is_recognised_and_other_paths_are_not(tmp_path):
     snap = f"/h/.copilot/framework-snapshots/claude-copilot-{NEW}"
     assert names_claude_snapshot(snap) and names_claude_snapshot(snap + "/plugins/x")
-    assert not names_claude_snapshot("/Volumes/Dev/Sites/CSE/codex-copilot")
+    assert not names_claude_snapshot("/h/sites/codex-copilot")
     assert not names_claude_snapshot(f"/h/claude-copilot-{NEW}")
 
 
