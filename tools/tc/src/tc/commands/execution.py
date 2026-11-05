@@ -185,6 +185,7 @@ def begin(
     calls: int = 0,
     usd: float = 0,
 ):
+    """Begin a criterion-bound attempt and reserve its external-call allowance."""
     output_json(
         _call(
             ex.begin_attempt,
@@ -212,6 +213,7 @@ def settle(
     usd: Optional[float] = None,
     reason: str = "",
 ):
+    """Record the attempt result, artifact, actual calls and cost."""
     output_json(
         _call(
             ex.settle_attempt,
@@ -229,6 +231,7 @@ def settle(
 def diagnose(
     task: int, criterion: str = typer.Option(...), regression: Path = typer.Option(...)
 ):
+    """Record a regression artifact at the selected criterion diagnosis checkpoint."""
     output_json(
         _call(
             ex.diagnosis_checkpoint,
