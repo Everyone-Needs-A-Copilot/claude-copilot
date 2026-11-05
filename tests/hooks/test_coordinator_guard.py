@@ -51,9 +51,9 @@ def test_memory_plans_scratchpad_allowed(run):
 def test_bash_allowlist(run):
     for ok in ['tc task list --json', 'cc status', 'cc skill get x --scope machine --json', 'git status --short',
                'git -C /a/b log --oneline -5', 'git branch --show-current', 'git worktree list', 'git rev-parse HEAD',
-               'pwd', 'date', 'readlink -f x', 'tc task list 2>&1 | tc x', 'git status && git log']:
+               'pwd', 'date', 'readlink x', 'tc task list 2>&1 | tc x', 'git status && git log']:
         assert bash(run, ok) == 0, ok
-    for bad in ['ls', 'cat a', 'npm test', 'git commit -m x', 'git branch -D x', 'git worktree remove x',
+    for bad in ['ls', 'cat a', 'npm test', 'git commit -m x', 'git branch -D x', 'git worktree remove x', 'readlink -f x',
                 'git status; rm -rf x', 'tc x && rm y', 'tc x | sh', 'echo $(cat a)', 'tc x > out', 'git log `id`',
                 'cc resources run -- ls', 'tc x\nrm y', '']:
         assert bash(run, bad) == 2, bad
@@ -80,11 +80,10 @@ def test_git_read_forms_cannot_write_or_execute(run):
     for bad in ['git log --output=f', 'git log --out=f', 'git log --output f', 'git log --ext-diff', 'git log --textconv',
                 'git log -p', 'git log --patch', 'git log -u', 'git log -pn1', 'git status --git-dir=/x',
                 'git log --work-tree=/x', 'git rev-parse --exec-path', 'git log -c', 'git log --cc', 'git log -O/bin/sh',
-                'git -c core.pager=sh log', 'git -c alias.x=y status', 'git rev-parse --git-dir',
-                'git log --show-signature', 'git log --open-files-in-pager=sh', 'git log --pager=sh']:
+                'git -c core.pager=sh log', 'git -c alias.x=y status', 'git log --show-signature', 'git log --open-files-in-pager=sh', 'git log --pager=sh']:
         assert bash(run, bad) == 2, bad
     for ok in ['git log --oneline -5', 'git log --stat -n 3', 'git status --short -b', 'git rev-parse --show-toplevel',
-               'git log --format=%h -- src', 'git rev-parse --abbrev-ref HEAD']:
+               'git log --format=%h -- src', 'git rev-parse --abbrev-ref HEAD', 'git rev-parse --git-dir']:
         assert bash(run, ok) == 0, ok
 
 
@@ -98,3 +97,25 @@ def test_git_branch_and_worktree_listing_only(run):
                 'git worktree add x', 'git worktree remove x', 'git worktree prune', 'git worktree list --expire=now',
                 'git worktree', 'git worktree lock x']:
         assert bash(run, bad) == 2, bad
+
+
+def test_git_allowlist_blocks_bypasses(run):
+    for c in ["git log --outp=f", "git log --out=f", "git log --ou=f", "git log '--output=f'", 'git log "--outp=f"',
+              "git log --ext", "git log --textc", "git log --cc", "git log --diff-merges=on", "git log --pa", "git log -u",
+              "git log -O f", "git log --open-files-in-pager", "git log --show-signature", "git --git-dir=/x log",
+              "git log --git-dir=/x", "git --work-tree=/x status", "git status --work-tree=/x", "git rev-parse --git-dir=/x",
+              "git log --format=%h\\x", "git log $X", "git log 'a", "git status -uall", "git worktree list --foo",
+              "pwd x", "date -s 12:00", "readlink", "readlink -f x", "git rev-parse --verify HEAD"]:
+        assert bash(run, c) == 2, c
+
+
+def test_git_allowlist_allows(run):
+    for c in ["git status -s", "git status --short -b", "git status --branch", "git status --porcelain", "git status --porcelain=v2",
+              "git log --oneline -n 5", "git log -5", "git log --max-count=3", "git log --format=%h", "git log --pretty='%h %s'",
+              'git log --format="%h %an"', "git log --graph --decorate --all", "git log --since=2.days --until=yesterday --author=bob",
+              "git log --stat", "git log --name-only", "git log --name-status", "git log --first-parent --no-merges",
+              "git log main..HEAD", "git log origin/main...HEAD", "git log HEAD~3 -- src docs/a.md", "git log 'v1.0'",
+              "git branch --list 'f*'", "git branch -vv", "git worktree list --porcelain", "git rev-parse --abbrev-ref HEAD",
+              "git rev-parse --short HEAD", "git rev-parse --show-toplevel", "git rev-parse --git-dir", "git rev-parse --is-inside-work-tree",
+              "pwd", "date", "date -u +%F", "readlink x", "git -C /x status -s"]:
+        assert bash(run, c) == 0, c
