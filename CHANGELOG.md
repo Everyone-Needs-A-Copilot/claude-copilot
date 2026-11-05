@@ -1,5 +1,9 @@
 # Changelog
 
+## [5.34.3] - 2026-11-05
+
+- **`tc cycle record --event built` accepts bracketed changed-file names.** Git-reported changed files are literal names, not ownership patterns, so Next.js dynamic route directories such as `[projectId]` no longer fail. Ownership patterns still refuse glob characters, and bracketed files outside owned paths are still refused. The tc component version is unchanged.
+
 ## [5.34.2] - 2026-11-05
 
 - **Coordinator rule.** The main session coordinates and dispatches; it does not do implementation work itself. Protocol text and the always-on injection state the rule, force-delegate deferral is honored, and a user-level `coordinator-guard.sh` PreToolUse hook enforces it with a read-only git allowlist. The framework snapshot installer installs the guard and registers its settings.json hook exactly once. Hermetic hook and installer tests cover it. Companion to the organization `parallel-execution` skill and Codex Copilot's matching guard.
