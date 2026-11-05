@@ -27,7 +27,8 @@ def budget(tmp_path):
     env = {k: v for k, v in os.environ.items() if k not in (
         'CI', 'COPILOT_FORCE_DELEGATE', 'COPILOT_FORCE_DELEGATE_BUDGET_OVERRIDE',
         'COPILOT_HOOK_STATE_DIR', 'COPILOT_SESSION_START')}
-    env.update(COPILOT_HOOKS_ROOT=str(hooks), CLAUDE_PROJECT_DIR=str(tmp_path))
+    env.update(COPILOT_HOOKS_ROOT=str(hooks), CLAUDE_PROJECT_DIR=str(tmp_path),
+               COPILOT_COORDINATOR='off')  # keep the user-level coordinator guard out of budget tests
 
     def invoke(tool='Bash', data=None, *, through_shim=False, **overrides):
         payload = {'session_id': 'budget-test', 'tool_name': tool,

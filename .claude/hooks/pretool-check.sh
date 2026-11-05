@@ -11,6 +11,8 @@
 #
 # ESCAPE HATCH:
 #   Set COPILOT_FORCE_DELEGATE=off to bypass all force-delegate checks.
+#   force-delegate also defers to the user-level coordinator-guard.sh when it is
+#   installed (~/.claude/hooks/); COPILOT_COORDINATOR=off turns both back to budget mode.
 #   Set COPILOT_QA_GATE=off to bypass all QA gate checks.
 #   Set COPILOT_EXTENSIONS_GATE=off to bypass the extension-resolution gate.
 #   Journey dispatch verification has no bypass: an active journey is a
@@ -419,6 +421,14 @@ _fd_bash_is_cheap() {
 
 rule_force_delegate() {
   [[ "${COPILOT_FORCE_DELEGATE:-}" == "off" ]] && return 0
+  # Layering: the user-level coordinator-guard.sh (Coordinator rule, 2026-11-05)
+  # supersedes this budget for the main session — it already blocks every direct
+  # read/edit/work command. Defer so the main session is not double-blocked with two
+  # different messages. COPILOT_COORDINATOR=off (guard bypassed) re-enables this rule.
+  if [[ "${COPILOT_COORDINATOR:-}" != "off" &&
+        -x "${CLAUDE_CONFIG_DIR:-${HOME:-}/.claude}/hooks/coordinator-guard.sh" ]]; then
+    return 0
+  fi
   if [[ -n "$AGENT_TYPE" ]]; then
     if _is_known_agent "$AGENT_TYPE"; then return 0; fi
     echo "[pretool-check] unrecognized agent_type '${AGENT_TYPE}' — not exempting from force-delegate" >&2

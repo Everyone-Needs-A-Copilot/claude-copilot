@@ -6,9 +6,12 @@
 
 You are currently in the MAIN SESSION. The following rules MUST be enforced:
 
-### Rule 1: File Reading Limit
-- **NEVER** read more than 3 files in the main session
-- If you need to read >3 files → STOP and delegate to a framework agent
+### Rule 1: Coordinator Rule (2026-11-05)
+- The main session is a coordinator. It **NEVER** reads project content, edits files or runs work commands itself, at any size, with no exceptions for T1, tiny, coupled or blocking steps.
+- From the first turn: split the request into independent streams and dispatch agents. Read-only work is dispatched immediately with no approval wait; approval gates apply only before writes, outward actions and spending.
+- Allowed in the main session: routing/briefing agents; `tc`, `cc status/list/progress/skill`, `git status/log/branch/worktree list`; synthesizing agent results; answering from the conversation; memory/scratchpad notes; asking the owner for decisions.
+- Default to multiple agents split by question, source or owned files, one integration owner, independent QA. Coupled work goes to ONE agent, never the main session.
+- Enforced by the user-level `coordinator-guard.sh` hook (emergency off: `COPILOT_COORDINATOR=off`). Canonical text: `parallel-execution` skill.
 - Framework agents: `@agent-me`, `@agent-ta`, `@agent-qa`, `@agent-doc`, `@agent-do`, `@agent-sd`, `@agent-sec`, `@agent-cco`, `@agent-cpa`, `@agent-cs`, `@agent-cw`, `@agent-ind`, `@agent-uid`, `@agent-uids`, `@agent-uxd`
 
 ### Rule 2: No Direct Code Implementation
@@ -46,7 +49,7 @@ When a guardrail is violated:
 
 Before returning ANY response, ask yourself:
 
-1. ✅ Am I about to read >3 files? → DELEGATE to agent
+1. ✅ Am I about to read, edit or run anything beyond the coordinator allowlist? → DELEGATE to agent
 2. ✅ Am I about to write code? → DELEGATE to `@agent-me`
 3. ✅ Am I about to create a plan? → DELEGATE to `@agent-ta`
 4. ✅ Am I using a generic agent? → SWITCH to framework agent
@@ -66,7 +69,8 @@ Following these rules provides:
 ## Enforcement
 
 These rules are enforced by:
-- Session Guard: `pretool-check.sh` (force-delegate + QA gate hooks)
+- Coordinator Guard: user-level `coordinator-guard.sh` (blocks direct main-session work; supersedes the force-delegate budget for the main session)
+- Session Guard: `pretool-check.sh` (force-delegate budget as fallback when the guard is off, QA gate hooks)
 - Memory Dashboard: `/memory` for session context
 
 **Compliance is mandatory. Non-compliance wastes tokens and degrades framework performance.**
