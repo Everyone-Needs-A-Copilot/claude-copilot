@@ -132,7 +132,7 @@ def git(root, *args):
     return subprocess.run(["git", *args], cwd=root, capture_output=True, text=True, check=True).stdout.strip()
 
 
-def code_cycle(tmp_path):
+def code_cycle(tmp_path, paths=("result.txt",)):
     root = tmp_path / "integration"; root.mkdir()
     git(root, "init", "-b", "main")
     git(root, "config", "user.email", "fixture@example.invalid")
@@ -143,7 +143,7 @@ def code_cycle(tmp_path):
     db = tmp_path / ".copilot/tasks.db"; init_db(db); create_task(title="synthetic scope", db_path=db)
     worktree = tmp_path / "writer"
     plan = make_plan(root, 1)
-    plan["streams"][0].update(kind="code", role="me", readOnly=False, paths=["result.txt"], worktree=str(worktree), branch="cycle/result")
+    plan["streams"][0].update(kind="code", role="me", readOnly=False, paths=list(paths), worktree=str(worktree), branch="cycle/result")
     cycles.create_cycle(plan=plan, db_path=db)
     cycles.prepare_worktree(cycle="example", stream="s0", db_path=db)
     claim = cycles.claim_stream(cycle="example", stream="s0", agent="builder", cwd=worktree, branch="cycle/result", db_path=db)
@@ -211,6 +211,26 @@ def test_worker_cannot_build_an_out_of_scope_change(tmp_path):
     with pytest.raises(ValidationError, match="outside"):
         cycles.record_event(cycle="example", stream="s0", event="built", receipt={"leaseToken": claim["token"], "artifact": artifact(tmp_path)}, db_path=db)
     assert cycles.cycle_status(cycle="example", db_path=db)["streams"]["s0"]["state"] == "running"
+
+
+def test_built_accepts_bracketed_dynamic_route_files_inside_owned_directory(tmp_path):
+    root, worktree, db, claim = code_cycle(tmp_path, paths=("app/**",))
+    for rel in ["app/[projectId]/route.ts", "app/(dashboard)/[id]/page.tsx"]:
+        target = worktree / rel
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text("export {}\n")
+    git(worktree, "add", "-A"); git(worktree, "commit", "-m", "synthetic dynamic routes")
+    cycles.record_event(cycle="example", stream="s0", event="built", receipt={"leaseToken": claim["token"], "artifact": artifact(tmp_path)}, db_path=db)
+    assert cycles.cycle_status(cycle="example", db_path=db)["streams"]["s0"]["state"] == "built"
+
+
+def test_bracketed_file_outside_owned_directory_is_still_refused(tmp_path):
+    root, worktree, db, claim = code_cycle(tmp_path, paths=("app/**",))
+    target = worktree / "other/[id]/route.ts"
+    target.parent.mkdir(parents=True)
+    target.write_text("export {}\n")
+    with pytest.raises(ValidationError, match="outside"):
+        cycles.record_event(cycle="example", stream="s0", event="built", receipt={"leaseToken": claim["token"], "artifact": artifact(tmp_path)}, db_path=db)
 
 
 def test_smoke_real_processes_overlap_and_all_stop_without_provider_calls():

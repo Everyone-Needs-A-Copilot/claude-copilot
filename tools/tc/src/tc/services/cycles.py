@@ -38,14 +38,20 @@ def _positive(value: Any, label: str) -> int:
     return value
 
 
-def normalize_path(value: Any, root: Path | None = None) -> str:
-    """Restricted, conservatively comparable ownership syntax: literal or prefix/**."""
+def normalize_path(value: Any, root: Path | None = None, *, literal_file: bool = False) -> str:
+    """Restricted, conservatively comparable ownership syntax: literal or prefix/**.
+
+    ``literal_file`` is for file names Git reports as changed. They are never
+    patterns, so square brackets (Next.js ``[id]`` routes) are ordinary
+    characters there; ``*`` and ``?`` stay refused.
+    """
     if not isinstance(value, str) or not value or "\\" in value or "\0" in value:
         raise ValidationError("Ownership paths must be nonempty repository-relative strings")
     directory = value.endswith("/**") or value.endswith("/")
     prefix = value[:-3] if value.endswith("/**") else value.rstrip("/")
     parts = PurePosixPath(prefix).parts
-    if not parts or prefix.startswith("/") or any(p in {"..", "."} for p in parts) or any(c in prefix for c in "*?[]"):
+    refused = "*?" if literal_file else "*?[]"
+    if not parts or prefix.startswith("/") or any(p in {"..", "."} for p in parts) or any(c in prefix for c in refused):
         raise ValidationError(f"Unsafe or unsupported ownership path: {value}; use literal paths or terminal /**")
     normalized = "/".join(parts)
     if root is not None:
@@ -458,7 +464,7 @@ def record_event(*, cycle, stream, event, receipt, db_path):
                 changed = set(_git(cwd, "diff", "--name-only", claim["identity"]["base"]).splitlines())
                 changed.update(_git(cwd, "ls-files", "--others", "--exclude-standard").splitlines())
                 for path in changed:
-                    normalize_path(path, Path(cwd))
+                    normalize_path(path, Path(cwd), literal_file=True)
                     if not any(path == p.removesuffix("/**") or path.startswith(p.removesuffix("/**") + "/") for p in spec["paths"]):
                         raise ValidationError("Worker wrote outside owned paths: " + path)
                 body["tip"] = _git(cwd, "rev-parse", "HEAD")
