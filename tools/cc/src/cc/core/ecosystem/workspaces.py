@@ -83,7 +83,7 @@ from pathlib import Path
 from typing import Any, Callable, Iterable, Optional, Sequence
 
 from cc.core.config import resolve_key
-from cc.core.framework_roots import effective_codex_root
+from cc.core.framework_roots import configured_framework_root, framework_source_problem
 from cc.core.ecosystem.canonical_transaction import (
     claude_reference_roster,
     claude_support_files,
@@ -912,12 +912,14 @@ class ActivationError(RuntimeError):
     """A safe, user-actionable project activation blocker."""
 
 
-def _resolved_framework_root(config_key: str, supplied: Optional[Path | str]) -> Path:
-    raw = supplied if supplied is not None else resolve_key(config_key)
-    if config_key == "paths.codex_copilot_root":
-        raw = effective_codex_root(raw)
+def _resolved_framework_root(component: str, supplied: Optional[Path | str]) -> Path:
+    problem = framework_source_problem(component, supplied, read=resolve_key)
+    raw = configured_framework_root(component, supplied, read=resolve_key)
     if not raw:
-        raise ActivationError("The required Copilot installer is not available on this Mac.")
+        raise ActivationError(
+            "The required Copilot installer is not available on this Mac"
+            + (f": {problem}." if problem else ".")
+        )
     return Path(str(raw)).expanduser()
 
 
@@ -1017,12 +1019,12 @@ def preflight_activation(
     resolved: dict[str, Path] = {}
     collisions: list[Path] = []
     if "claude" in components and "claude" not in installed:
-        source = _resolved_framework_root("paths.claude_copilot_root", claude_root)
+        source = _resolved_framework_root("claude", claude_root)
         _copies, found = _claude_plan(root, source)
         resolved["claude"] = source
         collisions.extend(found)
     if "codex" in components and "codex" not in installed:
-        source = _resolved_framework_root("paths.codex_copilot_root", codex_root)
+        source = _resolved_framework_root("codex", codex_root)
         script = source / "scripts/setup-project.sh"
         if not script.is_file():
             raise ActivationError("The Codex Copilot installer is incomplete.")
@@ -1310,14 +1312,10 @@ def finish_project_integration(
                 for component in components
             ):
                 if "codex" in components and kinds.get("codex") != "adopt-existing":
-                    codex_source = _resolved_framework_root(
-                        "paths.codex_copilot_root", codex_root
-                    )
+                    codex_source = _resolved_framework_root("codex", codex_root)
                     _activate_codex(stage, codex_source, run=run)
                 if "claude" in components and kinds.get("claude") != "adopt-existing":
-                    claude_source = _resolved_framework_root(
-                        "paths.claude_copilot_root", claude_root
-                    )
+                    claude_source = _resolved_framework_root("claude", claude_root)
                     _activate_claude(stage, claude_source)
 
                 for component in components:
@@ -1467,7 +1465,7 @@ def write_install_lock(
                 f"{component.title()} Copilot installation proof is missing; the project lock was not written."
             )
         source = _resolved_framework_root(
-            f"paths.{component}_copilot_root",
+            component,
             claude_root if component == "claude" else codex_root,
         )
         version = _source_version(source, component)

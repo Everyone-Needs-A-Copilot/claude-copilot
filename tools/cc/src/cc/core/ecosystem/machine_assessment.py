@@ -20,6 +20,7 @@ from pathlib import Path
 from typing import Any, Callable
 
 from cc import __version__
+from cc.core.framework_roots import effective_codex_root
 from cc.core.ecosystem.reconciliation_types import Blocker, Evidence, MachineAssessment
 
 ReportBuilder = Callable[[], dict[str, Any]]
@@ -521,6 +522,9 @@ def _framework_assessments(
     blockers: list[Blocker] = []
     for component, key in _FRAMEWORK_CONFIG_KEYS.items():
         raw_path = _lookup(config, key)
+        if component == "codex":
+            # Never judge a Claude snapshot's bundled Codex plugin as the Codex source.
+            raw_path = effective_codex_root(raw_path)
         path = Path(str(raw_path)).expanduser() if raw_path else None
         version: str | None = None
         state = "ready"

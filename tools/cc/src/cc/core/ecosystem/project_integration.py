@@ -22,7 +22,7 @@ from typing import Any, Optional
 
 from cc.core.ecosystem.project_ownership import declares_project_owner
 from cc.core.config import resolve_key
-from cc.core.framework_roots import effective_codex_root
+from cc.core.framework_roots import configured_framework_root
 from cc.core.ecosystem.canonical_transaction import (
     claude_reference_roster,
     claude_support_files,
@@ -363,11 +363,7 @@ def _path_exists(path: Path) -> tuple[bool, bool]:
 
 
 def _framework_root(component: str, supplied: Optional[Path | str]) -> Optional[Path]:
-    raw = supplied
-    if raw is None:
-        raw = resolve_key(f"paths.{component}_copilot_root")
-    if component == "codex":
-        raw = effective_codex_root(raw)
+    raw = configured_framework_root(component, supplied, read=resolve_key)
     if not raw:
         return None
     path = Path(str(raw)).expanduser()

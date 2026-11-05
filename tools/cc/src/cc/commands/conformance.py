@@ -83,6 +83,7 @@ import typer
 import yaml as _yaml
 
 from cc.core.config import resolve_key, resolve_knowledge_repos
+from cc.core.framework_roots import configured_framework_root
 from cc.core.conformance import classes as classes_mod
 from cc.core.conformance import (
     effectiveness,
@@ -848,7 +849,7 @@ def _run_roundtrip_layer() -> tuple[CheckResult, ...]:
                     {
                         "component": component,
                         "state": "ready",
-                        "path": str(resolve_key(f"paths.{component}_copilot_root")),
+                        "path": str(configured_framework_root(component, read=resolve_key)),
                         "version": "verified-by-recipe-source-binding",
                         "detail": "The configured authoritative source is available.",
                     }
@@ -918,7 +919,7 @@ def _run_roundtrip_layer() -> tuple[CheckResult, ...]:
             reference = roundtrip.reference_for_sources(
                 roundtrip.load_reference_manifest(reference_path),
                 claude_source=Path(resolve_key("paths.claude_copilot_root")),
-                codex_source=Path(resolve_key("paths.codex_copilot_root")),
+                codex_source=Path(str(configured_framework_root("codex", read=resolve_key))),
             )
             results.extend(
                 roundtrip.check_produces_reference_install(

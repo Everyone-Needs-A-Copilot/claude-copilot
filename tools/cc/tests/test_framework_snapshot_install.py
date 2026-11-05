@@ -1224,3 +1224,36 @@ def test_config_repoint_preserves_existing_indent(tmp_path: Path):
     _write(config, raw)
     report = _install(repo, commit, tree, home)
     assert config.read_text() == raw.replace(str(stale), report["snapshot"])
+
+
+def test_config_repoint_preserves_missing_trailing_newline(tmp_path: Path):
+    repo, commit, tree = _source_repository(tmp_path)
+    home = (tmp_path / "home").resolve()
+    stale = home / ".copilot" / "framework-snapshots" / ("claude-copilot-" + "8" * 40)
+    config = home / ".claude" / "cc" / "config.json"
+    raw = '{"paths": {"claude_copilot_root": "%s"}}' % stale
+    _write(config, raw)
+    report = _install(repo, commit, tree, home)
+    assert config.read_text() == raw.replace(str(stale), report["snapshot"])
+
+
+def test_incomplete_rollback_keeps_the_snapshot_and_names_it(tmp_path: Path, monkeypatch):
+    repo, commit, tree = _source_repository(tmp_path, guard=GUARD_SCRIPT)
+    home = (tmp_path / "home").resolve()
+    _write(home / ".claude" / "settings.json", "{not json")
+    real = installer.normalize_codex_plugin
+
+    def failing_rollback(*args, **kwargs):
+        transaction = real(*args, **kwargs)
+
+        def boom():
+            raise RuntimeError("codex would not restore")
+
+        return type(transaction)(transaction.receipt, transaction.changed, boom)
+
+    monkeypatch.setattr(installer, "normalize_codex_plugin", failing_rollback)
+    snapshot = home / ".copilot" / "framework-snapshots" / f"claude-copilot-{commit}"
+    with pytest.raises(installer.RollbackIncompleteError) as excinfo:
+        _install(repo, commit, tree, home, claude_only=False)
+    assert str(snapshot) in str(excinfo.value)
+    assert snapshot.exists()

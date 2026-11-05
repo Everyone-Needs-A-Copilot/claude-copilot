@@ -19,6 +19,7 @@ from pathlib import Path, PurePosixPath
 from typing import Any, Mapping, Sequence
 
 from cc.core.config import resolve_key
+from cc.core.framework_roots import configured_framework_root
 from cc.core.ecosystem.codex_plugin_source import (
     CodexPluginSourceError,
     resolve_codex_plugin_source,
@@ -677,7 +678,7 @@ def _component_missing(component: Mapping[str, Any]) -> list[Evidence]:
 
 
 def _source_available(component: str) -> bool:
-    configured = resolve_key(f"paths.{component}_copilot_root")
+    configured = configured_framework_root(component, read=resolve_key)
     return authoritative_source_available(component, configured)
 
 

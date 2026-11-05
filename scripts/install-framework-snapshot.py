@@ -81,6 +81,10 @@ class FrameworkInstallError(RuntimeError):
     """A fail-closed framework installation error."""
 
 
+class RollbackIncompleteError(FrameworkInstallError):
+    """A rollback did not fully undo published state that may reference the snapshot."""
+
+
 @dataclass(frozen=True)
 class CommandArtifact:
     name: str
@@ -973,7 +977,7 @@ def _config_with_snapshot_roots(
     match = re.search(rb"^\{\s*\n([ \t]+)\S", existing)
     indent = match.group(1).decode("ascii") if match else None
     text = json.dumps(config, indent=indent)
-    return (text + ("\n" if existing.endswith(b"\n") or indent else "")).encode("utf-8")
+    return (text + ("\n" if existing.endswith(b"\n") else "")).encode("utf-8")
 
 
 def _prune_empty_directories(skills_root: Path, skill: SkillArtifact) -> None:
@@ -1061,7 +1065,7 @@ def _publish_runtime(
             with contextlib.suppress(OSError):
                 directory.rmdir()
         if rollback_errors:
-            raise FrameworkInstallError(
+            raise RollbackIncompleteError(
                 "publish failed and rollback was incomplete: "
                 + "; ".join(rollback_errors)
             ) from publish_error
@@ -1252,7 +1256,7 @@ def install_framework_snapshot(
                     if plugin_transaction is not None:
                         plugin_transaction.rollback()
                 except BaseException as rollback_error:
-                    raise FrameworkInstallError(
+                    raise RollbackIncompleteError(
                         "install refused and Codex plugin rollback was "
                         f"incomplete: {rollback_error}"
                     ) from prepare_error
@@ -1276,7 +1280,7 @@ def install_framework_snapshot(
                     if plugin_transaction is not None:
                         plugin_transaction.rollback()
                 except BaseException as rollback_error:
-                    raise FrameworkInstallError(
+                    raise RollbackIncompleteError(
                         "runtime publication failed and Codex plugin rollback was "
                         f"incomplete: {rollback_error}"
                     ) from publish_error
@@ -1286,9 +1290,14 @@ def install_framework_snapshot(
             )
         except BaseException as install_error:
             # Whatever refused after the snapshot was created, a failed install
-            # leaves no new snapshot behind. A snapshot a Codex plugin may still
-            # reference (its rollback was incomplete) is kept for recovery.
-            if not existed_before and "rollback was incomplete" not in str(install_error):
+            # leaves no new snapshot behind. When a rollback was incomplete, the
+            # snapshot may still be referenced (Codex plugin, published files),
+            # so it is kept for recovery and named in the error.
+            if not existed_before:
+                if isinstance(install_error, RollbackIncompleteError):
+                    raise RollbackIncompleteError(
+                        f"{install_error}; the new snapshot was kept for recovery at {snapshot}"
+                    ) from install_error
                 try:
                     _remove_created_snapshot(snapshot)
                 except BaseException as cleanup_error:

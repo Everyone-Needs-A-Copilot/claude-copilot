@@ -22,6 +22,7 @@ from pathlib import Path
 from typing import Any, Callable, Optional, Sequence
 
 from cc.core.config import resolve_key
+from cc.core.framework_roots import configured_framework_root
 from cc.core.ecosystem.project_integration import inspect_project_integration
 from cc.core.ecosystem.projects import PROJECT_LOCK_FILENAME, read_project_lock
 
@@ -101,9 +102,7 @@ def _component_variant(workspace: dict[str, Any], component: str) -> Optional[st
 def _configured_source(
     component: str, supplied: Optional[Path | str]
 ) -> Optional[Path]:
-    raw: Any = supplied
-    if raw is None:
-        raw = resolve_key(f"paths.{component}_copilot_root")
+    raw: Any = configured_framework_root(component, supplied, read=resolve_key)
     if not raw:
         return None
     candidate = Path(str(raw)).expanduser()

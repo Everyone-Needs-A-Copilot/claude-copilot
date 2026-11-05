@@ -769,7 +769,7 @@ def resolve_fanout_sources() -> tuple[
 
     for product in sorted(PROJECT_SCOPED_PRODUCTS):
         try:
-            source = _resolved_framework_root(f"paths.{product}_copilot_root", None)
+            source = _resolved_framework_root(product, None)
         except ActivationError:
             latest_by_product[product] = None
             release_tags[product] = None

@@ -41,13 +41,12 @@ def names_claude_snapshot(raw: object) -> bool:
     )
 
 
-def codex_foundation_root(manifest_path: object = None) -> Path | None:
-    """The pinned `codex-foundation` layer's local source, only if it is at its pinned ref.
+def codex_foundation_status(manifest_path: object = None) -> tuple[Path | None, str | None]:
+    """(root, None) for the pinned `codex-foundation` checkout at its pinned ref, else (None, why).
 
     This is the checkout whose signed tree the reconcile binding verifies, so
     the files delivered by install/migrate/setup and the version reconcile
-    records come from the same release. None when the layer, its path or its
-    ref cannot be established.
+    records come from the same release. The reason names the exact cause.
     """
     import subprocess
 
@@ -57,13 +56,13 @@ def codex_foundation_root(manifest_path: object = None) -> Path | None:
 
     configured = resolve_key("layers.manifest") if manifest_path is None else manifest_path
     if not configured:
-        return None
+        return None, "no layer manifest is configured, so the pinned codex-foundation layer is unknown"
     try:
         layers = load_layers(configured)
         base = Path(str(resolve_key("paths.mirrors_root"))).expanduser()
         effective = synthesize_effective_layers(layers, mirror_root_base=base)
-    except (ManifestError, OSError, ValueError):
-        return None
+    except (ManifestError, OSError, ValueError) as exc:
+        return None, f"the layer manifest could not be read ({exc})"
     layer = next(
         (
             row for row in effective
@@ -74,10 +73,10 @@ def codex_foundation_root(manifest_path: object = None) -> Path | None:
     source = (layer or {}).get("source") or {}
     path, ref = source.get("path"), source.get("ref")
     if not path or not isinstance(ref, str):
-        return None
+        return None, "the manifest declares no codex-foundation layer with a local path and pinned ref"
     root = Path(str(path)).expanduser()
     if not root.is_dir():
-        return None
+        return None, f"the codex-foundation checkout {root} does not exist"
     try:
         head, pinned = (
             subprocess.run(
@@ -87,8 +86,17 @@ def codex_foundation_root(manifest_path: object = None) -> Path | None:
             for rev in ("HEAD", ref)
         )
     except (OSError, subprocess.SubprocessError):
-        return None
-    return root if head == pinned else None
+        return None, f"the codex-foundation checkout {root} cannot resolve HEAD or pinned ref {ref}"
+    if head != pinned:
+        return None, (
+            f"the codex-foundation checkout {root} is at HEAD {head[:12]} but the "
+            f"pinned ref {ref} is {pinned[:12]}; they differ"
+        )
+    return root, None
+
+
+def codex_foundation_root(manifest_path: object = None) -> Path | None:
+    return codex_foundation_status(manifest_path)[0]
 
 
 def effective_codex_root(raw: object, manifest_path: object = None) -> object:
@@ -96,6 +104,38 @@ def effective_codex_root(raw: object, manifest_path: object = None) -> object:
     if raw and names_claude_snapshot(raw):
         return codex_foundation_root(manifest_path)
     return raw
+
+
+def configured_framework_root(
+    component: str, supplied: object = None, *, read: object = None
+) -> object:
+    """The one reader of `paths.<component>_copilot_root`.
+
+    `supplied` (an explicit override) wins over config. A Codex root naming a
+    Claude snapshot is replaced by the pinned codex-foundation checkout; every
+    consumer goes through here so none can bypass that rule (a test enforces it).
+    `read` is the caller's config reader (defaults to `cc.core.config.resolve_key`).
+    """
+    if supplied is None:
+        if read is None:
+            from cc.core.config import resolve_key as read
+        supplied = read(f"paths.{component}_copilot_root")
+    return effective_codex_root(supplied) if component == "codex" else supplied
+
+
+def framework_source_problem(
+    component: str, supplied: object = None, *, read: object = None
+) -> str | None:
+    """Why the configured source is unusable, when that cause is the Codex root drift."""
+    if component != "codex":
+        return None
+    if supplied is None:
+        if read is None:
+            from cc.core.config import resolve_key as read
+        supplied = read("paths.codex_copilot_root")
+    if supplied and names_claude_snapshot(supplied):
+        return codex_foundation_status()[1]
+    return None
 
 
 class ConfigRepointError(ValueError):
@@ -131,7 +171,7 @@ def config_with_snapshot_roots(
     match = re.search(rb"^\{\s*\n([ \t]+)\S", existing)
     indent: str | int | None = match.group(1).decode("ascii") if match else None
     text = json.dumps(config, indent=indent)
-    return (text + ("\n" if existing.endswith(b"\n") or indent else "")).encode("utf-8")
+    return (text + ("\n" if existing.endswith(b"\n") else "")).encode("utf-8")
 
 
 def sync_machine_config_to_active_runtime(

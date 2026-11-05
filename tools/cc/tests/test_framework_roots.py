@@ -195,3 +195,73 @@ def test_delivered_codex_files_match_the_recorded_version(tmp_path, monkeypatch)
         (source / "plugins/codex-copilot/.codex-plugin/plugin.json").read_text()
     )["version"]
     assert entry["version"] == delivered == "0.16.3"
+
+
+def test_drift_names_head_pinned_ref_and_that_they_differ(tmp_path):
+    from cc.core.framework_roots import codex_foundation_status
+
+    repo, manifest = _foundation(tmp_path)
+    (repo / "x").write_text("x")
+    git = ("git", "-c", "user.name=T", "-c", "user.email=t@t.invalid", "-c", "commit.gpgsign=false")
+    subprocess.run(("git", "-C", str(repo), "add", "-A"), check=True)
+    subprocess.run((*git, "-C", str(repo), "commit", "-qm", "later"), check=True)
+    head = subprocess.run(("git", "-C", str(repo), "rev-parse", "HEAD"), capture_output=True, text=True, check=True).stdout.strip()
+    root, why = codex_foundation_status(manifest)
+    assert root is None
+    assert head[:12] in why and "v0.16.3" in why and "differ" in why
+
+
+def test_refusals_carry_the_drift_cause(tmp_path, monkeypatch):
+    from cc.core.ecosystem.reconciliation_recipes import RecipeValidationError
+    from cc.core.ecosystem.workspaces import ActivationError, _resolved_framework_root
+
+    repo, manifest = _foundation(tmp_path)
+    (repo / "x").write_text("x")
+    git = ("git", "-c", "user.name=T", "-c", "user.email=t@t.invalid", "-c", "commit.gpgsign=false")
+    subprocess.run(("git", "-C", str(repo), "add", "-A"), check=True)
+    subprocess.run((*git, "-C", str(repo), "commit", "-qm", "later"), check=True)
+    snap = tmp_path / "home/.copilot/framework-snapshots" / f"claude-copilot-{NEW}"
+    _plugin(snap, "0.16.0")
+    monkeypatch.setenv("CC_LAYERS_MANIFEST", str(manifest))
+    monkeypatch.setenv("CC_PATHS_CODEX_COPILOT_ROOT", str(snap))
+    monkeypatch.setenv("CC_PATHS_MIRRORS_ROOT", str(tmp_path / "mirrors"))
+    with pytest.raises(RecipeValidationError, match=r"pinned ref v0\.16\.3.*differ"):
+        validated_source_root("codex")
+    with pytest.raises(ActivationError, match=r"pinned ref v0\.16\.3.*differ"):
+        _resolved_framework_root("codex", None)
+
+
+def test_no_module_reads_the_codex_root_key_outside_the_resolver():
+    """Every consumer must go through configured_framework_root(); none may read the key."""
+    import ast
+
+    src = Path(__file__).resolve().parents[1] / "src/cc"
+    allowed = {
+        "core/framework_roots.py",  # the resolver
+        "core/config.py",  # the default value
+        "commands/doctor.py",  # lists keys for the config check
+        "core/conformance/dimensions/d02_codex.py",  # evidence label text only
+        # Reads the key from an injected config dict, then applies effective_codex_root().
+        "core/ecosystem/machine_assessment.py",
+    }
+    offenders: list[str] = []
+    for path in sorted(src.rglob("*.py")):
+        rel = path.relative_to(src).as_posix()
+        if rel in allowed:
+            continue
+        for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
+            text = None
+            if isinstance(node, ast.Constant) and isinstance(node.value, str):
+                text = node.value
+            elif isinstance(node, ast.JoinedStr):
+                text = "".join(
+                    v.value for v in node.values if isinstance(v, ast.Constant)
+                )
+            if text and "_copilot_root" in text and (
+                "codex" in text or text.startswith("paths.")
+            ) and "claude_copilot_root" not in text:
+                # docstrings/comments-in-strings that merely mention the key are fine
+                if len(text) > 80 or "\n" in text:
+                    continue
+                offenders.append(f"{rel}:{node.lineno}: {text!r}")
+    assert not offenders, offenders

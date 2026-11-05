@@ -1306,3 +1306,51 @@ def test_project_authored_text_beside_managed_blocks_still_verifies_ready(
         encoding="utf-8",
     )
     assert verify()["result"] != "ready"
+
+
+def test_signed_binding_recorded_codex_version_equals_delivered_plugin_version(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The configured Codex source bundles 0.6.1; the signed tier is 9.9.9.
+
+    The version the lock records must be the version of the plugin files that
+    actually landed in the project, never the fallback root's.
+    """
+    claude, codex, _commands = _reference_sources(tmp_path)
+    manifest, _signed, fingerprint, public_key = _signed_codex_ladder(tmp_path)
+    _configure_sources(monkeypatch, claude, codex)
+    _configure_signed_ladder(monkeypatch, manifest, fingerprint, public_key)
+    authority = tmp_path / "projects"
+    project = _git_project(authority)
+    request = build_canonical_project_request(project, approved_roots=(authority,))
+    state_root = tmp_path / "state"
+
+    def machine_builder() -> dict[str, Any]:
+        return _machine(authority.resolve())
+
+    census_builder = _census(project, authority.resolve())
+    plan = build_plan_report(
+        request,
+        machine_builder=machine_builder,
+        census_builder=census_builder,
+        plan_issuer=lambda **kwargs: issue_plan(**kwargs, root=state_root),
+    )
+    assert (
+        build_apply_report(
+            request,
+            plan["plan_id"],
+            machine_builder=machine_builder,
+            census_builder=census_builder,
+            state_root=state_root,
+        )["result"]
+        == "applied"
+    )
+    delivered = json.loads(
+        (project / "plugins/codex-copilot/.codex-plugin/plugin.json").read_text()
+    )["version"]
+    lock = json.loads((project / "copilot.lock.json").read_text(encoding="utf-8"))
+    entry = next(c for c in lock["components"] if c["component"] == "codex")
+    assert delivered == "9.9.9"
+    assert entry["version"] == delivered
+    recorded = {f["path"] for f in entry["files"]}
+    assert "plugins/codex-copilot/.codex-plugin/plugin.json" in recorded
