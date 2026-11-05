@@ -1,5 +1,9 @@
 # Changelog
 
+## [5.34.2] - 2026-11-05
+
+- **Coordinator rule.** The main session coordinates and dispatches; it does not do implementation work itself. Protocol text and the always-on injection state the rule, force-delegate deferral is honored, and a user-level `coordinator-guard.sh` PreToolUse hook enforces it with a read-only git allowlist. The framework snapshot installer installs the guard and registers its settings.json hook exactly once. Hermetic hook and installer tests cover it. Companion to the organization `parallel-execution` skill and Codex Copilot's matching guard.
+
 ## [Unreleased]
 
 - Evaluate a superseded entitlement observation against the completion-time clock, so a newer record that postdates the probe start is no longer treated as impossible and degraded to `offline-unverified`. An explicitly injected clock is preserved and the time checks are unchanged.
