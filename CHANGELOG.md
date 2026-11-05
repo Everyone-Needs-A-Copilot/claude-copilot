@@ -1,5 +1,9 @@
 # Changelog
 
+## [Unreleased]
+
+- Evaluate a superseded entitlement observation against the completion-time clock, so a newer record that postdates the probe start is no longer treated as impossible and degraded to `offline-unverified`. An explicitly injected clock is preserved and the time checks are unchanged.
+
 ## [5.34.1] - 2026-11-04
 
 - Claim each session budget lock through atomic shell noclobber creation, with an owner token, process/subshell identity and held receipt. Release only the unchanged owned regular file; preserve foreign files, symlinks and old directory locks. The existing wait limit, budget thresholds and enforcement remain unchanged.
