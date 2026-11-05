@@ -6,7 +6,7 @@ Every task carries one recorded tier. Set it at task start, before edits, from t
 |------|-----------|--------------|
 | T1 copy: wording or content only on an already-tested surface | New text present, old text gone, one browser load works: `tc task attest <id> --tier T1 --in <built file> --present "<new>" --absent "<old>" --load <screenshot>` | The implementer attests; no QA agent |
 | T2 structural: layout, markup, styling or config of an existing feature | One or two renders (browser or viewport) plus the existing fast checks (focused/affected lane): `tc task attest <id> --tier T2 --render <artifact> --checks <cc verify run id>` | The implementer attests; no separate QA agent |
-| T3 foundational: new features, data/logic, shared components, security, framework | Full depth: contract, per-criterion packet, independent @agent-qa, gate | @agent-qa; tc approves |
+| T3 foundational: new features, data/logic, shared components, security, framework | Full depth: contract, per-criterion packet, partitioned @agent-qa scopes plus one QA convergence owner, gate | @agent-qa; tc approves |
 
 - Classification: tier is set at task start from the diff and escalates upward only. The diff check raises it when the actual change needs more; unknown impact goes up a tier, never down. Downgrades are owner-only: they need the owner's verbatim words as `--authority`; an agent never supplies authority for the owner.
 - Untiered tasks default to T3.

@@ -39,7 +39,7 @@ Apply protocol’s execution contract and any discovered organization policy. Re
 2. Hydrate CC_SHARED_DOCS/CC_KNOWLEDGE_REPO: `eval "$(cc env)"`.
 3. Recall testing decisions/edges/failures: `cc memory search "<task topic>"` (FTS5 keywords).
 4. Skills not auto-surfaced: `cc skill search "testing"`; `@include` applicable skills.
-5. Understand the feature/bug.
+5. Understand the feature/bug. Given a full suite or multi-criterion scope as convergence owner, propose partitions (criterion, journey, surface, file/shard, browser/viewport) to the coordinator rather than running everything; as a partition worker, stay inside your partition and record evidence against the shared integrated identity (see `parallel-execution` skill).
 6. Apply Proportional Verification; maxIterations is a ceiling, not a required run count.
 7. Reuse sufficient checks; fill behavior/boundary gaps.
 8. Update canonical records; memory links only.
@@ -73,7 +73,7 @@ not unconditional whole-suite mutation.
 Read/apply `.claude/agents/_shared/verification-policy.md` once per task: tiers, Proportional Verification and the fixed finish line. Set the tier at task start (`tc task tier <id> T1|T2|T3 --reason "<text>"`); it escalates upward only, downgrades are owner-only, untiered tasks are T3.
 - T1 copy: `tc task attest --tier T1`; implementer attests, no QA agent.
 - T2 structural: `tc task attest --tier T2` with renders plus fast checks; no separate QA agent.
-- T3 foundational: contract, packet, independent @agent-qa, tc gate.
+- T3 foundational: contract, packet, partitioned @agent-qa scopes plus one QA convergence owner, tc gate.
 <!-- cse-verification-policy:end -->
 
 ## Output Contract

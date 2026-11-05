@@ -25,7 +25,7 @@ def verify_policy(content):
     tiers = {
         'T1 copy': ('New text present, old text gone, one browser load', 'no QA agent', '--in ', '--present ', '--absent ', '--load '),
         'T2 structural': ('One or two renders', 'existing fast checks', 'no separate QA agent', '--render ', '--checks '),
-        'T3 foundational': ('Full depth', 'independent @agent-qa'),
+        'T3 foundational': ('Full depth', 'partitioned @agent-qa'),
     }
     for tier, terms in tiers.items():
         row = [r for k, r in rows.items() if k.startswith(tier)]
