@@ -20,8 +20,8 @@ It should behave like the Claude Copilot `/protocol` command in intent:
 
 In Codex, that means:
 
-- invoke specialist skills in the main session by default
-- use `spawn_agent` only when the user explicitly asks for subagents or parallel execution
+- apply the immediate blocking specialist lens locally
+- dispatch useful independent work through native `spawn_agent` within the approved plan by default
 - use `tc` as the durable record for substantial work
 
 ## Repository Decision Instruments
@@ -51,18 +51,18 @@ Keep these instruments separate:
 
 ## Required behavior
 
-0. before substantial work, post the five-line done block (Done means / Proven by / Not in scope / Assumptions / First example) and wait for one word; register it with `tc task contract <id> --from-done-block <file>` (see `references/checkpoints.md`)
+0. set the verification tier first, using the Verification Tiers table in `../specialist-agents/references/verification-policy.md` (T1 copy, T2 structural, T3 foundational; `tc task tier <id> T1|T2|T3 --reason "<text>"`; from the diff, upward only, owner-only downgrades, untiered is T3); T1 is not substantial work and skips the done block, T2 and T3 add a sixth `Tier:` line. Before substantial work, post the five-line done block (Done means / Proven by / Not in scope / Assumptions / First example) and wait for one word; register it with `tc task contract <id> --from-done-block <file>` (see `references/checkpoints.md`)
 1. check repository decision instruments when they apply
 2. classify the task
 3. state the workflow
 4. ensure `tc` context exists for substantial work
 5. load known references and memory when `cc` is configured
 6. for third-party API work, require Live Docs before planning or implementation
-7. record QA-required implementation tasks with `metadata.requiresQa=true`
+7. record QA-required implementation tasks with `metadata.requiresQa=true`; `$qa` is required for T3 and escalations, T1/T2 finish with `tc task attest`
 8. use `docs/40-initiatives/NN-slug/` for formal multi-phase initiative knowledge while keeping live execution state in `tc`
 9. perform the next appropriate specialist step
 10. do not jump straight to implementation when earlier specialist work is warranted
-11. do not use `spawn_agent` unless the user explicitly asked for delegation or parallel work
+11. apply `references/parallel-execution.md`: validate the ready-work graph, dispatch within measured capacity, converge current evidence and prepare verified resource disposition
 
 For experience work that does not materially change screens, components, or interface states, `$uid` may be skipped only when the checkpoint states why.
 
@@ -71,7 +71,7 @@ For experience work that does not materially change screens, components, or inte
 Before implementation, state the deliverable, required acceptance criteria,
 affected consumers, verification lane/cap and exclusions in `tc`. Freeze this
 batch scope; use the engineering/QA Proportional Verification fixed finish line.
-After current source-bound QA approval satisfies every required criterion, close
+After current source-bound QA approval (T3) or a valid tc attestation (T1/T2) satisfies every required criterion, close
 the task, report completion and separately pending work, then stop. Unrelated
 findings do not authorize another improvement cycle. Missing required evidence or
 an exhausted cap remains incomplete; never weaken acceptance to declare completion.
@@ -103,7 +103,7 @@ One question, not a checklist. State the recommendation first; if every option i
 
 **Resolving a genuine ambiguity silently is a defect, not efficiency.** Measured on an identical brief carrying a real contradiction ("Level 4 finish throughout" against "Garage included"): the arm with no framework asked, got the answer, and priced 25 fewer labour hours. The arm running the full design chain asked nothing and priced a guess. Inferring an answer where the brief is undecided converts the user's decision into your hidden assumption and buries it in a deliverable, where it resurfaces as rework. Guessing is acceptable only when the guess is stated as one.
 
-This applies with more force here than in a delegating framework, not less: running the lenses inline means no handoff document exists where an unstated assumption might be caught by the next specialist reading it.
+Every dispatched scope carries explicit assumptions and unresolved decisions. The coordinator reconciles them at convergence and surfaces decision-changing ambiguity; parallel workers must not turn an undecided owner choice into an implicit agreement.
 
 ## Checkpoints
 
@@ -140,7 +140,7 @@ Optional pack specialists (`kc`, `cco`, `cw`, `cs`, `cpa`) are activated per pro
 
 ## Delegated pattern
 
-If the user explicitly asks for delegation or parallel work, use `$launcher` to map the needed specialists onto native Codex spawned-agent roles.
+Approved work uses `$launcher` to map useful independent scopes onto native Codex spawned-agent roles by default. Read `references/parallel-execution.md` before dispatch. `$orchestrate` is a deprecated compatibility redirect; orchestration is part of this protocol, not another owner-operated stage.
 
 ## Task Copilot
 
@@ -181,6 +181,7 @@ identity. Use the registered IDs in `CRITERION:` and exact expected behavior in
 completion service rechecks contract, task/database identity and content hashes,
 including dirty files, new files and deletions. It also enforces unfinished task
 dependencies. Do not downgrade requiresQa or replace source evidence with prose.
+Tier scope: the contract, identity and per-criterion packet above are the T3 path. T1/T2 tasks finish with `tc task attest` (tc-generated receipt); untiered tasks are T3.
 
 A v1 packet for pending work must be migrated with a registered contract and
 fresh verification. Historical completed records remain readable and explicitly
@@ -199,7 +200,7 @@ per task, including direct invocation of this skill: start/resume, maintain,
 pause/handoff, finish and later reuse. Keep the checkpoint proportional in the
 existing record; a small answer does not need a new task or document.
 
-At start/resume (including a new PRD or initiative) and finish/merge/pause/handoff, proactively inspect relevant worktrees and surface eligible cleanup with exact paths, recovery and dependency checks, then visibly request deletion approval; do not wait for a cleanup command. Merge alone is insufficient. Record owned holds and pending approval in the existing task, continue unrelated work, and reuse unchanged prior approval after drift checks.
+At start/resume (including a new PRD or initiative) and finish/merge/pause/handoff, proactively inspect relevant worktrees. During cleanup automatically retire only recorded, fully integrated, clean and inactive merged worktrees after identity, recovery, consumer and project-teardown checks; never remove the coordinator’s current tree. Preserve branch history and hold dirty, unmerged, drifted, active or unknown work with an owner and next action. Other deletion requires exact approval; continue unrelated work while that approval is pending.
 
 For substantial QA-required work, include an observable `WORK-LIFECYCLE` (or
 equivalent) criterion before acceptance is frozen. QA inspects the maintained

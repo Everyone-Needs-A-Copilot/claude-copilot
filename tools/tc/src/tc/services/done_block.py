@@ -13,6 +13,7 @@ _LABELS = {
     "assumptions that would change the answer": "assumptions",
     "assumption": "assumptions",
     "first example": "example",
+    "tier": "tier",
 }
 _LINE = re.compile(
     r"^(?:>\s*)*(?:\*\*)?\s*(" + "|".join(sorted((re.escape(k) for k in _LABELS), key=len, reverse=True)) + r")\s*(?:\*\*)?\s*:\s*(?:\*\*)?\s*(.*)$",
@@ -56,11 +57,17 @@ def parse_done_block(text: str) -> dict:
         parsed["assumptions"] = _items(fields["assumptions"])
     if fields.get("example"):
         parsed["firstExample"] = fields["example"]
+    if fields.get("tier"):
+        tier = fields["tier"].split()[0].upper().rstrip(".,;:")
+        if tier not in ("T1", "T2", "T3"):
+            raise ValidationError("Tier must be T1, T2 or T3")
+        parsed["tier"] = tier
     return parsed
 
 
 def build_contract(text: str, *, kind: str, sources, criteria, lane) -> dict:
     parsed = parse_done_block(text)
+    parsed.pop("tier", None)  # recorded on the task by tc task contract, not part of the contract identity
     extra = []
     for item in criteria or []:
         cid, sep, expected = item.partition("=")

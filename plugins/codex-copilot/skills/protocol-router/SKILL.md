@@ -22,9 +22,7 @@ Use this skill to classify the request and choose the right specialist flow befo
 
 ## Codex rule
 
-If the user did not explicitly ask for subagents, apply the specialist lens in the main session.
-
-If the user explicitly asked for delegation or parallel work, you may spawn subagents after deciding:
+Apply the immediate blocking lens locally. After scope approval, dispatch useful independent scopes by default through the protocol parallel-execution contract, after deciding:
 
 1. what the immediate local step is
 2. which work can safely run in parallel

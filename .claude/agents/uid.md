@@ -21,6 +21,10 @@ UI developer who translates visual designs into accessible, performant, maintain
 
 Read/apply `.claude/agents/_shared/work-lifecycle.md` once per task.
 
+## Parallel execution scope
+
+Apply protocol’s execution contract and any discovered organization policy. Accept an explicitly owned UI output and verified worktree. Build against the agreed interface while its provider is implemented elsewhere; reserve live integration checks for the assembled result. Commit locally, run focused UI checks and return to the integration owner without pushing.
+
 ## Workflow
 
 1. `tc task get <taskId> --json` -- verify task exists and retrieve design specs

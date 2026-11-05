@@ -20,7 +20,7 @@ These assets have no Python runtime dependency; they work the moment the plugin 
 | Tool | What it provides | Install |
 |------|-----------------|---------|
 | `cc` CLI | Memory storage/search, skill CLI, extension resolution, agent override layer | `bash tools/cc/install.sh` or `pipx install claude-cli` |
-| `tc` CLI | Task copilot — PRDs, tasks, work products, handoffs | `pip install -e tools/tc` or homebrew |
+| `tc` CLI | Task copilot — PRDs, tasks, work products, handoffs | `bash tools/tc/install.sh` or homebrew |
 
 The agents call `cc` and `tc` via Bash. If those binaries are absent, memory and task-tracking features degrade gracefully — the agent markdown still loads and the methodology still works; only the persistence features are unavailable.
 
@@ -61,7 +61,7 @@ This installs the prompt-layer assets (agents, skills, commands, hooks).
 bash tools/cc/install.sh
 
 # tc CLI — task copilot
-pip install -e tools/tc
+bash tools/tc/install.sh
 ```
 
 **Step 4 — Verify**
@@ -167,7 +167,7 @@ Run this in CI or before merging changes to `.claude/` to ensure the two discove
 
 **"cc: command not found"** — Install cc: `bash tools/cc/install.sh`. Full memory, skill, and override features require this.
 
-**"tc: command not found"** — Install tc: `pip install -e tools/tc`. Task copilot features require this.
+**"tc: command not found"** — Install tc: `bash tools/tc/install.sh`. Task copilot features require this.
 
 **Hooks not firing in plugin mode** — Verify `${CLAUDE_PLUGIN_ROOT}` is set by your Claude Code version. If not, fall back to the direct-clone path and use `settings.json` absolute paths.
 

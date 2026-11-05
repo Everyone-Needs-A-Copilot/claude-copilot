@@ -1,0 +1,11 @@
+{
+  "schemaVersion": 1,
+  "changeBasis": "owner-requested-obsolete-check",
+  "files": ["tools/tc/tests/test_stream.py"],
+  "authority": "Let's build it all. I don't fucking piecemeal this shit. You've got a good plan, so let's fucking make it happen and put it all in place.",
+  "approvedPlan": "CSE initiative 01 assessment: use one fail-closed ownership validator; reject missing or malformed ownership before dispatch.",
+  "oldContract": "A task with missing metadata.files is ignored; conflict scan exits 0 and reports no conflicts.",
+  "newContract": "An undeclared writer is refused with exit 4 and an ownership diagnostic before any worktree/worker dispatch.",
+  "changedTest": "TestStreamConflicts.test_tasks_without_files_metadata_are_ignored -> test_tasks_without_files_metadata_are_refused",
+  "preserved": "All other pre-existing stream, worker, PRD, tier and QA assertions remain unchanged. New negative coverage strengthens scope validation."
+}

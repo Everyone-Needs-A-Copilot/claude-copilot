@@ -243,7 +243,7 @@ print_summary() {
     echo ""
     echo "Run the following to fix issues:"
     echo "  bash $PROJECT_ROOT/tools/cc/install.sh"
-    echo "  cd $PROJECT_ROOT/tools/tc && pip install -e ."
+    echo "  bash $PROJECT_ROOT/tools/tc/install.sh"
     echo "========================================"
     return 1
   fi

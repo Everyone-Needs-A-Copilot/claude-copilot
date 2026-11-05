@@ -47,7 +47,7 @@ cd ~/your-project && claude
 bash ~/.claude/copilot/tools/cc/install.sh
 
 # tc CLI (Task Copilot)
-pip install -e ~/.claude/copilot/tools/tc
+bash ~/.claude/copilot/tools/tc/install.sh
 ```
 
 #### Agents
@@ -87,8 +87,8 @@ cp ~/.claude/copilot/.claude/commands/continue.md ~/your-project/.claude/command
 |--------------|----------|--------------|
 | Start fresh work | Protocol | `/protocol` |
 | Resume previous work | Continue | `/continue` |
-| Run parallel work streams | Orchestrate | `/orchestrate start` |
-| Monitor orchestration | Orchestrate | `/orchestrate status` |
+| Run parallel work streams | Protocol | `/protocol` (parallel execution is built in) |
+| Monitor parallel work | Task state | `tc cycle status CYCLE --json` |
 | Get architecture help | Tech Architect agent | `/protocol` → routes to `ta` |
 | Implement code | Engineer agent | `/protocol` → routes to `me` |
 | Security review | Security agent | `/protocol` → routes to `sec` |
@@ -293,7 +293,7 @@ Agents store detailed work products here instead of returning them to the main s
 | `/skills-approve` | User | Browse, search, and manage reusable skills via `cc` CLI |
 | `/protocol` | Project | Start fresh work with Agent-First Protocol |
 | `/continue` | Project | Resume previous work via Memory Copilot |
-| `/orchestrate` | Project | Set up and manage parallel stream orchestration |
+| `/orchestrate` | Project | Deprecated redirect to protocol-native execution |
 
 ---
 
@@ -358,7 +358,7 @@ cd ~/your-project && claude
 
 | Issue | Solution |
 |-------|----------|
-| **`cc` or `tc` not found** | Run `bash ~/.claude/copilot/tools/cc/install.sh` and `pip install -e ~/.claude/copilot/tools/tc` |
+| **`cc` or `tc` not found** | Run `bash ~/.claude/copilot/tools/cc/install.sh` and `bash ~/.claude/copilot/tools/tc/install.sh` |
 | **Memory not persisting** | Run `cc memory index --rebuild`, check `~/.claude/memory/` |
 | **Skill search empty** | Run `cc skill list` — confirm local skills path is set |
 | **Commands not working** | Verify `.claude/commands/*.md` exist, restart Claude Code |

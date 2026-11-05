@@ -214,8 +214,8 @@ class TestStreamConflicts:
         assert "stream-a" in result.output
         assert "stream-b" in result.output
 
-    def test_tasks_without_files_metadata_are_ignored(self, cli):
-        """A task with no metadata.files must not blow up the scan."""
+    def test_tasks_without_files_metadata_are_refused(self, cli):
+        """Approved fail-closed ownership refuses an undeclared writer before dispatch."""
         cli(["prd", "create", "--title", "PRD"])
         cli(["stream", "create", "--name", "bare-stream", "--prd", "1"])
         cli(
@@ -230,8 +230,8 @@ class TestStreamConflicts:
             ]
         )
         result = cli(["stream", "conflicts", "--json"])
-        assert result.exit_code == 0
-        assert json.loads(result.output) == []
+        assert result.exit_code == 4
+        assert "ownership" in result.output.lower()
 
     def test_archived_stream_excluded_by_default(self, cli):
         """A completed/archived stream's file claims don't collide with a new one."""

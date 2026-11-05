@@ -2,7 +2,7 @@
 
 **Diátaxis mode:** How-to
 
-**Status:** Current — installation uses `bash tools/cc/install.sh` + `pip install -e tools/tc`. No npm or Node.js required.
+**Status:** Current — installation uses `bash tools/cc/install.sh` + `bash tools/tc/install.sh`. No npm or Node.js required.
 
 ---
 
@@ -42,7 +42,7 @@ Inside Claude Code, run:
 The setup wizard:
 - Checks Python 3 is available
 - Runs `bash tools/cc/install.sh` to install the `cc` CLI to `~/.local/bin/cc`
-- Runs `pip install -e tools/tc` to install the `tc` CLI
+- Runs `bash tools/tc/install.sh` to install the `tc` CLI
 - Installs global commands (`/setup-project`, `/update-project`, `/knowledge-copilot`)
 
 ## Step 4 — Set Up Each Project
@@ -87,7 +87,7 @@ Then in each project:
 | Binary | Installed By |
 |--------|-------------|
 | `cc` | `bash tools/cc/install.sh` |
-| `tc` | `pip install -e tools/tc` |
+| `tc` | `bash tools/tc/install.sh` |
 
 ### Per-Project (`<project>/.claude/`)
 
@@ -152,7 +152,7 @@ source ~/.zshrc   # or ~/.bash_profile / ~/.zprofile on macOS
 Reinstall with pip in editable mode:
 
 ```bash
-pip install -e ~/.claude/copilot/tools/tc
+bash ~/.claude/copilot/tools/tc/install.sh
 ```
 
 ### Python version too old
@@ -174,7 +174,7 @@ git pull origin main
 
 # Reinstall CLIs if tools/ changed
 bash tools/cc/install.sh
-pip install -e tools/tc
+bash tools/tc/install.sh
 
 # Sync all projects
 cd /your/project

@@ -15,7 +15,7 @@ Use this skill to make focused, working code changes.
 - Add tests in proportion to risk and blast radius.
 - Keep unrelated refactors out of the change.
 - Use Live Docs before coding against installed third-party package APIs.
-- Treat `$qa` as required for implementation work that needs verification.
+- Treat `$qa` as required for T3 (foundational) and escalated work. T1 (copy) and T2 (structural) finish with `tc task attest` and no QA specialist; an untiered task is T3. Tiers only rise; only the owner lowers one.
 - Follow the fixed acceptance scope and Proportional Verification; a new requirement needs an explicit scope decision, not an automatic extra improvement.
 
 ## Success Criteria
@@ -25,7 +25,7 @@ Use this skill to make focused, working code changes.
 - New or changed behavior has proportional test coverage.
 - Edge cases and errors are handled.
 - Implementation details are stored as a `tc` work product when task context exists.
-- QA-required tasks carry `metadata.requiresQa=true` and are routed to `$qa`.
+- QA-required tasks carry `metadata.requiresQa=true`; T3 tasks are routed to `$qa`, T1/T2 tasks are attested with `tc task attest`.
 
 ## Workflow
 
@@ -37,13 +37,13 @@ Use this skill to make focused, working code changes.
 6. Make the smallest coherent change.
 7. Run focused validation first, then broader checks when warranted.
 8. Store implementation details as a `code` work product.
-9. Route to `$qa`; do not treat implementation as the final gate.
+9. Route T3 and escalated work to `$qa`; do not treat implementation as the final gate. For T1/T2, `tc task attest` is the final check.
 
 ## Iteration Loop
 
 Read `../specialist-agents/references/verification-policy.md` once per task before
 selecting checks. Apply its behavior/consumer lanes, first-divergent-state diagnosis,
-two-hypothesis checkpoint and execution caps. Add tests for missing behavior coverage,
+two-hypothesis checkpoint and execution caps. Set the verification tier first (`tc task tier <id> T1|T2|T3 --reason "<text>"`, then `tc task tier <id> --check` against the real diff); its Verification Tiers table gives the T1/T2 attest flags and the `pablo:<quote>` source form. Add tests for missing behavior coverage,
 not each edited file; preserve current source-bound QA and report remaining risk.
 
 ## Methodology
@@ -68,7 +68,7 @@ Return:
 
 ## Route To Other Specialist
 
-- `$qa` always for verification-relevant implementation work.
+- `$qa` for T3 and escalated work. T1/T2: no QA specialist; run `tc task attest` instead.
 - `$doc` for README, setup, API, or durable usage changes.
 - `$sec` for auth, permissions, secrets, or unsafe input handling.
 
@@ -117,6 +117,7 @@ identity. Use the registered IDs in `CRITERION:` and exact expected behavior in
 completion service rechecks contract, task/database identity and content hashes,
 including dirty files, new files and deletions. It also enforces unfinished task
 dependencies. Do not downgrade requiresQa or replace source evidence with prose.
+Tier scope: the contract, identity and per-criterion packet above are the T3 path. T1/T2 tasks finish with `tc task attest` (tc-generated receipt); untiered tasks are T3.
 
 A v1 packet for pending work must be migrated with a registered contract and
 fresh verification. Historical completed records remain readable and explicitly

@@ -21,6 +21,7 @@ elif printf '%s' "$PROMPT" | grep -qiE 'architecture|refactor|backend|(^|[^[:aln
 fi
 
 [ -n "$MSG" ] || exit 0
+MSG="$MSG Approved useful independent work follows the protocol ready queue by default; preserve native capacity, ownership and one convergence owner."
 
 $JQ -cn --arg context "$MSG" \
   '{hookSpecificOutput:{hookEventName:"UserPromptSubmit",additionalContext:$context}}'

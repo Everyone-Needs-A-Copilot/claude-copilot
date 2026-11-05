@@ -99,7 +99,7 @@ cc config doctor
 Tell user: "Reinstalling tc CLI (Task Copilot)..."
 
 ```bash
-pip install -e ~/.claude/copilot/tools/tc
+bash ~/.claude/copilot/tools/tc/install.sh
 ```
 
 **Verify:**

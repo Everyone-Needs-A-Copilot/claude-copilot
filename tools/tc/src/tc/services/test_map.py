@@ -30,7 +30,7 @@ def _command(value, what: str) -> str:
 
 
 def _validate_entry(glob: str, entry) -> dict:
-    allowed = {"focused", "affected", "lane", "cap_seconds"}
+    allowed = {"focused", "affected", "lane", "cap_seconds", "tier"}
     if not isinstance(entry, dict) or set(entry) - allowed or "focused" not in entry:
         raise ValidationError(f"Map entry '{glob}' must be an object with focused (required), affected, lane, cap_seconds")
     clean = {"focused": _command(entry["focused"], f"'{glob}' focused")}
@@ -39,6 +39,10 @@ def _validate_entry(glob: str, entry) -> dict:
         if entry["lane"] not in LANES:
             raise ValidationError(f"'{glob}' lane must be one of: {', '.join(LANES)}")
         clean["lane"] = entry["lane"]
+    if entry.get("tier") is not None:
+        if entry["tier"] != "T3":
+            raise ValidationError(f"'{glob}' tier may only be \"T3\" (it marks paths that always need full verification)")
+        clean["tier"] = "T3"
     cap = entry.get("cap_seconds")
     if cap is not None:
         if not isinstance(cap, int) or isinstance(cap, bool) or cap <= 0:

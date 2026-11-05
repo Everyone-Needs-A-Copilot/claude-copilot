@@ -13,7 +13,7 @@ Thank you for your interest in contributing to Claude Copilot!
 ```bash
 # Install CLI tools
 bash tools/cc/install.sh
-pip install -e tools/tc
+bash tools/tc/install.sh
 ```
 
 ## Security Guidelines

@@ -1,5 +1,78 @@
 # Changelog
 
+## [5.34.1] - 2026-11-04
+
+- Claim each session budget lock through atomic shell noclobber creation, with an owner token, process/subshell identity and held receipt. Release only the unchanged owned regular file; preserve foreign files, symlinks and old directory locks. The existing wait limit, budget thresholds and enforcement remain unchanged.
+- Repair a demonstrated concurrent update loss: CI traces showed two callers admitted by external `mkdir` before either released the same lock, so one state write discarded another target. Preserve the full trace and original failures; do not attribute the utility behavior to an unmeasured implementation. See [the evidence and correction](docs/40-initiatives/parallel-protocol-engine/budget-lock-release.md).
+- Retain complete subprocess diagnostics and ten bounded concurrent-budget checks in CI. A failed sample fails immediately; assertions and tests remain unchanged. Record interpreter and lock-utility identities and an independent utility control.
+- Supersede 5.34.0 for consumer activation. Its signed tag remains immutable: its PR passed, then main verification exposed the pre-existing intermittent budget-lock defect.
+
+## [5.34.0] - 2026-11-04
+
+### Added
+
+- **Parallel execution is the default after plan approval.** Protocol dispatches useful independent research, design, development, QA and operations streams within actual runtime and resource capacity. Typed contract, built, integrated and accepted dependencies let newly ready work start without waiting for a whole phase. Exclusive write ownership, actual checkout/branch preflight, one integration owner and current independent QA remain required. Both Copilots read the same organization `parallel-execution` skill; the shared `tc cycle` service records coordination and permits native dispatch rather than starting models itself.
+- **`tc cycle` lifecycle and cheap smoke.** Plan validation, readiness, claims, explicit worktree preparation, single-use dispatch verification, evidence receipts, adapter discovery, cleanup and finish share one durable authority. `.copilot/worktree-adapter.json` declares project setup/isolation; discovery is read-only and an absent adapter reports filesystem-only isolation. `tc cycle smoke` exercises overlapping local processes and shutdown across supplied role labels with zero provider calls or model tokens. It proves process lifecycle, not native model reasoning, model quality or an end-to-end speed guarantee. See [the cycle guide](tools/tc/docs/CYCLE.md) and [command reference](tools/tc/docs/CYCLE-commands.md).
+- **PRD body closure checks every task.** `tc prd body-status` includes direct, stream-associated and descendant tasks, including parked work. Finish refuses unresolved tasks and workers without current stop evidence; completed and cancelled history is preserved.
+
+### Changed
+
+- **`/orchestrate` is deprecated into protocol.** The existing command remains a compatibility redirect. Protocol, continue, cleanup, specialist guidance and machine command delivery use the same default execution and convergence contract.
+- **Cleanup retires eligible merged worktrees automatically.** Under the owner's 4 November 2026 authority, recorded worktrees are removed only after intended-branch integration, clean tracked/untracked/ignored state, unchanged identity, successful teardown, stopped workers, no consumers and recoverability are verified. Branches remain by default; dirty, unique, unmerged, active, drifted, unknown and evidence-bearing resources are held. Other deletion retains exact approval.
+- Component versions: tc 2.11.0 to 2.12.0, agents 5.13.0 to 5.14.0, commands 5.10.0 to 5.11.0, skills 3.7.0 to 3.8.0. cc remains 2.18.0. The embedded Codex plugin is refreshed to 0.16.0, requiring cc 2.18.0 and tc 2.12.0.
+
+### Fixed
+
+- **Lifecycle evidence stays current.** Capacity is released only after observed worker exit; consumed-contract changes invalidate work; referenced evidence prevents worktree retirement; stale stop receipts cannot close a PRD; symlink aliases cannot bypass ownership; refused QA-gated dispatch preserves its one-shot permit. A verified source relocation can bind accepted coverage to immutable Git refs before an authoring worktree is retired.
+- **Non-Git document attestation has explicit scope.** T1 document attestation binds in-project document files and repeatable hashes without inventing a Git baseline; mutation and code-file substitution are refused.
+- **Ownership test expectation updated for the approved contract.** `test_stream.py` now refuses writers missing declared files instead of ignoring them. [The receipt](docs/40-initiatives/parallel-protocol-engine/test-change-receipt.json) preserves the old/new expectation and owner authority; existing valid acceptance requirements remain intact.
+
+## [5.33.1] - 2026-11-02
+
+### Changed
+
+- **Embedded Codex plugin.** The embedded Codex plugin under `plugins/codex-copilot` is refreshed byte-for-byte to codex-copilot 0.15.0, which requires cc 2.18.0 and tc 2.11.0. It ships `verification-policy.md` copied byte for byte from this repository's canonical file and `$me`, `$qa`, `$protocol` and `$ta` skills that follow the same T1/T2/T3 tiers. No framework component versions change.
+
+## [5.33.0] - 2026-11-02
+
+Source: the tiered-verification plan (TASK-12): testing depth follows the change instead of forcing a full QA packet on every edit.
+
+5.33.0 was superseded before release by 5.33.1 and was never tagged or pushed; its changes ship in 5.33.1.
+
+### Added
+
+- **Verification tiers in `tc`.** `tc task tier <id> T1|T2|T3 --reason "<text>"` records one tier per task (T1 copy, T2 structural, T3 foundational). Tiers rise automatically and only the owner lowers one: lowering needs `--authority` with the owner's verbatim words, stored in the tier history. `tc task tier <id> --check` classifies the real diff and prints the minimum tier and its triggers. Untiered tasks stay T3, so existing behavior is unchanged.
+- **`tc task attest` approves T1 and T2 without a QA agent.** T1 takes `--in <built file> --present "<new>" --absent "<old>" --load <screenshot>`; T2 takes one or two `--render <artifact>` plus `--checks <cc verify run id>`. tc reads the files and the stored run status, refuses when the diff needs a higher tier, and stores a generated work product ending in `ATTEST-RECEIPT: <sha256>` recorded in an `attestations` table; a hand-typed receipt never approves. Changed numbers need `--source "<value>=<file:line | WP-id | pablo:<quote>>"`, a read of the cited source rather than an automatic T3.
+- **Delta rounds on approved T3 tasks.** Each approval stores its per-file manifest (`qa_approvals`), so a later T1/T2 attestation compares against it and carries the earlier approval forward instead of re-covering every criterion for a title change. Approvals made before this release have no manifest and need one normal round first.
+- **`tc task qa-packet <id> [--carry WP-N:C1,C2]`** prints a T3 QA packet pre-filled with the captured IDENTITY and each criterion's exact CRITERION/EXPECTED text, so QA fills only OBSERVED, ARTIFACT and VERDICT. The done block gains a `Tier:` line and `.copilot/test-map.json` accepts an optional per-glob `"tier": "T3"`.
+- **Verification policy tier table.** `verification-policy.md` (the single canonical file; `me`, `qa` and `ta` reference it rather than embedding it) leads with the three tiers and the real flags above; `me`, `qa`, `ta` and `/protocol` scope the independent QA agent and the full packet to T3 and escalations, and the UI-behavior row applies to T3 behavior changes only. `tests/instructions/test-verification-policy.sh` pins the tier rows, flags and `pablo:` source form with new mutants.
+- **`scripts/replay-t1-live.sh`.** A post-install acceptance replay: in a throwaway project it records tier T1, attests a copy edit, and checks that `tc task check-qa` approves with no QA agent, the gate never arms, a logic diff and a hand-typed receipt are refused, and (optionally) Codex's `copilot-gate.sh` passes.
+
+### Fixed
+
+- **Gate refresh works on Linux.** `pretool-check.sh` read the database mtime with BSD `stat -f %m` first, which GNU `stat` treats as filesystem mode, so on Linux the fingerprint was never read and the tc re-check never ran (found by CI). It now tries `stat -c %Y` first.
+- **The QA gate reads its state from `tc`, not from reply formatting.** `pretool-check.sh` re-asks `tc task check-qa` for pending and rework tasks whenever `tasks.db` or its WAL changed, so a task tc approved no longer keeps the session blocked; unchanged databases use the cached state, and an unavailable tc keeps the gate closed. `subagent-stop.sh` does not arm the gate for a task tc already approves (the T1/T2 attest path), accepts `Task: TASK-N`, `TASK-N`, `Task N` and `Task #N` headers, and a QA stop now also clears tasks in rework. `tc task attest`, `tier`, `qa-packet` and `evidence-identity` are allowed while the gate is active.
+- **Obsolete check updated, not weakened.** The owner-requested tier change renames the policy's UI-behavior row to "UI behavior (T3: ..."; `tests/instructions/test-verification-policy.sh` now matches lane rows by prefix and keeps every original term assertion on that row. Old expectation: an exact `UI behavior` row key. New: the `UI behavior (T3` prefix with the same four term checks, plus new tier-row, flag, `pablo:` and escalation assertions with 6 added negative controls.
+- Component versions: tc 2.10.1 to 2.11.0, agents 5.12.0 to 5.13.0, commands 5.9.1 to 5.10.0.
+
+## [5.32.0] - 2026-11-02
+
+### Added
+
+- **Organization skills reach both Claude Code and Codex on every machine.** `cc update` already copied each signed organization or department skill (`skills/<name>/SKILL.md` in a layer that declares the `skills` dimension) into `~/.claude/skills`; Codex never received them, so a new machine got no org skills in Codex and Pablo's Mac relied on hand-made symlinks. After the Claude copy is placed and verified, `cc update` now links `~/.codex/skills/<name>` to that one canonical folder (set `paths.codex_skills_dir`, or `CODEX_HOME`, to move it). Only organization and department layers are projected, personal content is still never materialized, and held, blocked or unverified items are skipped. It is idempotent, never overwrites a real directory or a link pointing elsewhere (those are reported as `skill_distribution` conflicts in `cc update --json`), and removes only links it created, once no layer provides the skill. Precedence is the existing layer rank. `cc doctor` gains an `org-skill-distribution` check that both harnesses resolve each distributed skill. Tests: `tools/cc/tests/test_skill_distribution.py`.
+- Component versions: cc 2.17.0 to 2.18.0.
+
+## [5.31.0] - 2026-11-02
+
+### Added
+
+- **`cc resources`: managed synthetic Docker test databases.** `cc resources run --project PATH --task TASK-ID --profile ops|convoco|postgres -- COMMAND` starts one fresh loopback-only PostgreSQL server and named volume for a test command, then removes it on success or stops it and keeps its data for 48 hours on failure. `cc resources status`, `finish RUN_ID`, `audit`, `sweep` and `maintain` inspect and clean only resources the framework created and can prove it created. There is no prune and no adoption of existing servers; capacity warns at 70% and blocks at 85% of the Docker VM filesystem. Cleanup requires the owner policy file `~/.config/copilot/docker-resources.json` (`automatic_synthetic_cleanup: true` plus an `approval` quote); without it `run` holds. See `tools/cc/docs/docker-resources.md` and `tools/cc/tests/test_docker_resources.py`.
+
+### Fixed
+
+- **`/setup` no longer fails on Homebrew Python.** Setup, `/update-copilot`, SETUP.md and the install hints ran a plain `pip install -e tools/tc`, which Homebrew Python refuses with the PEP 668 "externally-managed-environment" error. They now run `tools/tc/install.sh`, which installs tc into its own virtual environment and places the `tc` shim, the same way `tools/cc/install.sh` already installs cc. `tests/test_setup_no_global_pip.py` blocks the plain-pip form from returning.
+- Component versions: cc 2.16.0 to 2.17.0, commands 5.9.0 to 5.9.1.
+
 ## [5.30.1] - 2026-10-30
 
 ### Fixed

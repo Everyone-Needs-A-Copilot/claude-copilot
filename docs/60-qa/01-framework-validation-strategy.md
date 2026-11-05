@@ -868,7 +868,7 @@ cc memory store --type context "In progress: Database schema created. Next: impl
 
 **Steps:**
 ```bash
-pip install -e ~/.claude/copilot/tools/tc
+bash ~/.claude/copilot/tools/tc/install.sh
 bash ~/.claude/copilot/tools/cc/install.sh
 cc --version
 tc version
@@ -1172,7 +1172,7 @@ pip install pytest
 bash ~/.claude/copilot/tools/cc/install.sh
 
 # tc CLI
-pip install -e ~/.claude/copilot/tools/tc
+bash ~/.claude/copilot/tools/tc/install.sh
 
 # jq (for JSON validation in shell scripts — optional)
 brew install jq  # macOS

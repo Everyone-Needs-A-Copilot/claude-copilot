@@ -86,6 +86,7 @@ from tc.services.prds import (
 )
 from tc.services.qa import check_task_qa
 from tc.services.qa_contract import capture_qa_identity
+from tc.services.tiers import attest, check_tier, qa_packet, set_tier
 from tc.services.external_sources import add_repo, list_repos
 from tc.services.wp import (
     get_wp,
@@ -131,6 +132,10 @@ __all__ = [
     "remove_dependency",
     "check_task_qa",
     "capture_qa_identity",
+    "attest",
+    "check_tier",
+    "qa_packet",
+    "set_tier",
     "add_repo",
     "list_repos",
     # prd ops
@@ -160,3 +165,12 @@ __all__ = [
 
 # Persistent execution controls, shared by CLI and runners.
 from tc.services.execution import (register_limits, begin_attempt, consume_call, settle_attempt, diagnosis_checkpoint, execution_status, succeed_limits, amend_contract)
+
+# Protocol-native coordination; the same operations back both native harnesses.
+from tc.services.cycles import (
+    validate_plan, create_cycle, cycle_status, claim_stream, record_event,
+    prepare_worktree, verify_dispatch, cleanup_plan, cleanup_cycle, finish_cycle, smoke_roles, inspect_adapter,
+)
+from tc.services.prds import body_status
+__all__ += ["validate_plan", "create_cycle", "cycle_status", "claim_stream", "record_event",
+            "prepare_worktree", "verify_dispatch", "cleanup_plan", "cleanup_cycle", "finish_cycle", "smoke_roles", "inspect_adapter", "body_status"]

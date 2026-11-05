@@ -35,6 +35,9 @@ DEFAULTS: dict[str, Any] = {
     "paths.shared_docs": None,
     "paths.knowledge_repo": None,
     "paths.global_skills_dir": "~/.claude/skills",
+    # Where Codex discovers skills; org-tier skills are linked here by `cc update`.
+    # None means $CODEX_HOME/skills, else ~/.codex/skills.
+    "paths.codex_skills_dir": None,
     "paths.embedding_cache": "~/.claude/cache/models",
     "memory.embedding_model": "none",
     "memory.default_threshold": 0.7,

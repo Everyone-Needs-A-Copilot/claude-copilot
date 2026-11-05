@@ -65,7 +65,7 @@ Then STOP.
 Tell user: "Installing tc CLI (Task Copilot)..."
 
 ```bash
-pip install -e ~/.claude/copilot/tools/tc
+bash ~/.claude/copilot/tools/tc/install.sh
 ```
 
 **Verify:**
@@ -271,7 +271,7 @@ echo $PATH
 ### tc Install Fails
 
 ```bash
-pip3 install -e ~/.claude/copilot/tools/tc
+bash ~/.claude/copilot/tools/tc/install.sh
 tc version
 ```
 
