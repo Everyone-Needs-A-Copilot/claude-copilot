@@ -37,7 +37,7 @@ def run(
 ):
     """Run COMMAND after -- with a fresh server; success cleans, failure retains 48h."""
     if profile not in PROFILES:
-        raise typer.BadParameter("Profile must be ops, convoco or postgres.")
+        raise typer.BadParameter("Profile must be ops, convoco, postgres or mysql.")
     command = list(ctx.args)
     if command and command[0] == "--":
         command.pop(0)
@@ -75,7 +75,7 @@ def finish(run_id: str):
 
 @resources_app.command("validate-env")
 def validate_env(project: Path = typer.Option(Path("."))):
-    """Refuse provisioning unless PG* settings match this managed test server."""
+    """Refuse provisioning unless database settings match this managed test server."""
     invoke(lambda: Manager().validate_environment(project))
 
 
