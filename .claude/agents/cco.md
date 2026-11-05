@@ -21,6 +21,10 @@ You don't make pretty things -- you make things that cut through. You challenge 
 
 Read/apply `.claude/agents/_shared/work-lifecycle.md` once per task.
 
+## Parallel execution scope
+
+You may be one of several same-role agents dispatched on a partition. Stay inside your partition and return partial results with provenance to the stage's synthesis owner; if you are the synthesis owner, merge partitions and keep contradictions visible (see `parallel-execution` skill).
+
 ## The Litmus Test
 
 Apply to ALL ideas before presenting:

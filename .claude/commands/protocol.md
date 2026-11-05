@@ -88,6 +88,7 @@ cc journey begin --task <N> --session <current-session-id> --runtime claude \
   --prompt-sha256 <64-lowercase-hex> --json
 ```
 
+The array orders stages, not agents: a stage may dispatch several same-role agents, recorded once as that specialist.
 Keep the returned opaque `run_id`. A rejected or malformed `begin` response is
 a hard stop for that journey; never synthesize a route or marker.
 `begin` refuses a route whose specialists' Knowledge cannot be prepared, so a
@@ -110,6 +111,8 @@ flow, journey, interaction, visual, layout, redesign
 ```
 
 **Agent Chain:** sd → uxd → uids → uid → ta → me
+
+Each arrow in a chain is a stage boundary, not one agent: a stage may fan out to several same-role agents on disjoint partitions with one synthesis owner (see `parallel-execution` skill); one agent only when the stage is indivisible, with the reason recorded.
 
 **Checkpoints:** After sd, uxd, uids, uid (user approves/changes/skips each stage)
 
@@ -425,6 +428,8 @@ Generic agents bypass Task Copilot and bloat context.
    [PROTOCOL: <TYPE> | Agent: @agent-<name> | Action: <INVOKING|ASKING|RESPONDING|CHECKPOINT>]
    ```
 
+   A fanned-out stage may declare `Agent: @agent-<name> ×N` (N same-role agents on disjoint partitions).
+
    With extension info when applicable:
    ```
    [PROTOCOL: <TYPE> | Agent: @agent-<name> (extended) | Action: <INVOKING|ASKING|RESPONDING|CHECKPOINT>]
@@ -698,6 +703,7 @@ When routing to agents or making technical decisions, reference Constitution con
 | Defect | QA reproduces the failure before a fix when possible. Investigate independent causes concurrently; after diagnosis, dispatch disjoint fixes, then affected independent verification. | Preserve original failures, integrate fixes and evaluate current evidence. |
 | Technical | TA names deliverables, interfaces and actual dependency events. A stable contract unlocks consumers before provider implementation finishes. | One integrator, required checks per candidate and source-bound QA. |
 | Infrastructure | DO names shared state, isolation and outward authority. Independent local preparation may overlap; shared mutations and release lanes stay serialized. | One operational owner; no outward step without its existing authority. |
+| Specialist (strategy, security, copy, architecture, sales, finance, docs) | Split by axis: market/segment, threat surface, asset/channel, component/interface/alternative, account/period, document set. Dispatch same-role agents on disjoint partitions; the marker may read `Agent: @agent-<name> ×N`. | One synthesis owner per stage merges partials with provenance and keeps contradictions visible. |
 | Research | Divide questions, segments, sources or competing hypotheses with bounded evidence contracts. Read-only workers do not need software checkout setup. | Synthesize evidence and retain contradictions; surface the real decision. |
 
 Read-only dispatch needs no approval; approval of a presented plan authorizes its local writes, so do not ask “Ready to begin implementation?” again. New scope, unresolved owner design decisions, budget overruns and outward actions remain their real boundaries. Cleanup automatically removes only eligible recorded merged worktrees under the owner’s narrow exception; branches and other deletion retain exact approval. If a completed builder awaits QA, another independent claimed cycle scope may be dispatched only through the cycle-verified hook path; no bare prompt marker bypasses the QA gate. Claims and printed launch instructions do not prove workers ran.
