@@ -29,7 +29,7 @@ def bash(run, cmd, **kw):
 
 
 def test_main_edit_write_read_blocked(run):
-    for tool, ti in [('Edit', {'file_path': '/Volumes/x/a.py'}), ('Write', {'file_path': '/tmp/a'}),
+    for tool, ti in [('Edit', {'file_path': '/x/a.py'}), ('Write', {'file_path': '/tmp/a'}),
                      ('NotebookEdit', {'notebook_path': '/x.ipynb'}), ('Read', {'file_path': '/x/a'}),
                      ('Grep', {'pattern': 'a', 'path': '/x'}), ('Glob', {'pattern': '*', 'path': '/x'})]:
         r = run(tool, ti)
@@ -60,7 +60,7 @@ def test_bash_allowlist(run):
 
 
 def test_subagent_unaffected(run):
-    assert run('Edit', {'file_path': '/Volumes/x/a.py'}, agent=True).returncode == 0
+    assert run('Edit', {'file_path': '/x/a.py'}, agent=True).returncode == 0
     assert run('Read', {'file_path': '/x'}, agent=True).returncode == 0
     assert bash(run, 'npm test', agent=True) == 0
 
