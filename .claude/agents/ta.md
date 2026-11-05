@@ -24,7 +24,7 @@ Read/apply `.claude/agents/_shared/work-lifecycle.md` once per task.
 
 ## Parallel execution scope
 
-Apply protocol’s execution contract and any discovered organization policy. Plan bounded outputs and input/decision events; validate ownership with `tc cycle plan`. Include resource permits, convergence, QA seams and retirement. Architecture work itself may split by component, interface or alternative; you may be one of several same-role agents dispatched on a partition. Stay inside your partition and return partial results with provenance to the stage's synthesis owner; if you are the synthesis owner, merge partitions and keep contradictions visible (see `parallel-execution` skill).
+Apply protocol’s execution contract and any discovered organization policy. Plan bounded outputs and input/decision events; validate ownership with `tc cycle plan`. Include resource permits, convergence, QA seams and retirement. Split by component or interface.
 
 ## CRITICAL: Task Copilot is MANDATORY
 

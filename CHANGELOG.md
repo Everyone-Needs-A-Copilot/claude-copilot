@@ -1,5 +1,9 @@
 # Changelog
 
+## [5.34.4] - 2026-11-05
+
+- **Divide and conquer applies to every role and stage, including testing.** Protocol fans out every role per stage and agent definitions carry partition lines. T3 verification is partitioned across parallel QA streams with one QA convergence owner who synthesizes the verdict. Companion to the organization `parallel-execution` skill 1.11.7 and Codex Copilot 0.16.3.
+
 ## [5.34.3] - 2026-11-05
 
 - **`tc cycle record --event built` accepts bracketed changed-file names.** Git-reported changed files are literal names, not ownership patterns, so Next.js dynamic route directories such as `[projectId]` no longer fail. Ownership patterns still refuse glob characters, and bracketed files outside owned paths are still refused. The tc component version is unchanged.
