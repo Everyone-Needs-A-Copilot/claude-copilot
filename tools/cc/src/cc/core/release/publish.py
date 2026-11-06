@@ -188,9 +188,10 @@ def publish(sources: Sequence[build.ComponentSource], home: Path | str | None = 
         step = "links"
         plan = plan_from_json(json.loads(
             (layout.release_dir(manifest.release_id, home) / layout.LINK_PLAN_NAME).read_text(encoding="utf-8")))
-        applied = apply_plan(plan, home)
+        applied = apply_plan(plan, home, adopt=True)
         report.links = {"created": len(applied.created), "updated": len(applied.updated),
                         "removed": len(applied.removed), "skipped": len(applied.skipped),
+                        "adopted": applied.adopted, "customized": applied.customized,
                         "errors": applied.errors, "claude_md": applied.claude_md, "agents_md": applied.agents_md}
         if not applied.ok:
             raise RuntimeError("; ".join(applied.errors))

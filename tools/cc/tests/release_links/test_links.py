@@ -387,6 +387,15 @@ def test_adopt_category_folder_and_unrelated_ignored(home, release):
     assert (skills / "synced/x/SKILL.md").exists() and report.customized == []
 
 
+def test_hidden_tool_managed_skill_folder_excluded(home, release):
+    system = home / ".codex/skills/.system/architecture"
+    system.mkdir(parents=True)
+    (system / "SKILL.md").write_text("---\nname: architecture\n---\ncodex-managed\n")
+    report = apply_plan(build_plan(release, home), home, adopt=True)
+    assert (system / "SKILL.md").read_text().endswith("codex-managed\n")
+    assert report.customized == [] and not any(".system" in a["path"] for a in report.adopted)
+
+
 def test_adopt_dry_run_changes_nothing_and_classify_is_read_only(home, release):
     (home / ".claude/agents").mkdir(parents=True)
     (home / ".claude/agents/me.md").write_text("old me\n")

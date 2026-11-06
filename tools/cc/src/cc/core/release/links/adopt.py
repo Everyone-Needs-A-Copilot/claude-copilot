@@ -291,8 +291,9 @@ def classify(plan: LinkPlan, home: Path | str, index: FrameworkIndex) -> Adoptio
         names = linked_names.get(parent, set())
         for child in sorted(root.iterdir()):
             link = f"{parent}/{child.name}"
-            if link in linked_links or child.is_symlink() or not child.is_dir() or (child / "SKILL.md").is_file():
-                continue
+            if (child.name.startswith(".") or link in linked_links or child.is_symlink()
+                    or not child.is_dir() or (child / "SKILL.md").is_file()):
+                continue  # dot-folders (Codex's own .system) are tool-managed, never owner content
             nested = [p for p in _files_of(child).values() if p.name == "SKILL.md"]
             if not nested:
                 continue
