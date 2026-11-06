@@ -40,6 +40,7 @@ class ComponentSource:
     source: str = ""  # repo/checkout path or URL, recorded verbatim
     subpath: str = ""
     allowed_signers: tuple[str, ...] = field(default_factory=tuple)
+    commit: str = ""  # record entries only: the commit the recorded version was built from
 
 
 @dataclass(frozen=True)
@@ -164,7 +165,7 @@ def build_release(
             components.append(
                 schema.Component(
                     name=src.name, tier=src.tier, kind=src.kind, version=src.version,
-                    ref=src.ref, commit=tag.commit if tag else "",
+                    ref=src.ref, commit=tag.commit if tag else src.commit,
                     source=src.source, path=path, signer=tag.signer if tag else "",
                 )
             )
@@ -202,7 +203,7 @@ def sources_from_layers(
         kind = layout.KIND_RECORD if name == layout.COMPONENT_CONTROL_TOWER else layout.KIND_SIGNED
         out.append(ComponentSource(
             name=name, tier="framework", kind=kind, version=pin.get("version", ""),
-            ref=pin.get("ref", ""), source=pin.get("source", ""),
+            ref=pin.get("ref", ""), source=pin.get("source", ""), commit=pin.get("commit", ""),
             allowed_signers=tuple(pin.get("allowed_signers", ())),
         ))
     by_key = {}

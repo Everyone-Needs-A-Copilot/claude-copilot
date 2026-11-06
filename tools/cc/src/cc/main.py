@@ -17,7 +17,9 @@ from cc.commands.layers import layers_app
 from cc.commands.memory import memory_app
 from cc.commands.onboard import onboard_cmd
 from cc.commands.priorities import priorities_cmd
+from cc.commands.project import project_app
 from cc.commands.reconcile import reconcile_app
+from cc.commands.release import release_app
 from cc.commands.resources import resources_app
 from cc.commands.rule import rule_app
 from cc.commands.settings_hook import settings_hook_app
@@ -60,6 +62,8 @@ app.add_typer(support_app, name="support")
 app.add_typer(settings_hook_app, name="settings-hook")
 app.add_typer(conformance_app, name="conformance")
 app.add_typer(rule_app, name="rule")
+app.add_typer(release_app, name="release")
+app.add_typer(project_app, name="project")
 app.command("priorities")(priorities_cmd)
 app.command("onboard")(onboard_cmd)
 app.command("status")(status_cmd)
@@ -206,6 +210,7 @@ def doctor_cmd(
     ),
     runtime_details: bool = typer.Option(False, "--runtime-details", help="Report project runtime evidence separately from the stable doctor contract."),
     exercise_runtime: bool = typer.Option(False, "--exercise-runtime", help="Explicitly run native hook diagnostics in disposable state; implies --runtime-details."),
+    release: bool = typer.Option(False, "--release", help="Check the machine release pointer, links, Codex marketplace and Control Tower record; exit 1 on any failure."),
 ) -> None:
     """Run health checks and report status (WS-A `doctor --json` contract).
 
@@ -214,6 +219,14 @@ def doctor_cmd(
     IS the doctor verb. Read-only — does not take the copilot lock.
     """
     import json as _json
+
+    if release:
+        from cc.core.release.publish import run_doctor
+
+        checks = run_doctor()
+        rows = [{"name": c.name, "ok": c.ok, "detail": c.detail} for c in checks]
+        typer.echo(_json.dumps(rows, indent=None if output_json else 2))
+        raise typer.Exit(0 if all(c.ok for c in checks) else 1)
 
     from cc.commands.doctor import (
         build_doctor_report,

@@ -1,3 +1,3 @@
 """Claude Copilot CLI for memory, skills, config, and live docs."""
 
-__version__ = "2.18.0"
+__version__ = "2.19.0"

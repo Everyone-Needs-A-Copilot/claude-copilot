@@ -95,6 +95,9 @@ def make_release(home, tmp_path):
 
     def _build(plugins=None, post_build=None, personal=None, **market_kwargs):
         plugins = plugins if plugins is not None else default_layout()
+        # The shipped default is strict (frozen core plugin); these fixtures build non-frozen
+        # plugin trees on purpose, so they opt out unless a test asks for strict explicitly.
+        market_kwargs.setdefault("strict_frozen", False)
         counter["n"] += 1
         now = datetime(2026, 1, 1, tzinfo=timezone.utc) + timedelta(minutes=counter["n"])
         live = tmp_path / f"live-{counter['n']}"

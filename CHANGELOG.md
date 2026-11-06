@@ -1,5 +1,9 @@
 # Changelog
 
+## [5.35.0] - 2026-11-06
+
+- **Central resolution: one release pointer, zero per-project sync (ADR-001).** `cc release build|publish|flip|rollback|status|history|prune|shims|doctor` builds immutable releases from signature-verified tags behind `~/.copilot/current`; `cc release publish` runs build, flip, user-level links for Claude and Codex, the single Codex marketplace refresh, the full doctor and history in one command, and restores the previous release, links and Codex config if any step fails. `cc doctor --release` checks the pointer, components, links receipt, Codex cache and Control Tower record. `cc project init` writes the thin project marker and sections; `cc project migrate` (dry run unless `--apply`) converts a synced project. `cc settings-hook user-add|user-remove` registers the marker-gated hook shim once at user level, so unmigrated projects keep working. The Codex marketplace step defaults to `strict_frozen` because the Codex plugin is now a frozen core. The cc component moves to 2.19.0; the tc component is unchanged.
+
 ## [5.34.8] - 2026-11-05
 
 - **A required framework file the project claimed with `owner: project` satisfies its lock requirement.** A project that keeps its own `.claude/commands/protocol.md` (or another required file) marked `owner: project` is not recorded in the lock for that file, by design; project inspection no longer reports the missing record as a required-path failure, so the transaction's post-apply verification passes instead of rolling the update back. The file must exist and still declare `owner: project`. The cc component version is unchanged.

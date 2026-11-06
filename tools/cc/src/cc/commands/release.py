@@ -1,4 +1,4 @@
-"""`cc release` commands: build, flip, rollback, status, history, prune, shims, doctor.
+"""`cc release` commands: build, publish, flip, rollback, status, history, prune, shims, doctor.
 
 Exposed as `release_app`; the integration stream registers it in main.py.
 `--home` (default: the user's home) lets every command run against a temporary
@@ -13,7 +13,8 @@ from typing import Optional
 
 import typer
 
-from cc.core.release.engine import build, doctor, layout, pointer, prune, shims
+from cc.core.release import publish as publisher
+from cc.core.release.engine import build, layout, pointer, prune, shims
 
 release_app = typer.Typer(help="Release pointer: immutable releases behind ~/.copilot/current.")
 
@@ -113,9 +114,43 @@ def shims_cmd(home: Optional[Path] = HomeOpt) -> None:
 
 
 @release_app.command("doctor")
-def doctor_cmd(home: Optional[Path] = HomeOpt) -> None:
+def doctor_cmd(
+    home: Optional[Path] = HomeOpt,
+    codex_home: Optional[Path] = typer.Option(None, "--codex-home", help="Codex home (default: $CODEX_HOME or ~/.codex)."),
+) -> None:
     """Run release checks; exit 1 on any failure (also used by `cc doctor --release`)."""
-    checks = doctor.run(home)
+    checks = publisher.run_doctor(home, codex_home)
     _emit([{"name": c.name, "ok": c.ok, "detail": c.detail} for c in checks])
     if not all(c.ok for c in checks):
         raise typer.Exit(1)
+
+
+@release_app.command("publish")
+def publish_cmd(
+    pins: Path = typer.Option(..., "--pins", help="JSON file of framework component pins."),
+    layers: Path = typer.Option(
+        Path.home() / ".config" / "copilot" / "copilot.layers.yml", "--layers"
+    ),
+    home: Optional[Path] = HomeOpt,
+    codex_home: Optional[Path] = typer.Option(None, "--codex-home"),
+    retrust: list[str] = typer.Option([], "--retrust", help="Plugin whose Codex content trust may reset."),
+    no_strict_frozen: bool = typer.Option(False, "--no-strict-frozen", help="Allow plugin directory changes (resets Codex trust)."),
+) -> None:
+    """Build, flip, link, refresh the Codex marketplace, run doctor, record history; restore on failure."""
+    import yaml
+
+    try:
+        sources = build.sources_from_layers(
+            yaml.safe_load(layers.read_text(encoding="utf-8")),
+            json.loads(pins.read_text(encoding="utf-8")),
+        )
+        report = publisher.publish(sources, home, codex_home, strict_frozen=not no_strict_frozen,
+                                   retrust=retrust)
+    except publisher.PublishError as exc:
+        typer.echo(f"release publish failed at {exc.step}: {exc}", err=True)
+        typer.echo(("previous state restored; " if exc.restored else "RESTORE INCOMPLETE; ")
+                   + f"to roll back manually: {exc.rollback_hint}", err=True)
+        raise typer.Exit(1)
+    except (build.ReleaseBuildError, OSError, ValueError) as exc:
+        _fail(f"release publish failed: {exc}")
+    _emit(report.to_json())

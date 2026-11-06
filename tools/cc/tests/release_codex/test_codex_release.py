@@ -285,3 +285,10 @@ def test_rollback_release_refreshes_back_to_old_versions(home, codex_home, owner
     assert pointer.current_release_id(home) == first.release_id
     run_step(home, codex_home, fake_codex)
     assert all(c.ok for c in doctor.run(home, extra=[step.doctor_checks(codex_home, home)]))
+
+
+def test_strict_frozen_is_the_default(home, publish):
+    """Default flipped to strict once the codex plugin became a frozen core (was: permissive)."""
+    import inspect
+    assert inspect.signature(marketplace.build_marketplace).parameters["strict_frozen"].default is True
+    assert inspect.signature(marketplace.make_post_build).parameters["strict_frozen"].default is True
