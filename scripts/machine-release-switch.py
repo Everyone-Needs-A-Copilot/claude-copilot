@@ -84,6 +84,62 @@ for name in M["remove"]:
 print(f"rolled back: {len(M['files'])} files restored, links removed, {restored} adopted copies restored; releases kept in {chome / 'releases'}")
 '''
 
+UPGRADE_ROLLBACK = r'''#!/usr/bin/env python3
+# One-command rollback of a release upgrade on a machine already switched (stdlib only).
+# Restores the previous release pointer and links receipt, puts adopted real copies back where
+# the upgrade replaced them with links, removes links only the new release created, and restores
+# the backed-up config files. Refuses files edited since the upgrade unless --force.
+import hashlib, json, os, shutil, sys
+from pathlib import Path
+
+HERE = Path(__file__).resolve().parent
+M = json.loads((HERE / "manifest.json").read_text())
+force = "--force" in sys.argv
+home = Path(M["home"]); chome = home / ".copilot"
+sha = lambda p: ("link:" + os.readlink(p)) if p.is_symlink() else (hashlib.sha256(p.read_bytes()).hexdigest() if p.is_file() else None)
+receipt = lambda p: json.loads(p.read_text()) if p.is_file() else {}
+
+problems = [f"{r['path']} changed since the upgrade (use --force)" for r in M["files"]
+            if not force and r["after"] != r["before"] and sha(Path(r["path"])) != r["after"]]
+if problems:
+    print("\n".join(problems), file=sys.stderr); sys.exit(1)
+
+now = receipt(chome / "links-receipt.json")
+before = receipt(HERE / "links-receipt.json") if M["had_receipt"] else {}
+old_paths = {row["path"] for row in before.get("links", [])}
+old_adopted = {row["path"] for row in before.get("adopted", [])}
+under = lambda target: target.startswith(str(chome / "current")) or target.startswith(str(chome / "generated"))
+removed = 0
+for row in now.get("links", []):
+    link = home / row["path"]
+    if row["path"] not in old_paths and link.is_symlink() and under(os.readlink(link)):
+        link.unlink(); removed += 1
+restored = 0
+for row in now.get("adopted", []):
+    if row["path"] in old_adopted: continue
+    target, saved = home / row["path"], Path(row["backup"])
+    if not (saved.exists() or saved.is_symlink()): continue
+    if target.is_symlink() and under(os.readlink(target)): target.unlink()
+    if target.exists() or target.is_symlink(): continue
+    target.parent.mkdir(parents=True, exist_ok=True)
+    shutil.move(str(saved), str(target)); restored += 1
+if M["previous_target"] is not None:
+    tmp = chome / ".current.rollback"
+    if tmp.is_symlink(): tmp.unlink()
+    os.symlink(M["previous_target"], tmp); os.replace(tmp, chome / "current")
+if M["had_receipt"]:
+    shutil.copy2(HERE / "links-receipt.json", chome / "links-receipt.json")
+for row in M["files"]:
+    path = Path(row["path"])
+    if row["kind"] == "symlink" or (row["kind"] == "absent" and not (path.is_symlink() or path.exists())):
+        continue  # symlinks (shims) are untouched by an upgrade
+    if path.is_symlink() or path.exists(): path.unlink()
+    if row["backup"] is None: continue
+    path.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(HERE / row["backup"], path)
+print(f"rolled back to {M['previous']}: {restored} adopted copies restored, {removed} new links removed, {len(M['files'])} files checked")
+'''
+
 
 def sha(path: Path) -> str | None:
     if path.is_symlink():
@@ -162,6 +218,64 @@ def switch(args) -> int:
     return doctor.returncode
 
 
+def upgrade(args) -> int:
+    """Publish a newer release on a machine that is already switched; rollback returns to the previous one."""
+    home = Path(args.home).resolve() if args.home else Path.home()
+    codex_home = Path(args.codex_home) if args.codex_home else home / ".codex"
+    chome = home / ".copilot"
+    bin_dir = home / ".local" / "bin"
+    current = chome / "current"
+    if not current.is_symlink():
+        raise SystemExit("no release pointer: run `switch` first")
+    stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    backup = chome / "rollback" / f"central-resolution-upgrade-{stamp}"
+    backup.mkdir(parents=True)
+    tracked = [home / ".claude" / "settings.json", home / ".claude" / "CLAUDE.md",
+               codex_home / "config.toml", codex_home / "AGENTS.md",
+               bin_dir / "cc", bin_dir / "tc", bin_dir / "tc-limits", bin_dir / "copilot",
+               chome / "cli-install.json", chome / "codex-config-receipt.json",
+               chome / "user-settings-receipt.json"]
+    rows = []
+    for index, path in enumerate(tracked):
+        row = {"path": str(path), "backup": None, "kind": "absent", "before": sha(path)}
+        if path.is_symlink():
+            row["kind"] = "symlink"
+        elif path.is_file():
+            row.update(kind="file", backup=f"f{index}")
+            shutil.copy2(path, backup / row["backup"])
+        rows.append(row)
+    receipt = chome / "links-receipt.json"
+    if receipt.is_file():
+        shutil.copy2(receipt, backup / "links-receipt.json")
+    previous_target = os.readlink(current)
+    env = {**os.environ, "HOME": str(home), "CODEX_HOME": str(codex_home), "PYTHONPATH": str(SRC)}
+    cc = [args.python, "-m", "cc.main"]
+    layers = args.layers or str(home / ".config" / "copilot" / "copilot.layers.yml")
+    published = run(cc + ["release", "publish", "--pins", args.pins, "--layers", layers,
+                          "--home", str(home), "--codex-home", str(codex_home)], env)
+    report = json.loads(published.stdout[published.stdout.index('{'):])
+    run(cc + ["release", "shims", "--home", str(home)], env)
+    run(cc + ["settings-hook", "user-add", "--home", str(home), "--json"], env)
+    launcher = chome / "current" / "cli-copilot" / "scripts" / "install-cli.py"
+    launcher_result = run([sys.executable, str(launcher), "install", "--bin-dir", str(bin_dir),
+                           "--home", str(home), "--python", args.launcher_python or args.python], env)
+    for row in rows:
+        row["after"] = sha(Path(row["path"]))
+    manifest = {"home": str(home), "release": report["release"], "previous": Path(previous_target).name,
+                "previous_target": previous_target, "had_receipt": (backup / "links-receipt.json").is_file(),
+                "files": rows}
+    (backup / "manifest.json").write_text(json.dumps(manifest, indent=2) + "\n")
+    (backup / "rollback.py").write_text(UPGRADE_ROLLBACK)
+    os.chmod(backup / "rollback.py", 0o755)
+    shim_env = {k: v for k, v in env.items() if k != "PYTHONPATH"}
+    doctor = run([str(bin_dir / "cc"), "doctor", "--release"], shim_env, check=False)
+    print(json.dumps({"release": report["release"], "previous": manifest["previous"], "backup": str(backup),
+                      "rollback": f"python3 {backup / 'rollback.py'}", "doctor_exit": doctor.returncode,
+                      "doctor": doctor.stdout.strip()[-1500:], "links": report["links"], "codex": report["codex"],
+                      "launcher": launcher_result.stdout.strip()[-400:]}, indent=2))
+    return doctor.returncode
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     sub = parser.add_subparsers(dest="command", required=True)
@@ -172,8 +286,12 @@ def main() -> int:
     s.add_argument("--codex-home")
     s.add_argument("--python", default=sys.executable)
     s.add_argument("--launcher-python", help="Interpreter with the CLI dependencies, written into the copilot launcher (default: --python).")
+    u = sub.add_parser("upgrade", help="publish a newer release on an already switched machine")
+    for flag in ("--pins", "--layers", "--home", "--codex-home", "--launcher-python"):
+        u.add_argument(flag, required=flag == "--pins")
+    u.add_argument("--python", default=sys.executable)
     args = parser.parse_args()
-    return switch(args)
+    return upgrade(args) if args.command == "upgrade" else switch(args)
 
 
 if __name__ == "__main__":
