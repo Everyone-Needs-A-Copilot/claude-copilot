@@ -772,12 +772,12 @@ def _observe(ctx: Ctx, tag: str, roles: list) -> dict:
     return dict(zip(roles, res))
 
 
-def _assert_observed(r: Result, tag: str, obs: dict, want: str | None, ver: str):
+def _assert_observed(r: Result, tag: str, obs: dict, want: str | None, ver: str, rep=None):
     """want = 'V1' (changes visible) or None (old versions: tokens must read NONE, hook ver v0)."""
     for role, o in obs.items():
         for kind in ("command", "skill"):
             # live session: assert on what the runtime GAVE the model (command expansion / Skill tool result), not on its reply
-            seen = hn.claude_transcript_text(o[kind]["events"]) + hn.claude_session_given_text(ctx.rep, o[kind]["events"])
+            seen = hn.claude_transcript_text(o[kind]["events"]) + hn.claude_session_given_text(rep, o[kind]["events"])
             token = f"CRACC-{kind.upper()}-{want}" if want else "CRACC-"
             good = (token in seen) if want else ("CRACC-" not in seen)
             r.ok(f"{tag}-claude-{kind}-transcript-{role}", good,
@@ -830,7 +830,7 @@ def check_c(ctx: Ctx, r: Result):
     resolved_probe(ctx, r, "observe", "V1")
     obs = _observe(ctx, "c", SAMPLE3)
     ctx.state["c_obs"] = True
-    _assert_observed(r, "observe", obs, "V1", "v1")
+    _assert_observed(r, "observe", obs, "V1", "v1", ctx.rep)
     post_cfg_trust = [l for l in cfg.read_text().splitlines() if "trusted_hash" in l or "trusted_content_hash" in l]
     r.ok("codex-trust-lines-unchanged", pre_trust == post_cfg_trust, "Codex trusted hashes unchanged by the flip and the runs",
          f"before={len(pre_trust)} after={len(post_cfg_trust)}", "trust re-written by exec or release step", ["~/.codex/config.toml"])
@@ -864,7 +864,7 @@ def check_d(ctx: Ctx, r: Result):
     r.ok("doctor-after-rollback", d.rc == 0, "release doctor passes after rollback", (d.out + d.err)[-400:], "doctor", ["doctor.py"])
     resolved_probe(ctx, r, "observe-old", None)
     obs = _observe(ctx, "d", SAMPLE3)
-    _assert_observed(r, "observe-old", obs, None, "v0")
+    _assert_observed(r, "observe-old", obs, None, "v0", ctx.rep)
 
 
 # ============================================================================== CR-H
