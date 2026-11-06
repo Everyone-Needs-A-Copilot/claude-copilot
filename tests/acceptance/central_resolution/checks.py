@@ -34,7 +34,7 @@ import replica as rp
 ORDER = ["CR-R", "CR-A", "CR-G", "CR-B", "CR-E", "CR-F", "CR-C", "CR-D", "CR-H"]
 SAMPLE3 = ["pipeline-copilot", "convoco", "codex-heavy"]
 HERE = Path(__file__).resolve().parent
-AGENT, COMMAND, SKILL = "cw", "memory", "aesthetic-directions"
+AGENT, COMMAND, SKILL = "cw", "map", "aesthetic-directions"  # "memory" is a Claude Code built-in: it never loads the file
 
 
 @dataclass
@@ -777,7 +777,7 @@ def _assert_observed(r: Result, tag: str, obs: dict, want: str | None, ver: str)
     for role, o in obs.items():
         for kind in ("command", "skill"):
             # live session: assert on what the runtime GAVE the model (command expansion / Skill tool result), not on its reply
-            seen = hn.claude_transcript_text(o[kind]["events"])
+            seen = hn.claude_transcript_text(o[kind]["events"]) + hn.claude_session_given_text(ctx.rep, o[kind]["events"])
             token = f"CRACC-{kind.upper()}-{want}" if want else "CRACC-"
             good = (token in seen) if want else ("CRACC-" not in seen)
             r.ok(f"{tag}-claude-{kind}-transcript-{role}", good,

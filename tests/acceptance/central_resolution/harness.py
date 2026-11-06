@@ -294,3 +294,23 @@ def claude_transcript_text(events: list) -> str:
         if e.get("type") == "system":
             parts.append(json.dumps(e)[:4000])
     return "\n".join(parts)
+
+
+def claude_session_given_text(rep, events: list) -> str:
+    """Text the runtime gave the model, from the session's own on-disk transcript (<HOME>/.claude/projects/*/<session>.jsonl):
+    user turns (including slash-command expansions) and tool results.  Assistant turns are excluded."""
+    sid = next((e.get("session_id") for e in events if e.get("session_id")), None)
+    if not sid:
+        return ""
+    parts = []
+    for f in (rep.home / ".claude" / "projects").glob(f"*/{sid}.jsonl"):
+        for line in f.read_text(errors="replace").splitlines():
+            try:
+                e = json.loads(line)
+            except ValueError:
+                continue
+            if e.get("type") != "user":
+                continue
+            c = (e.get("message") or {}).get("content")
+            parts.append(c if isinstance(c, str) else json.dumps(c))
+    return "\n".join(parts)
