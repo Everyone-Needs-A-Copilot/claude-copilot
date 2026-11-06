@@ -1,5 +1,9 @@
 # Changelog
 
+## [5.34.7] - 2026-11-05
+
+- **Project inspection recognizes real Codex entries and project-extended settings.** The Codex AGENTS.md entry check accepts the plugin path both as `./plugins/codex-copilot` and as the bare `plugins/codex-copilot` that Codex Copilot's own template has written since 2026-10-21, which had left about thirty Codex installs unverifiable. A lock record with `ownership: project` for a file that still declares `owner: project` is a valid record, not an invalid one. A present, readable merged JSON output (`.claude/settings.json`, `.mcp.json`) that the project extended is no longer reported as drift. A sibling such as `plugins/codex-copilot-internal` is still not the plugin. The cc component version is unchanged.
+
 ## [5.34.6] - 2026-11-05
 
 - **Lock readers accept the Codex org-tier overlay, and `cc update` no longer holds a canonical symlinked skill.** The `codex-org` lock entry written by the Codex setup and update scripts is a recognized component that readers tolerate and writers preserve verbatim, which unblocks projects such as convoco and insights-copilot. A skill destination symlinked to its own layer's canonical source (same path, or same-repo checkout with identical bytes at the pinned ref) is treated as managed instead of held, which fixes `parallel-execution`; other symlinks stay protected. The force-delegate budget hook now waits up to about three seconds for its state lock instead of 0.2 seconds, so concurrent same-session calls on a loaded runner no longer drop a recorded target. The cc component version is unchanged.

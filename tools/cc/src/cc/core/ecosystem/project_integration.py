@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 import stat
 from pathlib import Path, PurePosixPath
 from typing import Any, Optional
@@ -200,6 +201,18 @@ def _managed_output_fingerprint(root: Path, relative: str) -> Optional[str]:
     except OSError:
         return None
     return None
+
+
+def _is_json_object_file(root: Path, relative: str) -> bool:
+    target, _ = _safe_relative_target(root, relative)
+    if target is None:
+        return False
+    try:
+        if not stat.S_ISREG(target.lstat().st_mode):
+            return False
+        return isinstance(json.loads(target.read_text(encoding="utf-8")), dict)
+    except (OSError, UnicodeError, ValueError):
+        return False
 
 
 def _evidence(kind: str, path: str, state: str, detail: str) -> dict[str, str]:
@@ -580,7 +593,9 @@ def _verify_lock_entry(
     for file_info in files:
         if (
             not isinstance(file_info, dict)
-            or file_info.get("ownership") != "framework"
+            # `project` records a file the project claimed (`owner: project`);
+            # the check below only tolerates it while the file still says so.
+            or file_info.get("ownership") not in {"framework", "project"}
             or not isinstance(file_info.get("checksum"), str)
         ):
             missing.append(
@@ -671,8 +686,19 @@ def _verify_lock_entry(
         fingerprint.append(
             ["managed-output", rel_path, output["kind"], expected, actual]
         )
+        # A merged JSON output (`.claude/settings.json`, `.mcp.json`) is shared
+        # with the project: its own hooks, permissions and servers are expected
+        # beside the framework's keys, and the next update re-merges the
+        # framework keys idempotently. A present, readable JSON object is
+        # therefore not drift; a missing or non-object file still is.
+        project_extended_json = (
+            output["kind"] == "merged-json"
+            and actual is not None
+            and _is_json_object_file(root, rel_path)
+        )
         if actual != expected and not (
-            rel_path in PROJECT_INSTRUCTION_FILES and actual is not None
+            (rel_path in PROJECT_INSTRUCTION_FILES and actual is not None)
+            or project_extended_json
         ):
             evidence.append(
                 _evidence(
@@ -1025,6 +1051,14 @@ def _verify_legacy_linked_codex_setup(
     )
 
 
+# Codex Copilot's own AGENTS.md template (since 2026-10-21) names the plugin as
+# `plugins/codex-copilot/...` without the leading `./`; every project it set up
+# since then carries that form. Both spellings expose the same project-local
+# plugin, so both are recognized. A sibling such as `plugins/codex-copilot-internal`
+# is not the plugin.
+_CODEX_PLUGIN_REFERENCE = re.compile(r"(?<![\w./-])(?:\./)?plugins/codex-copilot(?![\w-])")
+
+
 def _verify_codex_entry(
     root: Path,
 ) -> tuple[bool, list[dict[str, str]], list[dict[str, str]], list[Any]]:
@@ -1034,7 +1068,9 @@ def _verify_codex_entry(
 
     text_state, text = _read_text(root / "AGENTS.md")
     compatible = bool(
-        text and "## Codex Copilot" in text and "./plugins/codex-copilot" in text
+        text
+        and "## Codex Copilot" in text
+        and _CODEX_PLUGIN_REFERENCE.search(text) is not None
     )
     evidence.append(
         _evidence(
