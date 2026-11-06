@@ -11,7 +11,7 @@ from pathlib import Path
 from typing import Any
 
 from ..engine import layout
-from .plan import FRAMEWORK_RULES_IMPORT, LinkEntry, LinkPlan
+from .plan import FRAMEWORK_RULES_IMPORT, LinkEntry, LinkPlan, is_safe_link_path
 
 RECEIPT_SCHEMA = 1
 CODEX_BUDGET_BYTES = 32 * 1024
@@ -49,11 +49,41 @@ def _read_receipt(path: Path) -> dict[str, Any]:
         "schema": RECEIPT_SCHEMA, "links": [], "generated": []}
 
 
+def _read_text(path: Path) -> str:
+    """Read without newline translation so owner line endings survive."""
+    if not path.is_file():
+        return ""
+    with open(path, encoding="utf-8", newline="") as fh:
+        return fh.read()
+
+
+def _newline_of(text: str) -> str:
+    return "\r\n" if "\r\n" in text else "\n"
+
+
 def _atomic_write(path: Path, text: str) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    tmp = path.with_name(f".{path.name}.cc-tmp-{os.getpid()}")
-    tmp.write_text(text, encoding="utf-8")
-    os.replace(tmp, path)
+    """Write beside the real target (a symlink is followed, never replaced) and rename."""
+    real = Path(os.path.realpath(path))
+    real.parent.mkdir(parents=True, exist_ok=True)
+    tmp = real.with_name(f".{real.name}.cc-tmp-{os.getpid()}")
+    with open(tmp, "w", encoding="utf-8", newline="") as fh:
+        fh.write(text)
+    try:
+        os.chmod(tmp, os.stat(real).st_mode & 0o7777)
+    except OSError:
+        pass
+    os.replace(tmp, real)
+
+
+def _link_escapes(home: Path, link: str) -> bool:
+    """True when the link name is unsafe or its resolved location leaves HOME."""
+    if not is_safe_link_path(link):
+        return True
+    real_home = Path(os.path.realpath(home))
+    real_dir = Path(os.path.realpath((home / link).parent))
+    if real_home not in (real_dir, *real_dir.parents):
+        return True
+    return False
 
 
 def _atomic_symlink(link: Path, target: str) -> None:
@@ -78,6 +108,10 @@ def _materialize_generated(entry: LinkEntry) -> None:
 def _sync_entry(home: Path, entry: LinkEntry, owned: dict[str, str], report: ApplyReport,
                 dry_run: bool) -> bool:
     """Make one link match; True if the receipt should record it."""
+    if _link_escapes(home, entry.link):
+        report.skipped.append({"path": entry.link, "reason": "unsafe link path rejected"})
+        report.errors.append(f"unsafe link path rejected: {entry.link!r}")
+        return False
     path = home / entry.link
     current = _link_target(path)
     if current == entry.target:
@@ -108,6 +142,9 @@ def _remove_stale(home: Path, owned: dict[str, str], keep: set[str], report: App
     for link, target in sorted(owned.items()):
         if link in keep:
             continue
+        if _link_escapes(home, link):
+            report.skipped.append({"path": link, "reason": "unsafe link path rejected"})
+            continue
         path = home / link
         if _link_target(path) == target:
             if not dry_run:
@@ -119,13 +156,14 @@ def _remove_stale(home: Path, owned: dict[str, str], keep: set[str], report: App
 
 def _apply_claude_md(home: Path, receipt: dict[str, Any], dry_run: bool) -> tuple[str, dict[str, Any]]:
     path = home / ".claude" / "CLAUDE.md"
-    text = path.read_text(encoding="utf-8") if path.is_file() else ""
+    text = _read_text(path)
     if any(line.strip() == FRAMEWORK_RULES_IMPORT for line in text.splitlines()):
         return "unchanged", receipt.get("claude_md") or {"line": FRAMEWORK_RULES_IMPORT, "added": False}
-    prefix = "" if (not text or text.endswith("\n")) else "\n"
+    nl = _newline_of(text)
+    prefix = "" if (not text or text.endswith("\n")) else nl
     if not dry_run:
-        _atomic_write(path, text + prefix + FRAMEWORK_RULES_IMPORT + "\n")
-    return "added", {"line": FRAMEWORK_RULES_IMPORT, "added": True, "prefix": prefix}
+        _atomic_write(path, text + prefix + FRAMEWORK_RULES_IMPORT + nl)
+    return "added", {"line": FRAMEWORK_RULES_IMPORT, "added": True, "prefix": prefix, "nl": nl}
 
 
 def _split_block(text: str) -> tuple[str, str] | None:
@@ -134,23 +172,27 @@ def _split_block(text: str) -> tuple[str, str] | None:
     if start < 0 or end < start:
         return None
     after = text[end + len(BLOCK_END):]
+    if after.startswith("\r\n"):
+        return text[:start], after[2:]
     return text[:start], after[1:] if after.startswith("\n") else after
 
 
 def _apply_agents_md(home: Path, plan: LinkPlan, report: ApplyReport, dry_run: bool) -> bool:
     path = home / ".codex" / "AGENTS.md"
-    text = path.read_text(encoding="utf-8") if path.is_file() else ""
+    text = _read_text(path)
     if plan.agents_block is None:
         report.codex_combined_bytes = len(text.encode())
         return False
-    block = f"{BLOCK_BEGIN}\n{plan.agents_block.rstrip(chr(10))}\n{BLOCK_END}\n"
+    nl = _newline_of(text)
+    body = plan.agents_block.replace("\r\n", "\n").rstrip("\n").replace("\n", nl)
+    block = f"{BLOCK_BEGIN}{nl}{body}{nl}{BLOCK_END}{nl}"
     parts = _split_block(text)
     if parts is not None:
         before, after = parts
         new = before + block + after
         status = "unchanged" if new == text else "updated"
     else:
-        sep = "" if not text else ("\n" if text.endswith("\n") else "\n\n")
+        sep = "" if not text else (nl if text.endswith("\n") else nl * 2)
         new = text + sep + block
         status = "added"
         report.agents_sep = sep
@@ -210,15 +252,15 @@ def remove_all(home: Path | str | None = None) -> ApplyReport:
     state = receipt.get("claude_md") or {}
     path = base / ".claude" / "CLAUDE.md"
     if state.get("added") and path.is_file():
-        text = path.read_text(encoding="utf-8")
-        tail = state.get("prefix", "") + state["line"] + "\n"
+        text = _read_text(path)
+        tail = state.get("prefix", "") + state["line"] + state.get("nl", "\n")
         if text.endswith(tail):
             _atomic_write(path, text[: -len(tail)])
             report.claude_md = "removed"
     agents = base / ".codex" / "AGENTS.md"
     state_md = receipt.get("agents_md")
     if state_md and agents.is_file():
-        parts = _split_block(agents.read_text(encoding="utf-8"))
+        parts = _split_block(_read_text(agents))
         if parts is not None:
             before, after = parts
             sep = state_md.get("sep", "") if isinstance(state_md, dict) else ""

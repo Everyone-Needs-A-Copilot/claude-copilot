@@ -238,3 +238,79 @@ def test_framework_rules_template_ships():
     root = Path(__file__).resolve().parents[4]
     text = (root / "templates/framework-rules.md").read_text()
     assert "{{" not in text and "No time estimates" in text and "~/.claude/agents/_shared/work-lifecycle.md" in text
+
+
+def test_crlf_owner_text_preserved_byte_identical(home, release):
+    (home / ".claude").mkdir()
+    (home / ".codex").mkdir()
+    cmd = home / ".claude/CLAUDE.md"
+    agm = home / ".codex/AGENTS.md"
+    cmd.write_bytes(b"owner one\r\nowner two\r\n")
+    agm.write_bytes(b"codex owner\r\nline\r\n")
+    plan = build_plan(release, home)
+    apply_plan(plan, home)
+    c = cmd.read_bytes()
+    a = agm.read_bytes()
+    assert c.startswith(b"owner one\r\nowner two\r\n")
+    assert c.endswith(FRAMEWORK_RULES_IMPORT.encode() + b"\r\n")
+    assert b"\n" not in c.replace(b"\r\n", b"")
+    assert a.startswith(b"codex owner\r\nline\r\n")
+    assert b"\n" not in a.replace(b"\r\n", b"")
+    # second run is idempotent; removal restores the owner bytes exactly
+    apply_plan(plan, home)
+    assert cmd.read_bytes() == c and agm.read_bytes() == a
+    remove_all(home)
+    assert cmd.read_bytes() == b"owner one\r\nowner two\r\n"
+    assert agm.read_bytes() == b"codex owner\r\nline\r\n"
+
+
+def test_symlinked_memory_files_edited_in_place_link_intact(home, release, tmp_path):
+    (home / ".claude").mkdir()
+    (home / ".codex").mkdir()
+    real_c = tmp_path / "dotfiles/CLAUDE.md"
+    real_a = tmp_path / "dotfiles/AGENTS.md"
+    real_c.parent.mkdir()
+    real_c.write_text("mine\n")
+    real_a.write_text("codex mine\n")
+    (home / ".claude/CLAUDE.md").symlink_to(real_c)
+    (home / ".codex/AGENTS.md").symlink_to(real_a)
+    apply_plan(build_plan(release, home), home)
+    for link, real in (((home / ".claude/CLAUDE.md"), real_c), ((home / ".codex/AGENTS.md"), real_a)):
+        assert link.is_symlink() and Path(os.readlink(link)) == real
+    assert real_c.read_text().startswith("mine\n") and FRAMEWORK_RULES_IMPORT in real_c.read_text()
+    assert BLOCK_BEGIN in real_a.read_text() and real_a.read_text().startswith("codex mine\n")
+
+
+@pytest.mark.parametrize("bad", ["../../../escape", "a/b", "..", ".hidden", "x y", "/abs"])
+def test_unsafe_skill_names_rejected_at_plan(home, release, bad):
+    skill(release / "knowledge/personal/03-ai-enabling/01-skills", "evil", bad)
+    plan = build_plan(release, home)
+    assert all("escape" not in e.link and ".." not in e.link for e in plan.entries)
+    assert not any(e.name == bad for e in plan.entries)
+    assert any("unsafe" in w for w in plan.warnings)
+
+
+def test_unsafe_link_in_plan_json_rejected_at_apply(home, release, tmp_path):
+    from cc.core.release.links.plan import LinkEntry, LinkPlan
+    plan = LinkPlan(release_id="r", entries=[
+        LinkEntry("claude", "skill", "x", ".claude/skills/../../../escape", str(release), "s"),
+        LinkEntry("claude", "skill", "y", "../outside", str(release), "s")])
+    report = apply_plan(plan, home)
+    assert not (home.parent / "escape").exists() and not (home.parent / "outside").is_symlink()
+    assert not os.path.lexists(home.parent / "escape")
+    assert len(report.skipped) == 2 and not report.ok
+
+
+def test_framework_rules_text_matches_import_delivery():
+    text = (Path(__file__).resolve().parents[4] / "templates/framework-rules.md").read_text()
+    assert "~/.claude/rules" not in text
+    assert "import line" in text and "~/.claude/CLAUDE.md" in text
+
+
+def test_codex_root_level_skills_linked_for_codex_only(home, release):
+    skill(release / "codex-copilot/skills", "codex-only", "codex-only")
+    plan = build_plan(release, home)
+    assert "codex-only" in link_names(plan, "codex", "skill")
+    assert "codex-only" not in link_names(plan, "claude", "skill")
+    entry = next(e for e in plan.entries if e.runtime == "codex" and e.name == "codex-only")
+    assert entry.target.endswith("/current/codex-copilot/skills/codex-only")

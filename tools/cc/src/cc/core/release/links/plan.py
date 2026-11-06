@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Iterable
@@ -35,6 +36,19 @@ FRAMEWORK_RULES_IMPORT = (
 PLAN_SCHEMA = 1
 CLAUDE, CODEX = "claude", "codex"
 _SKIP_DIRS = {"_archive", "node_modules"}
+SAFE_LINK_NAME = re.compile(r"^[A-Za-z0-9_][A-Za-z0-9._-]*$")
+
+
+def is_safe_link_name(name: str) -> bool:
+    """A single path component from a conservative charset (no separators, no leading dot)."""
+    return bool(SAFE_LINK_NAME.match(name)) and name not in (".", "..")
+
+
+def is_safe_link_path(link: str) -> bool:
+    """`.claude|.codex / <dir> / <safe name>` relative to HOME, nothing else."""
+    parts = link.split("/")
+    return (len(parts) == 3 and parts[0] in (".claude", ".codex") and is_safe_link_name(parts[1])
+            and is_safe_link_name(parts[2]))
 
 
 @dataclass(frozen=True)
@@ -102,6 +116,9 @@ class _Builder:
 
     def add(self, runtime: str, kind: str, name: str, link: str, path: Path, source: str,
             chars: int = 0, generated: str | None = None, target: str | None = None) -> None:
+        if not is_safe_link_path(link):
+            self.plan.warnings.append(f"unsafe link name rejected: {name!r} ({source}) -> {link!r}")
+            return
         key = (runtime, kind, name)
         entry = LinkEntry(runtime, kind, name, link, target or self.target_for(path), source, chars, generated)
         winner = self.taken.get(key)
@@ -114,6 +131,7 @@ class _Builder:
 
 
 def _skill_roots(b: _Builder) -> list[tuple[str, Path]]:
+    """(source, skills dir); codex-copilot's root-level `skills/` is codex-only (see _plan_skills)."""
     roots: list[tuple[str, Path]] = []
     for tier in OVERLAY_ORDER:
         if tier not in b.tiers:
@@ -129,6 +147,9 @@ def _skill_roots(b: _Builder) -> list[tuple[str, Path]]:
         root = b.component_root(rel)
         if root is not None and (root / sub).is_dir():
             roots.append((rel, root / sub))
+    codex = b.component_root(layout.COMPONENT_CODEX)
+    if codex is not None and (codex / "skills").is_dir():
+        roots.append((layout.COMPONENT_CODEX, codex / "skills"))
     for tier in b.tiers:
         rel = f"{layout.KNOWLEDGE_PRODUCT}/{tier}"
         root = b.component_root(rel)
@@ -151,8 +172,9 @@ def _plan_skills(b: _Builder) -> None:
     for source, base in _skill_roots(b):
         for skill_dir in sorted(_iter_skill_dirs(base)):
             name, chars = _skill_info(skill_dir)
-            b.add(CLAUDE, "skill", name, f".claude/skills/{name}", skill_dir, source, chars)
-            if name in plugin_names:
+            if source != layout.COMPONENT_CODEX:
+                b.add(CLAUDE, "skill", name, f".claude/skills/{name}", skill_dir, source, chars)
+            if name in plugin_names and source != layout.COMPONENT_CODEX:
                 b.plan.warnings.append(
                     f"codex skill '{name}' ({source}) not linked: the codex plugin already serves that name")
                 continue

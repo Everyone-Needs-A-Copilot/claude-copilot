@@ -4,7 +4,7 @@ Framework-owned and generated into every release; do not edit a copy. Project fa
 
 ## Claude Copilot
 
-This machine runs Claude Copilot, the Claude Code layer of the Copilot Solutioning Ecosystem. Hooks registered once at user level inject the session protocol, guard destructive commands, and gate `me`/`qa` completion in every project that carries a `copilot.project.json` marker. This file covers only what the hooks and tools cannot. It is loaded from `~/.claude/rules` through the import line `cc` maintains in `~/.claude/CLAUDE.md`; it is not copied into projects.
+This machine runs Claude Copilot, the Claude Code layer of the Copilot Solutioning Ecosystem. Hooks registered once at user level inject the session protocol, guard destructive commands, and gate `me`/`qa` completion in every project that carries a `copilot.project.json` marker. This file covers only what the hooks and tools cannot. It is loaded through the import line `cc` maintains in `~/.claude/CLAUDE.md` (user-level memory imports need no approval dialog); it is not copied into projects.
 
 - **Agents and skills:** Claude Code lists them automatically. Route each piece of work to the specialist whose description fits. Agents defined by a project in its `.claude/agents/` shadow the user-level agent of the same name and are first-class framework agents for that project.
 - **Sessions:** `/protocol` starts new work, `/continue` resumes it, `/pause` checkpoints it.
