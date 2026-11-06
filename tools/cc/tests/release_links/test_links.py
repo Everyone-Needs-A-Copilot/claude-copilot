@@ -314,3 +314,113 @@ def test_codex_root_level_skills_linked_for_codex_only(home, release):
     assert "codex-only" not in link_names(plan, "claude", "skill")
     entry = next(e for e in plan.entries if e.runtime == "codex" and e.name == "codex-only")
     assert entry.target.endswith("/current/codex-copilot/skills/codex-only")
+
+
+# ---- adoption of framework-owned copies ----------------------------------------------------------
+
+from cc.core.release.links import FrameworkIndex, classify  # noqa: E402
+
+
+def _idx(*texts: str) -> FrameworkIndex:
+    index = FrameworkIndex()
+    for t in texts:
+        index.add_bytes(t.encode(), "test")
+    return index
+
+
+def test_adopt_framework_copy_backs_up_and_links(home, release):
+    agents = home / ".claude/agents"
+    agents.mkdir(parents=True)
+    (agents / "me.md").write_text("old me\r\n")          # old framework version, CRLF + no changes otherwise
+    (home / ".claude/commands").mkdir(parents=True)
+    (home / ".claude/commands/map.md").write_text("my map\n")  # owner-customized
+    plan = build_plan(release, home)
+    report = apply_plan(plan, home, adopt=_idx("old me\n"))
+    link = agents / "me.md"
+    assert link.is_symlink()
+    assert [a["path"] for a in report.adopted] == [".claude/agents/me.md"]
+    backup = Path(report.adopted[0]["backup"])
+    assert backup.read_bytes() == b"old me\r\n"
+    assert layout.copilot_home(home) / "rollback" / "adopted" in backup.parents
+    assert not (home / ".claude/commands/map.md").is_symlink()
+    [c] = report.customized
+    assert (c["name"], c["path"]) == ("map.md", str(home / ".claude/commands/map.md"))
+    assert "added" in c["diff"] and c["shadows"].endswith("commands/map.md")
+
+
+def test_adopt_off_by_default_keeps_copy(home, release):
+    (home / ".claude/agents").mkdir(parents=True)
+    (home / ".claude/agents/me.md").write_text("old me\n")
+    report = apply_plan(build_plan(release, home), home)
+    assert not (home / ".claude/agents/me.md").is_symlink()
+    assert report.adopted == [] and report.customized == []
+
+
+def test_adopt_skill_dir_all_files_must_match(home, release):
+    skills = home / ".claude/skills"
+    for name, extra in (("shared", None), ("mine", "owner file")):
+        d = skills / name
+        d.mkdir(parents=True)
+        (d / "SKILL.md").write_text(f"---\nname: {name}\ndescription: old\n---\nbody\n")
+        (d / "__pycache__").mkdir()
+        (d / "__pycache__/x.pyc").write_bytes(b"junk")
+        if extra:
+            (d / "notes.md").write_text(extra)
+    index = _idx("---\nname: shared\ndescription: old\n---\nbody\n", "---\nname: mine\ndescription: old\n---\nbody\n")
+    report = apply_plan(build_plan(release, home), home, adopt=index)
+    assert (skills / "shared").is_symlink()
+    assert (skills / "mine").is_dir() and not (skills / "mine").is_symlink()
+    assert [c["name"] for c in report.customized] == ["mine"]
+    assert "only in your copy" in report.customized[0]["diff"]
+
+
+def test_adopt_category_folder_and_unrelated_ignored(home, release):
+    skills = home / ".claude/skills"
+    stale = "---\nname: architecture\ndescription: old\n---\nbody\n"
+    (skills / "design/color").mkdir(parents=True)
+    (skills / "design/color/SKILL.md").write_text(stale)
+    (skills / "synced/x").mkdir(parents=True)
+    (skills / "synced/x/SKILL.md").write_text("somebody else's")
+    report = apply_plan(build_plan(release, home), home, adopt=_idx(stale))
+    assert not (skills / "design").exists()
+    assert (Path(report.adopted[0]["backup"]) / "color/SKILL.md").read_text() == stale
+    assert (skills / "synced/x/SKILL.md").exists() and report.customized == []
+
+
+def test_adopt_dry_run_changes_nothing_and_classify_is_read_only(home, release):
+    (home / ".claude/agents").mkdir(parents=True)
+    (home / ".claude/agents/me.md").write_text("old me\n")
+    plan = build_plan(release, home)
+    result = classify(plan, home, _idx("old me\n"))
+    assert [a.path for a in result.adopt] == [".claude/agents/me.md"]
+    report = apply_plan(plan, home, dry_run=True, adopt=_idx("old me\n"))
+    assert report.adopted and not (home / ".claude/agents/me.md").is_symlink()
+    assert not (layout.copilot_home(home) / "rollback").exists()
+
+
+def test_remove_all_restores_adopted_copy(home, release):
+    (home / ".claude/agents").mkdir(parents=True)
+    (home / ".claude/agents/me.md").write_text("old me\n")
+    apply_plan(build_plan(release, home), home, adopt=_idx("old me\n"))
+    remove_all(home)
+    restored = home / ".claude/agents/me.md"
+    assert not restored.is_symlink() and restored.read_text() == "old me\n"
+
+
+def test_default_index_reads_git_history_and_lock_records(home, release, tmp_path):
+    import subprocess
+    repo = tmp_path / "fw"
+    (repo / ".claude/agents").mkdir(parents=True)
+    run = lambda *a: subprocess.run(["git", "-C", str(repo), *a], check=True, capture_output=True)  # noqa: E731
+    run("init", "-q")
+    (repo / ".claude/agents/me.md").write_text("v1 me\n")
+    run("add", "-A"); run("-c", "user.name=t", "-c", "user.email=t@t", "-c", "commit.gpgsign=false", "commit", "-qm", "v1")
+    (repo / ".claude/agents/me.md").write_text("v2 me\n")
+    run("-c", "user.name=t", "-c", "user.email=t@t", "-c", "commit.gpgsign=false", "commit", "-qam", "v2")
+    import hashlib
+    record = hashlib.sha256(b"recorded content").hexdigest()
+    (layout.copilot_home(home) / "framework-install.lock").write_text('{"x": {"sha256": "%s"}}' % record)
+    from cc.core.release.links import default_index
+    index = default_index(home, release, extra_repos=[repo])
+    assert index.matches(b"v1 me\n") and index.matches(b"v2 me\r\n") and index.matches(b"recorded content")
+    assert not index.matches(b"mine")
