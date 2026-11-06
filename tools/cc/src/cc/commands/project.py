@@ -22,11 +22,12 @@ def _root() -> None:
 def init_command(
     path: Path = typer.Argument(Path("."), help="Project folder (default: current)."),
     codex_config: Optional[Path] = typer.Option(None, "--codex-config", hidden=True),
+    force: bool = typer.Option(False, "--force", help="Back up and recreate a corrupt copilot.project.json."),
     json_output: bool = typer.Option(False, "--json", help="Machine-readable output."),
 ) -> None:
     """Write the marker, thin CLAUDE.md/AGENTS.md sections and Codex trust."""
     try:
-        report = init_project(path, codex_config=codex_config)
+        report = init_project(path, codex_config=codex_config, force=force)
     except InitError as exc:
         body = {"schema_version": "1.0", "result": "error", "error": {"code": exc.code, "message": exc.message}}
         typer.echo(json.dumps(body) if json_output else f"error: {exc.message}")

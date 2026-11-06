@@ -403,26 +403,19 @@ def test_setup_and_update_commands_are_thin_canonical_adapters() -> None:
 
     for command in commands:
         text = command.read_text(encoding="utf-8")
-        # The request is built inside cc's own runtime. A bare `python3` cannot
-        # import cc (it lives in its own venv or a frozen release binary).
-        assert (
-            'reconcile request --project "$PROJECT_ROOT" --output "$REQUEST_FILE"'
-            in text
-        )
+        # Updated: wrappers delegate to `cc project init` (setup) / init + doctor (update);
+        # the reconcile request/plan/apply/verify transaction is retired for them.
+        assert '"$CC_BIN" project init "$(pwd)" --json' in text
         assert "python3" not in text
         assert "from cc." not in text
-        assert 'reconcile plan --request "$REQUEST_FILE"' in text
-        assert 'reconcile apply --request "$REQUEST_FILE"' in text
-        assert 'reconcile verify --request "$REQUEST_FILE"' in text
+        assert "reconcile apply" not in text
         assert "grep -q '^cc version'" in text
-        assert "command -v tc" in text
         assert "Claude Copilot machine setup is required" in text
         assert "scripts/setup-project.sh" not in text
         assert "rm -rf" not in text
         assert "cp ~/.claude" not in text
 
-    setup_text = commands[0].read_text(encoding="utf-8")
-    assert "former partial `minimal` / `quick start` profile is retired" in setup_text
+    assert '"$CC_BIN" doctor' in commands[1].read_text(encoding="utf-8")
 
 
 def test_setup_project_interview_runs_only_after_ready_and_stays_outside_managed_blocks() -> None:
@@ -430,15 +423,15 @@ def test_setup_project_interview_runs_only_after_ready_and_stays_outside_managed
     text = (repository / ".claude/commands/setup-project.md").read_text(
         encoding="utf-8"
     )
-    step = text.split("## 3. Capture the project identity", 1)[1]
+    step = text.split("## Project identity", 1)[1]
 
-    assert text.index("reconcile verify") < text.index("## 3. Capture the project identity")
+    assert text.index("project init") < text.index("## Project identity")
+    assert "result` is `changed`" in step
     assert "AskUserQuestion" in step
-    assert "What's this project about?" in step
-    assert "What's the main tech stack?" in step
-    assert "never edit between the framework's `cc:project-integration` markers" in step
-    assert "skip this step entirely" in step
-    assert "already has a project-authored description" in step
+    assert "what the project is about" in step
+    assert "main tech stack" in step
+    assert "outside the delimited section" in step
+    assert "no project-authored description" in step
 
 
 def test_prerequisite_fact_rejects_system_compiler_and_names_machine_setup(
