@@ -119,7 +119,7 @@ def switch(args) -> int:
     layers = args.layers or str(home / ".config" / "copilot" / "copilot.layers.yml")
     published = run(cc + ["release", "publish", "--pins", args.pins, "--layers", layers,
                           "--home", str(home), "--codex-home", str(codex_home)], env)
-    report = json.loads(published.stdout)
+    report = json.loads(published.stdout[published.stdout.index('{'):])
     run(cc + ["release", "shims", "--home", str(home)], env)
     hook = run(cc + ["settings-hook", "user-add", "--home", str(home), "--json"], env)
     launcher = chome / "current" / "cli-copilot" / "scripts" / "install-cli.py"
@@ -127,7 +127,8 @@ def switch(args) -> int:
     launcher_result = run([sys.executable, str(launcher), "install", "--bin-dir", str(bin_dir),
                            "--home", str(home)], env)
     remove = [str(chome / "current"), str(chome / "links-receipt.json"), str(chome / "codex-config-receipt.json"),
-              str(chome / "cli-install.json"), str(chome / "cli-dev.json"), str(bin_dir / "copilot")]
+              str(chome / "cli-install.json"), str(chome / "cli-dev.json"), str(bin_dir / "copilot"),
+              str(chome / "user-settings-receipt.json")]
     if not cache_existed:
         remove.append(str(codex_home / "plugins" / "cache" / "enac-materialized"))
     manifest = {"home": str(home), "release": report["release"], "remove": remove, "files": []}
