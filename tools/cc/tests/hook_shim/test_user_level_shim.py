@@ -280,3 +280,37 @@ def test_cli_user_add_and_remove(home):
     r = runner.invoke(settings_hook_app, ["user-remove", "--home", str(home), "--json"])
     assert r.exit_code == 0 and json.loads(r.stdout)["status"] == "removed"
     assert _settings(home) == OWNER
+
+
+# UNSET CLAUDE_PROJECT_DIR --------------------------------------------------
+
+
+def _run_unset(home: Path, release: Path, cwd: Path, payload='{"tool_name":"Bash"}'):
+    e = {**os.environ, "HOME": str(home), "COPILOT_HOME": str(home / ".copilot")}
+    for k in ("CLAUDE_PROJECT_DIR", "COPILOT_HOOKS_ROOT"):
+        e.pop(k, None)
+    shim = release / "claude-copilot/.claude/hooks/copilot-hook.sh"
+    return subprocess.run(["bash", str(shim), "pretool-check"], input=payload, text=True,
+                          capture_output=True, env=e, cwd=cwd, timeout=30)
+
+
+def test_unset_project_dir_unmarked_cwd_is_silent_noop_even_for_bash(home, release, tmp_path):
+    (release / "claude-copilot/.claude/hooks/pretool-check.sh").unlink()  # would deny if gate skipped
+    r = _run_unset(home, release, _project(tmp_path, marked=False))
+    assert (r.returncode, r.stdout, r.stderr) == (0, "", "")
+
+
+def test_unset_project_dir_marked_cwd_runs_release_hook(home, release, tmp_path):
+    r = _run_unset(home, release, _project(tmp_path))
+    assert r.returncode == 0
+    assert _ran(home) == ["RAN:pretool-check:proj"]
+
+
+def test_unset_project_dir_uses_git_toplevel_marker(home, release, tmp_path):
+    proj = _project(tmp_path)
+    subprocess.run(["git", "init", "-q", str(proj)], check=True)
+    sub = proj / "a/b"
+    sub.mkdir(parents=True)
+    r = _run_unset(home, release, sub)
+    assert r.returncode == 0
+    assert _ran(home) == ["RAN:pretool-check:proj"]
