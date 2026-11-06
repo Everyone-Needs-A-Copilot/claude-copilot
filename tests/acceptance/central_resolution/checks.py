@@ -338,7 +338,16 @@ def check_r(ctx: Ctx, r: Result):
          "codex-marketplace plugin bytes in the replica are identical to the real ones (path rewrite must not touch them)",
          "identical-or-absent" if same_bytes else "differs",
          "path rewrite altered plugin files, which changes the Codex content hash", ["replica.py _rewrite_tree"])
-    real_inv = hn.codex_hooks_list(hn.RealEnv(), rp.SITES / "COPILOT" / "convoco")
+    # The live ~/.codex answers through the running Codex app-server daemon (its in-memory view, which reports every hook
+    # `modified`), so the real baseline is a byte copy of the real Codex home, asked the same question as the replica.
+    real_copy = ctx.work / "real-codex-bytes"
+    rp.rmtree_force(real_copy) if (real_copy / ".cr-sandbox").exists() else shutil.rmtree(real_copy, ignore_errors=True)
+    real_copy.mkdir(parents=True)
+    (real_copy / ".cr-sandbox").write_text("byte copy of the real Codex home for hooks/list\n")
+    for rel in rp.CODEX_COPY:
+        if rel != "auth.json" and ((rp.REAL_HOME / ".codex" / rel).exists() or (rp.REAL_HOME / ".codex" / rel).is_symlink()):
+            rp._cp(rp.REAL_HOME / ".codex" / rel, real_copy / rel)
+    real_inv = hn.codex_hooks_list(hn.RealEnv(real_copy), rp.SITES / "COPILOT" / "convoco")
     rep_inv = hn.codex_hooks_list(rep, rep.projects["convoco"])
     st = lambda inv: {k.split(":", 1)[-1]: (v["trust"], v["hash"]) for k, v in inv.items() if "@" in k or k.startswith("hooks/")}
     r.ok("codex-hooks-list-match", bool(st(real_inv)) and st(real_inv) == st(rep_inv),

@@ -258,9 +258,15 @@ def codex_hook_trace(rep, cwd: Path, obs: Path | None = None, prompt: str = "Rep
 
 
 class RealEnv:
-    """Read-only stand-in for a Replica so codex_hooks_list can inventory the REAL machine (hooks/list only reads)."""
+    """Stand-in for a Replica so codex_hooks_list can inventory a byte copy of the REAL Codex home (never the live one)."""
+    def __init__(self, codex_home: Path | None = None):
+        self.codex_home = codex_home
+
     def env(self, extra: dict | None = None) -> dict:
-        return dict(os.environ)
+        e = dict(os.environ)
+        if self.codex_home:
+            e["CODEX_HOME"] = str(self.codex_home)
+        return e
 
 
 def codex_hooks_list(rep, cwd: Path, timeout: int = 60) -> dict:
