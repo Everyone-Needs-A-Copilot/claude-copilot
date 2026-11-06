@@ -69,6 +69,7 @@ Every implementation task description MUST name its verification tier, proposed 
 - T1 copy: attest new text present, old text gone, one browser load; no tests written
 - T2 structural: one or two renders plus existing fast checks; implementer attests
 - T3 foundational: Backend "Unit and integration tests required"; Frontend "Playwright E2E tests required"; Full-stack "Unit/integration AND Playwright E2E tests required"
+- Scope each task's tests by blast radius per the `blast-radius-qa` skill: feature only, one function, new feature plus adjacent, or full regression when cross-cutting
 - A changed number or claim adds a light source check (`--source`), not T3 by itself
 
 ## Priorities

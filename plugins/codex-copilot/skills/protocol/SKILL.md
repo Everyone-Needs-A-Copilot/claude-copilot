@@ -70,7 +70,7 @@ For experience work that does not materially change screens, components, or inte
 
 Before implementation, state the deliverable, required acceptance criteria,
 affected consumers, verification lane/cap and exclusions in `tc`. Freeze this
-batch scope; use the engineering/QA Proportional Verification fixed finish line.
+batch scope; use the engineering/QA Proportional Verification fixed finish line. QA scope is the change's blast radius, per the organization `blast-radius-qa` skill: feature only, one function, new feature plus adjacent, or full regression as one parallel sweep for cross-cutting change.
 After current source-bound QA approval (T3) or a valid tc attestation (T1/T2) satisfies every required criterion, close
 the task, report completion and separately pending work, then stop. Unrelated
 findings do not authorize another improvement cycle. Missing required evidence or

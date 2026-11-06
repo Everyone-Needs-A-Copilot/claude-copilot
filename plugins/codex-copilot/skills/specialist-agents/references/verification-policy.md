@@ -1,12 +1,14 @@
 ## Verification Tiers
 
+Blast-Radius QA (2026-11-06) is the default strategy: `cc skill get blast-radius-qa --scope machine --json` (Codex reads the same organization skill). Scope maps to tiers as follows and this policy never restates the rules: copy, label or small UI tweak tests only that feature (T1 copy, T2 structural); a change inside one function tests only that function (T2); a new feature tests it plus the adjacent features and functions it touches (T3); a cross-cutting change (shared services, how AI is used, auth, data model, framework, infrastructure) gets full regression as one parallel sweep (T3).
+
 Every task carries one recorded tier. Set it at task start, before edits, from the request and the planned diff: `tc task tier <id> T1|T2|T3 --reason "<text>"`. Check it against the real diff with `tc task tier <id> --check`.
 
 | Tier | The check | Who verifies |
 |------|-----------|--------------|
 | T1 copy: wording or content only on an already-tested surface | New text present, old text gone, one browser load works: `tc task attest <id> --tier T1 --in <built file> --present "<new>" --absent "<old>" --load <screenshot>` | The implementer attests; no QA agent |
 | T2 structural: layout, markup, styling or config of an existing feature | One or two renders (browser or viewport) plus the existing fast checks (focused/affected lane): `tc task attest <id> --tier T2 --render <artifact> --checks <cc verify run id>` | The implementer attests; no separate QA agent |
-| T3 foundational: new features, data/logic, shared components, security, framework | Full depth: contract, per-criterion packet, independent @agent-qa, gate | @agent-qa; tc approves |
+| T3 foundational: new features, data/logic, shared components, security, framework | Full depth: contract, per-criterion packet, partitioned @agent-qa scopes plus one QA convergence owner, gate; scope is the new feature plus adjacent, or full regression when cross-cutting | @agent-qa; tc approves |
 
 - Classification: tier is set at task start from the diff and escalates upward only. The diff check raises it when the actual change needs more; unknown impact goes up a tier, never down. Downgrades are owner-only: they need the owner's verbatim words as `--authority`; an agent never supplies authority for the owner.
 - Untiered tasks default to T3.
@@ -34,11 +36,11 @@ hypotheses: inspect enforcement, cite file:line; change investigation, not specu
 ### Fixed finish line
 
 Freeze that boundary for the batch; new requirements need explicit scope decisions.
-Smallest sufficient checks, then one planned batch acceptance pass. Repair change-caused failures; rerun affected checks only. Record unrelated defects; they do not silently reopen completed work. Pre-existing failure of a required criterion still blocks that criterion. Never lower acceptance/hide failures for caps.
+Smallest sufficient checks for the change's blast radius, run to completion without stopping at the first failure, then one planned batch acceptance pass. Collect every failure into one defect list, make one fix plan and repair them all; rerun affected checks only, meaning the failed checks plus any check sharing code the fixes changed, never checks that passed and are unrelated. Record unrelated defects; they do not silently reopen completed work. Pre-existing failure of a required criterion still blocks that criterion. Never lower acceptance/hide failures for caps.
 
 Current source-bound QA approval (T3) or a valid tc attestation (T1/T2) for all required criteria: close task, report complete/separately pending work, then stop. Further polish/audit/broad rerun/tasks need a new request. Missing evidence/exhausted cap: incomplete, not complete; name blocker and stop retries until scope/cap decision.
 
-Focused first; broad portable checks once/batch or release. Changed inputs: affected rerun. Caps: focused 60 seconds, affected 180
+Focused first; full regression only for cross-cutting change, as one parallel sweep partitioned by function and capability, never serial. Changed inputs: affected rerun. Caps: focused 60 seconds, affected 180
 seconds, broad 900 seconds. Show operation/elapsed/artifact at least
 every 30 seconds. Timeout is incomplete, never a pass or silent restart; decide scope/cap before retry. Caps are ceilings, not required passes/estimates; subprocesses need no inference.
 Reuse: matching source/test/dependency/runtime/config/data, cases/commands and intact successful artifacts; non-hermetic machine/model runs default uncached. Reuse artifacts, never another task's approval: tc remains the sole

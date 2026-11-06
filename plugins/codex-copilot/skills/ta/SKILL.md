@@ -20,7 +20,7 @@ Use this skill before non-trivial implementation.
 
 - Existing architecture and constraints are understood before recommendations.
 - Tradeoffs and rejected alternatives are documented.
-- Implementation tasks name their verification tier (`tc task tier <id> T1|T2|T3 --reason "<text>"`, proposed from the planned diff; upward only, owner-only downgrades; untiered means T3) and the tests that tier requires: T1 new text present, old text gone, one browser load; T2 one or two renders plus the existing fast checks; T3 explicit unit, integration or end-to-end tests. See `../specialist-agents/references/verification-policy.md`.
+- Implementation tasks name their verification tier (`tc task tier <id> T1|T2|T3 --reason "<text>"`, proposed from the planned diff; upward only, owner-only downgrades; untiered means T3) and the tests that tier requires: T1 new text present, old text gone, one browser load; T2 one or two renders plus the existing fast checks; T3 explicit unit, integration or end-to-end tests, scoped by blast radius per the organization `blast-radius-qa` skill (feature only, one function, new feature plus adjacent, full regression when cross-cutting). See `../specialist-agents/references/verification-policy.md`.
 - Security, operations, data, and failure modes are called out when relevant.
 - Substantial plans are stored in `tc`, not loose markdown.
 - Third-party API assumptions are checked with `cc docs` when available.

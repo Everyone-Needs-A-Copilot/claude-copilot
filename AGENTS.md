@@ -73,6 +73,8 @@ After scoped approval, refill useful independent work within native/resource cap
 
 If absent, report fallback: `tc cycle --help` governs exclusive writes, actual cwd/branch, native dispatch, one integrator, current independent QA and authorized safe retirement. Read-only research needs no worktree; report missing cycle capability honestly.
 
+**Blast-Radius QA (2026-11-06):** default QA strategy: test the change's blast radius, not the whole product. Canonical text: the organization `blast-radius-qa` skill (`cc skill get blast-radius-qa --scope machine --json`; Codex reads the same file). It replaces any earlier QA-depth statement.
+
 ## Framework Rules
 
 - Experience work starts with `$sd` / `$uxd`; visual direction uses `$uids` before `$uid`. Architecture and non-trivial technical work use `$ta`; `$me` implements and `$qa` verifies.
