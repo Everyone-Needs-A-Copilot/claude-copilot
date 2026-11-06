@@ -11,6 +11,7 @@ from typing import Any, Optional
 from cc.core.ecosystem.project_ownership import declares_project_owner
 from cc.core.project_init.marker import MARKER_FILENAME, read_marker
 from cc.core.project_migrate import instructions
+from cc.core.project_migrate.classify import candidates, classify
 from cc.core.project_migrate.known import (
     CODEX_LOCK_FILE, LOCK_FILE, Known, LockRecord, build_known, read_lock,
 )
@@ -112,7 +113,10 @@ class _Builder:
                 self.keep(rel, "owner: project in frontmatter")
             elif sha256_file(path) == checksum:
                 self.act(DELETE, rel, f"framework copy, bytes match {component} lock",
-                         sha=checksum)
+                         sha=checksum, copy=True)
+            elif (verdict := classify(self.root, rel, self.known)) and verdict[0] == "delete":
+                self.act(DELETE, rel, f"framework copy, bytes match a released framework version ({component} lock is older)",
+                         sha=sha256_file(path), copy=True, blob=verdict[1])
             else:
                 self.hold(rel, f"the framework installed this file ({component}) but it has been edited since, so it was kept")
 
@@ -121,7 +125,7 @@ class _Builder:
             path = self.root / rel
             if path.is_symlink():
                 if os.readlink(path) == target:
-                    self.act(UNLINK, rel, "framework plugin skill bridge", target=target)
+                    self.act(UNLINK, rel, "framework plugin skill bridge", target=target, copy=True)
                 else:
                     self.keep(rel, "symlink target is not the framework bridge")
 
@@ -134,7 +138,7 @@ class _Builder:
                 continue
             digest = sha256_file(path)
             if digest in hashes:
-                self.act(DELETE, rel, "bytes identical to the framework source", sha=digest)
+                self.act(DELETE, rel, "bytes identical to the framework source", sha=digest, copy=True)
             else:
                 self.keep(rel, "differs from the framework source: project-owned")
         for prefix in (".claude/hooks/", ".codex/agents/"):
@@ -151,9 +155,27 @@ class _Builder:
                 digest = sha256_file(f)
                 if digest in hashes:
                     self.act(DELETE, rel, "legacy framework file, bytes match a known framework file",
-                             sha=digest)
+                             sha=digest, copy=True)
                 else:
                     self.keep(rel, "no known framework hash: kept")
+
+    def released_copies(self) -> None:
+        """Byte-identical to any file the framework ever released, whatever the lock says."""
+        for rel in candidates(self.root):
+            if rel in self.decided:
+                continue
+            verdict = classify(self.root, rel, self.known)
+            if verdict is None:
+                continue
+            kind, blob = verdict
+            if kind == "keep-owner":
+                self.keep(rel, "owner: project in frontmatter")
+            elif kind == "unlink":
+                self.act(UNLINK, rel, "framework symlink, same target as a released framework link",
+                         target=os.readlink(self.root / rel), copy=True)
+            else:
+                self.act(DELETE, rel, "bytes identical to a file the framework released",
+                         sha=sha256_file(self.root / rel), copy=True, blob=blob)
 
     # -- small framework files ---------------------------------------------
     def empty_mcp(self) -> None:
@@ -329,6 +351,8 @@ class _Builder:
                  active_packs=self.active_packs)
         for name in ("CLAUDE.md", "AGENTS.md"):
             self.act(WRITE, name, "append the thin framework section if absent")
+        if self.active_packs:
+            self.act(WRITE, ".gitignore", "ignore the derived pack skill links (block between copilot:derived-links markers)")
         self.act(WRITE, "~/.codex/config.toml", "add the Codex per-project trust entry (machine state)")
 
 
@@ -351,6 +375,7 @@ def plan_migration(
     b.lock_files()
     b.bridges()
     b.known_files()
+    b.released_copies()
     b.empty_mcp()
     b.marketplace()
     b.settings()
@@ -374,7 +399,6 @@ def plan_migration(
     if plan.git:
         dirty = git_dirty_paths(root)
         affected = [a.path for a in plan.actions if not a.path.startswith("~")]
-        affected += [".gitignore"] if b.active_packs else []
         plan.dirty = sorted({d for d in dirty if any(overlaps(d, a) for a in affected)})
         for d in plan.dirty:
             plan.holds.append(Item(d, "has uncommitted changes and the migration would change it; commit or stash them, then re-run", "hold"))

@@ -11,7 +11,9 @@ from typing import Optional
 
 
 def default_registry() -> Path:
-    return Path.home() / ".copilot" / "registered-projects.json"
+    from cc.core.project_init.homes import copilot_home
+
+    return copilot_home() / "registered-projects.json"
 
 
 def register_project(project: Path, registry: Optional[Path] = None) -> bool:

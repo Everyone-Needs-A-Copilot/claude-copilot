@@ -43,6 +43,8 @@ def migrate_command(
     allow_missing_codex: bool = typer.Option(False, "--allow-missing-codex", help="Proceed when no Codex root resolves; Codex files are kept."),
     rollback: bool = typer.Option(False, "--rollback", help="Undo a migration from its backup manifest (latest by default)."),
     manifest: Optional[str] = typer.Option(None, "--manifest", help="With --rollback: the run id or backup folder to restore."),
+    scan: bool = typer.Option(False, "--scan", help="Report copied framework files and locks per project (PATH, or --all); exit 1 if any."),
+    scan_all: bool = typer.Option(False, "--all", help="With --scan: every project in the machine registry."),
     json_output: bool = typer.Option(False, "--json", help="Machine-readable output."),
 ) -> None:
     """Convert a synced project to the central model. Dry run unless --apply."""
@@ -51,6 +53,8 @@ def migrate_command(
         rollback_migration,
     )
 
+    if scan or scan_all:
+        _scan(path, scan_all, json_output, apply or rollback or bool(manifest) or bool(commit_branch))
     try:
         if rollback or manifest:
             if apply or commit_branch:
@@ -80,3 +84,32 @@ def migrate_command(
         typer.echo(json.dumps(body) if json_output else f"error: {exc.message}")
         raise typer.Exit(1)
     typer.echo(json.dumps(receipt) if json_output else render_receipt(receipt))
+
+
+def _scan(path: Path, scan_all: bool, json_output: bool, mixed: bool) -> None:
+    from cc.core.project_init.registry import default_registry
+    from cc.core.project_migrate import scan_projects
+
+    if mixed or (scan_all and path != Path(".")):
+        typer.echo("error: --scan is read-only and cannot be combined with --apply, --rollback, --commit-branch, or a path with --all")
+        raise typer.Exit(1)
+    if scan_all:
+        try:
+            roots = [Path(p) for p in json.loads(default_registry().read_text(encoding="utf-8")).get("projects", [])]
+        except (OSError, ValueError, AttributeError):
+            roots = []
+    else:
+        roots = [path]
+    report = scan_projects(roots, depth=2)
+    dirty = report["lock_files"] or report["copied_files"] or report["hook_registrations"]
+    if json_output:
+        typer.echo(json.dumps(report))
+    else:
+        for r in report["projects"]:
+            typer.echo(f"{'clean' if r['clean'] else 'DIRTY'}: {r['project']} - {r['copied_files']} copied framework file(s), "
+                       f"locks {r['locks'] or 'none'}, {r['hook_registrations']} hook registration(s)")
+            for c in r["copied_paths"]:
+                typer.echo(f"    {c}")
+        typer.echo(f"{report['total']} project(s): {report['clean']} clean, {report['copied_files']} copied file(s), "
+                   f"{report['lock_files']} lock(s)")
+    raise typer.Exit(1 if dirty else 0)

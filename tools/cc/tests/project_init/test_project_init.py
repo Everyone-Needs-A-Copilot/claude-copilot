@@ -213,3 +213,58 @@ def test_registry_concurrent_registration_loses_nothing(tmp_path):
     with ThreadPoolExecutor(8) as pool:
         list(pool.map(lambda d: register_project(d, reg), dirs))
     assert len(json.loads(reg.read_text())["projects"]) == 12
+
+
+def _iso(tmp_path, monkeypatch, *, codex_home=True):
+    sentinel = tmp_path / "REAL_HOME"
+    sentinel.mkdir()
+    iso = tmp_path / "iso"
+    iso.mkdir()
+    monkeypatch.setenv("HOME", str(sentinel))
+    monkeypatch.setenv("COPILOT_HOME", str(iso / ".copilot"))
+    if codex_home:
+        monkeypatch.setenv("CODEX_HOME", str(iso / ".codex"))
+    else:
+        monkeypatch.delenv("CODEX_HOME", raising=False)
+    return sentinel, iso
+
+
+def test_init_resolves_homes_from_isolation_env_and_leaves_real_home_untouched(tmp_path, monkeypatch):
+    sentinel, iso = _iso(tmp_path, monkeypatch)
+    repo = tmp_path / "p"
+    _git(repo)
+    init_project(repo)
+    assert (iso / ".codex" / "config.toml").is_file()
+    assert (iso / ".copilot" / "registered-projects.json").is_file()
+    assert list(sentinel.iterdir()) == []
+
+
+def test_init_codex_follows_copilot_home_when_codex_home_unset(tmp_path, monkeypatch):
+    sentinel, iso = _iso(tmp_path, monkeypatch, codex_home=False)
+    repo = tmp_path / "p"
+    _git(repo)
+    init_project(repo)
+    assert (iso / ".codex" / "config.toml").is_file()
+    assert list(sentinel.iterdir()) == []
+
+
+def test_init_cli_and_migrate_backup_default_use_isolated_homes(tmp_path, monkeypatch):
+    from cc.core.project_migrate import apply_migration, default_backup_root
+    sentinel, iso = _iso(tmp_path, monkeypatch)
+    repo = tmp_path / "p"
+    _git(repo)
+    assert CliRunner().invoke(project_app, ["init", str(repo)]).exit_code == 0
+    assert default_backup_root() == iso / ".copilot" / "migrations"
+    assert list(sentinel.iterdir()) == []
+
+
+def test_init_falls_back_to_home_without_isolation(tmp_path, monkeypatch):
+    monkeypatch.delenv("COPILOT_HOME", raising=False)
+    monkeypatch.delenv("CODEX_HOME", raising=False)
+    monkeypatch.setenv("HOME", str(tmp_path / "h"))
+    (tmp_path / "h").mkdir()
+    repo = tmp_path / "p"
+    _git(repo)
+    init_project(repo)
+    assert (tmp_path / "h" / ".codex" / "config.toml").is_file()
+    assert (tmp_path / "h" / ".copilot" / "registered-projects.json").is_file()

@@ -28,7 +28,11 @@ _INIT_FILES = (MARKER_FILENAME, "CLAUDE.md", "AGENTS.md", ".gitignore")
 
 def default_backup_root() -> Path:
     env = os.environ.get("CC_MIGRATE_BACKUP_ROOT")
-    return Path(env).expanduser() if env else Path.home() / ".copilot" / "migrations"
+    if env:
+        return Path(env).expanduser()
+    from cc.core.project_init.homes import copilot_home
+
+    return copilot_home() / "migrations"
 
 
 class _Recorder:

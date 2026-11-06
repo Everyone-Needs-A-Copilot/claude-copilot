@@ -17,9 +17,9 @@ except ImportError:  # pragma: no cover
 
 
 def default_codex_config() -> Path:
-    home = os.environ.get("CODEX_HOME")
-    base = Path(home).expanduser() if home else Path.home() / ".codex"
-    return base / "config.toml"
+    from cc.core.project_init.homes import codex_home
+
+    return codex_home() / "config.toml"
 
 
 def _quote(path: str) -> str:

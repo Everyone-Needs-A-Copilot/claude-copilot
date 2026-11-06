@@ -2,14 +2,13 @@
 
 from __future__ import annotations
 
-import os
 from pathlib import Path
 from typing import Any, Iterable, Optional
 
 from cc.core.project_migrate.known import CODEX_LOCK_FILE, LOCK_FILE, Known, build_known, read_lock
-from cc.core.project_migrate.planner import _BRIDGE_TARGETS, SETTINGS
+from cc.core.project_migrate.model import MigrateError
+from cc.core.project_migrate.planner import SETTINGS, plan_migration
 from cc.core.project_migrate.settings_hooks import strip_framework_hooks
-from cc.core.project_migrate.util import sha256_file
 
 _SKIP = {".git", "node_modules", ".venv", "venv", "__pycache__", ".worktrees", ".obsidian"}
 _PROJECT_SIGNS = (LOCK_FILE, CODEX_LOCK_FILE, "copilot.project.json", ".claude", ".codex", "plugins/codex-copilot")
@@ -49,24 +48,14 @@ def find_projects(roots: Iterable[Path | str], depth: int = 2) -> list[Path]:
 
 
 def scan_project(project: Path, known: Known) -> dict[str, Any]:
+    """Counts come from the planner's own decisions, so scan and migrate cannot disagree."""
     locks = [n for n in (LOCK_FILE, CODEX_LOCK_FILE) if (project / n).exists()]
     lock = read_lock(project)
-    copied = 0
-    seen: set[str] = set()
-    if lock and lock.valid:
-        for rel in lock.files:
-            if (project / rel).is_file() and rel not in seen:
-                seen.add(rel)
-                copied += 1
-    for rel, hashes in known.file_hashes.items():
-        p = project / rel
-        if rel not in seen and p.is_file() and sha256_file(p) in hashes:
-            seen.add(rel)
-            copied += 1
-    for rel, target in _BRIDGE_TARGETS.items():
-        p = project / rel
-        if p.is_symlink() and os.readlink(p) == target:
-            copied += 1
+    try:
+        plan = plan_migration(project, known=known, allow_missing_codex=True)
+        copied = sorted(a.path for a in plan.actions if a.detail.get("copy"))
+    except MigrateError:
+        copied = []
     hook_regs = 0
     sp = project / SETTINGS
     if sp.is_file():
@@ -75,8 +64,8 @@ def scan_project(project: Path, known: Known) -> dict[str, Any]:
             hook_regs = strip_framework_hooks(text, lock)[1]
         except (OSError, UnicodeError):
             pass
-    return {"project": str(project), "locks": locks, "copied_files": copied, "hook_registrations": hook_regs,
-            "clean": not locks and copied == 0 and hook_regs == 0}
+    return {"project": str(project), "locks": locks, "copied_files": len(copied), "copied_paths": copied,
+            "hook_registrations": hook_regs, "clean": not locks and not copied and hook_regs == 0}
 
 
 def scan_projects(roots: Iterable[Path | str], *, known: Optional[Known] = None, depth: int = 2) -> dict[str, Any]:

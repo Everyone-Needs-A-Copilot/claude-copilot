@@ -7,9 +7,10 @@ import json
 import os
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any, Optional, Sequence
 
 from cc.core.project_migrate import instructions
+from cc.core.project_migrate.framework_index import FrameworkIndex, build_index, discover_repos
 from cc.core.project_migrate.util import sha256_file
 
 LOCK_FILE = "copilot.lock.json"
@@ -24,7 +25,9 @@ def default_claude_root() -> Path:
 
 def default_codex_root() -> Optional[Path]:
     env = os.environ.get("CC_CODEX_COPILOT_ROOT")
-    for cand in (env, str(Path.home() / ".copilot" / "current" / "codex-copilot")):
+    from cc.core.project_init.homes import copilot_home
+
+    for cand in (env, str(copilot_home() / "current" / "codex-copilot")):
         if cand and Path(cand).is_dir():
             return Path(cand)
     return None
@@ -84,6 +87,7 @@ class Known:
     codex_resolved: bool = True                      # a codex-copilot root was found
     codex_hook_commands: set[str] = field(default_factory=set)  # commands in the framework's Codex hooks.json
     section_hashes: dict[str, set[str]] = field(default_factory=dict)  # key -> sha256 of older released texts
+    framework_index: Optional[FrameworkIndex] = None  # every released blob, by content (see framework_index)
 
 
 def _history_hashes() -> dict[str, set[str]]:
@@ -99,6 +103,7 @@ def build_known(
     codex_root: Optional[Path] = None,
     extra_sections: Optional[dict[str, set[str]]] = None,
     extra_hashes: Optional[dict[str, set[str]]] = None,
+    framework_repos: Optional[Sequence[Path]] = None,
 ) -> Known:
     claude = claude_root or default_claude_root()
     codex = codex_root if codex_root is not None else default_codex_root()
@@ -143,8 +148,14 @@ def build_known(
         pass
     for k, v in (extra_sections or {}).items():
         sections.setdefault(k, set()).update(v)
+    if framework_repos is not None:
+        index = build_index([Path(r) for r in framework_repos])
+    else:
+        repos, trees = discover_repos([claude, codex])
+        index = build_index(repos, trees)
     return Known(file_hashes, tree_hashes, sections, codex_resolved=codex is not None,
-                 codex_hook_commands=_codex_hook_commands(codex), section_hashes=_history_hashes())
+                 codex_hook_commands=_codex_hook_commands(codex), section_hashes=_history_hashes(),
+                 framework_index=index)
 
 
 def _codex_hook_commands(codex: Optional[Path]) -> set[str]:
