@@ -62,7 +62,7 @@ def build_cmd(
     except (build.ReleaseBuildError, OSError, ValueError) as exc:
         _fail(f"release build failed: {exc}")
     if flip_after:
-        pointer.flip(manifest.release_id, home, reason="build --flip")
+        pointer.flip(manifest.release_id, home, reason="build --flip", on_moved=publisher.relink(home))
     _emit({"release": manifest.release_id, "flipped": flip_after})
 
 
@@ -70,7 +70,7 @@ def build_cmd(
 def flip_cmd(release_id: str, home: Optional[Path] = HomeOpt, reason: str = "") -> None:
     """Atomically point current at RELEASE_ID."""
     try:
-        _emit(pointer.flip(release_id, home, reason=reason))
+        _emit(pointer.flip(release_id, home, reason=reason, on_moved=publisher.relink(home)))
     except Exception as exc:
         _fail(f"flip failed: {exc}")
 
@@ -84,7 +84,7 @@ def rollback_cmd(
 ) -> None:
     """Walk back --steps releases through history, or to the --to named release."""
     try:
-        _emit(pointer.rollback(home, to=to, steps=steps, reason=reason))
+        _emit(pointer.rollback(home, to=to, steps=steps, reason=reason, on_moved=publisher.relink(home)))
     except Exception as exc:
         _fail(f"rollback failed: {exc}")
 

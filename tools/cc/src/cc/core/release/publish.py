@@ -126,6 +126,18 @@ def control_tower_check(app: Path | str = CONTROL_TOWER_APP) -> Callable[[Path],
     return check
 
 
+def relink(home: Path | str | None = None) -> Callable[[str], None]:
+    """Pointer hook: apply the link plan of the release `current` now names, so the receipt follows it."""
+    def apply_release(release_id: str) -> None:
+        plan_path = layout.release_dir(release_id, home) / layout.LINK_PLAN_NAME
+        if not plan_path.is_file():
+            return  # release built without a link plan: nothing to regenerate, doctor will say so
+        applied = apply_plan(plan_from_json(json.loads(plan_path.read_text(encoding="utf-8"))), home)
+        if not applied.ok:
+            raise RuntimeError(f"links for {release_id}: " + "; ".join(applied.errors))
+    return apply_release
+
+
 def links_check(home: Path | str | None = None) -> Callable[[Path], list[doctor.Check]]:
     """Doctor hook: the links receipt belongs to the current release."""
     def check(root: Path) -> list[doctor.Check]:

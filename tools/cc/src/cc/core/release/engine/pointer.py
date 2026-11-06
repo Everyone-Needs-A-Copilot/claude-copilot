@@ -7,7 +7,7 @@ import json
 import os
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 from . import layout, schema
 
@@ -83,11 +83,16 @@ def flip(
     *,
     action: str = "flip",
     reason: str = "",
+    on_moved: Callable[[str], None] | None = None,
 ) -> dict[str, Any]:
     """Replace `current` with a symlink to `release_id` via rename (atomic).
 
     The pointer and its history row stay consistent: if the history write
     fails, the pointer is restored to where it was before the flip.
+
+    `on_moved(release_id)` brings dependent state (the links receipt) to the release the pointer
+    now names. It runs before the history write and under the same guarantee: if it or the history
+    write fails, the pointer is restored and `on_moved(previous)` runs best-effort.
     """
     target = layout.release_dir(release_id, home)
     schema.load(target)  # refuses unknown or invalid releases; current untouched
@@ -101,18 +106,25 @@ def flip(
         "reason": reason,
     }
     try:
+        if on_moved is not None:
+            on_moved(release_id)
         append_history(home, record)
     except Exception as exc:
         try:
             if previous is not None:
                 _set_pointer(previous, home)
+                if on_moved is not None:
+                    try:
+                        on_moved(previous)
+                    except Exception:  # noqa: BLE001 - the pointer restore is what must hold
+                        pass
             else:
                 layout.current_path(home).unlink(missing_ok=True)
         except Exception as undo:  # noqa: BLE001
             raise PointerError(
-                f"history write failed ({exc}) and pointer restore failed ({undo})"
+                f"move failed ({exc}) and pointer restore failed ({undo})"
             ) from exc
-        raise PointerError(f"history write failed; pointer restored to {previous}: {exc}") from exc
+        raise PointerError(f"move failed; pointer restored to {previous}: {exc}") from exc
     return record
 
 
@@ -155,6 +167,7 @@ def rollback(
     to: str | None = None,
     steps: int = 1,
     reason: str = "",
+    on_moved: Callable[[str], None] | None = None,
 ) -> dict[str, Any]:
     """Roll back `steps` releases through history, or to the named release."""
     if to is None:
@@ -169,7 +182,7 @@ def rollback(
         to = earlier[steps - 1]
     if to == current_release_id(home):
         raise PointerError(f"{to} is already current")
-    return flip(to, home, action="rollback", reason=reason)
+    return flip(to, home, action="rollback", reason=reason, on_moved=on_moved)
 
 
 def status(home: Path | str | None = None) -> dict[str, Any]:
