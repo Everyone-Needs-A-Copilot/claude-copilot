@@ -550,10 +550,15 @@ def read_declaration(project: Path | str) -> tuple[dict[str, Any], Optional[str]
     return {"schema_version": "1.0", "components": components}, None
 
 
-def write_declaration(project: Path | str, components: Sequence[str]) -> None:
-    target = Path(project) / PROJECT_DECLARATION_FILENAME
-    payload = {"schema_version": "1.0", "components": list(components)}
-    target.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+def write_declaration(project: Path | str, components: Sequence[str] = ()) -> None:
+    """Write the shared marker through the one writer (`cc project init`).
+
+    Every project declares both runtimes; `components` is accepted for call
+    compatibility but a Claude-only declaration can no longer be written.
+    """
+    from cc.core.project_init.marker import write_marker
+
+    write_marker(project)
 
 
 def installed_components(project: Path | str) -> list[str]:

@@ -23,6 +23,7 @@ from cc.core.ecosystem.project_migrations import (
     build_migration_candidate,
     build_migration_report,
 )
+from cc.core.project_init import InitError, init_project
 from cc.core.ecosystem.workspaces import (
     SUPPORTED_COMPONENTS,
     ActivationError,
@@ -164,8 +165,12 @@ def _apply_selected(root: Path, before: dict, selected: list[str], share_with_pr
     try:
         activate_components(root, selected)
         write_install_lock(root, selected)
-        if share_with_project:
-            write_declaration(root, selected)
+        # One writer: the same function `cc project init` runs (marker, thin
+        # CLAUDE.md/AGENTS.md sections, Codex trust, registration).
+        try:
+            init_project(root)
+        except InitError as exc:
+            return exc.message
         if associate_personal and key:
             associate_personal_project(key, selected, registry=default_personal_registry())
         if before["setup_policy"] == "automatic":

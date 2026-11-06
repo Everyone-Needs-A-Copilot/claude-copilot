@@ -1817,6 +1817,9 @@ def test_apply_all_applies_every_project_and_collects_a_per_project_failure(
     monkeypatch.setattr(
         workspaces_command, "write_install_lock", lambda *_a, **_k: None
     )
+    # Fake activation installs nothing; the real init (marker, instruction
+    # sections) would leave a half-installed project. Init has its own tests.
+    monkeypatch.setattr(workspaces_command, "init_project", lambda *_a, **_k: {})
 
     # One project genuinely failing exits non-zero (result: blocked); the
     # report is still emitted and the other project's own outcome is intact.
@@ -2324,3 +2327,10 @@ def test_recently_set_up_populates_and_ages_out(tmp_path):
         registry=registry, now=start + RECENTLY_SET_UP_WINDOW_HOURS * 3600 + 1
     )
     assert aged_out == []
+
+
+@pytest.fixture(autouse=True)
+def _isolate_project_init_machine_state(tmp_path, monkeypatch):
+    """`_apply_selected` runs `cc project init`; keep it off the real machine."""
+    monkeypatch.setenv("HOME", str(tmp_path / "init-home"))
+    monkeypatch.setenv("CODEX_HOME", str(tmp_path / "init-home" / ".codex"))
