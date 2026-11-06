@@ -125,7 +125,7 @@ def switch(args) -> int:
     launcher = chome / "current" / "cli-copilot" / "scripts" / "install-cli.py"
     bin_dir = home / ".local" / "bin"
     launcher_result = run([sys.executable, str(launcher), "install", "--bin-dir", str(bin_dir),
-                           "--home", str(home)], env)
+                           "--home", str(home), "--python", args.launcher_python or args.python], env)
     remove = [str(chome / "current"), str(chome / "links-receipt.json"), str(chome / "codex-config-receipt.json"),
               str(chome / "cli-install.json"), str(chome / "cli-dev.json"), str(bin_dir / "copilot"),
               str(chome / "user-settings-receipt.json")]
@@ -158,6 +158,7 @@ def main() -> int:
     s.add_argument("--home")
     s.add_argument("--codex-home")
     s.add_argument("--python", default=sys.executable)
+    s.add_argument("--launcher-python", help="Interpreter with the CLI dependencies, written into the copilot launcher (default: --python).")
     args = parser.parse_args()
     return switch(args)
 
