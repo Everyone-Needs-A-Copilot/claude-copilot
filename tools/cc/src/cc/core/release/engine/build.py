@@ -258,8 +258,11 @@ def build_cc_venv(release_directory: Path, _components: Sequence[schema.Componen
     try:
         subprocess.run(
             ["bash", str(script), "--shim-path", str(scratch), "--no-profile-update"],
-            check=True, env=environment, timeout=600,
+            check=True, env=environment, timeout=600, capture_output=True, text=True,
         )
+    except subprocess.CalledProcessError as exc:
+        tail = (exc.stderr or exc.stdout or "").strip()[-400:]
+        raise ReleaseBuildError(f"cc virtualenv build failed: {tail}") from exc
     except (OSError, subprocess.SubprocessError) as exc:
         raise ReleaseBuildError("cc virtualenv build failed") from exc
     finally:
