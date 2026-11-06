@@ -74,6 +74,20 @@ def default_verifier(src: ComponentSource) -> VerifiedTag:
     return VerifiedTag(commit=result.release.commit, signer=result.signer)
 
 
+def _release_filter(member: tarfile.TarInfo, destination: str) -> tarfile.TarInfo | None:
+    """The "data" filter, except a symlink that points outside the tree is left out, not fatal.
+
+    A release never needs a link to a path outside itself (for example a tracked `.mcp.json`
+    link to a sibling private checkout); every other violation still fails the build.
+    """
+    try:
+        return tarfile.data_filter(member, destination)
+    except (tarfile.LinkOutsideDestinationError, tarfile.AbsoluteLinkError):
+        if member.issym():
+            return None
+        raise
+
+
 def default_extractor(src: ComponentSource, tag: VerifiedTag, destination: Path) -> None:
     treeish = f"{tag.commit}:{src.subpath}" if src.subpath else tag.commit
     archive = subprocess.run(
@@ -85,7 +99,7 @@ def default_extractor(src: ComponentSource, tag: VerifiedTag, destination: Path)
     destination.mkdir(parents=True, exist_ok=True)
     with tarfile.open(fileobj=io.BytesIO(archive.stdout)) as tar:
         try:
-            tar.extractall(destination, filter="data")
+            tar.extractall(destination, filter=_release_filter)
         except TypeError:  # Python without extraction filters
             tar.extractall(destination)
 

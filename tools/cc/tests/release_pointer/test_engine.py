@@ -281,3 +281,20 @@ def test_shim_warns_on_stderr_and_exits_zero_when_current_missing(home):
     result = subprocess.run([str(shim)], capture_output=True, text=True)
     assert result.returncode == 0
     assert result.stderr.count("\n") == 1 and "no current release" in result.stderr
+
+
+def test_extractor_leaves_out_escaping_symlinks_but_keeps_inner_ones(tmp_path):
+    import io, tarfile
+    from pathlib import Path
+    buf = io.BytesIO()
+    with tarfile.open(fileobj=buf, mode="w") as tar:
+        for name, target in ((".mcp.json", "../outside/mcp.json"), ("inner", "real")):
+            info = tarfile.TarInfo(name); info.type = tarfile.SYMTYPE; info.linkname = target
+            tar.addfile(info)
+        data = b"x"; info = tarfile.TarInfo("real"); info.size = 1; tar.addfile(info, io.BytesIO(data))
+    buf.seek(0)
+    dest = tmp_path / "out"; dest.mkdir()
+    with tarfile.open(fileobj=buf) as tar:
+        tar.extractall(dest, filter=build._release_filter)
+    assert not (dest / ".mcp.json").is_symlink() and not (dest / ".mcp.json").exists()
+    assert (dest / "inner").is_symlink()
