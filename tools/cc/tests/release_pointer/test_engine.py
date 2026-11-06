@@ -212,7 +212,12 @@ def test_cli_status_flip_history_rollback_prune(home, make_release):
     plan = json.loads(runner.invoke(release_app, ["prune", "--keep", "1", *base]).stdout)
     assert plan["approved"] is False
     assert runner.invoke(release_app, ["prune", "--approve", *base]).exit_code == 1
-    assert runner.invoke(release_app, ["doctor", *base]).exit_code == 0
+    # `release doctor` is the full release check: engine checks pass on this bare release, while the
+    # Codex marketplace, links receipt and Control Tower record (absent here) fail it (was: exit 0).
+    doctor_run = runner.invoke(release_app, ["doctor", *base, "--codex-home", str(home / ".codex")])
+    assert doctor_run.exit_code == 1
+    failed = {row["name"] for row in json.loads(doctor_run.stdout) if not row["ok"]}
+    assert failed <= {"codex-marketplace", "links", "control-tower"} and "codex-marketplace" in failed
     assert runner.invoke(release_app, ["flip", "bogus", *base]).exit_code == 1
 
 

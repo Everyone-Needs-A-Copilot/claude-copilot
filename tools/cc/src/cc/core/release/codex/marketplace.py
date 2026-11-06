@@ -190,7 +190,7 @@ def compare_with_previous(receipt: dict, previous_root: Path | None,
 
 
 def build_marketplace(release_directory: Path, previous_root: Path | None = None, *,
-                      retrust: Iterable[str] | bool = (), strict_frozen: bool = False) -> dict:
+                      retrust: Iterable[str] | bool = (), strict_frozen: bool = True) -> dict:
     receipt = generate(release_directory)
     receipt.update(compare_with_previous(receipt, previous_root, retrust))
     changed = receipt["trustContentChanged"]
@@ -203,7 +203,7 @@ def build_marketplace(release_directory: Path, previous_root: Path | None = None
 
 
 def make_post_build(home: Path | str | None = None, *, retrust: Iterable[str] | bool = (),
-                    strict_frozen: bool = False
+                    strict_frozen: bool = True
                     ) -> Callable[[Path, Sequence[schema.Component]], None]:
     """A `build_release(post_build=...)` hook; compares against the current release."""
     def hook(target: Path, _components: Sequence[schema.Component]) -> None:
