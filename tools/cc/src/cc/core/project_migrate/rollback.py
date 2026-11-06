@@ -34,7 +34,16 @@ def rollback_migration(backup_dir: Path | str) -> dict[str, Any]:
             elif path.exists():
                 conflicts.append(f"{rel}: changed since migration, left in place")
             continue
-        if kind == "modified" and path.exists() and sha256_file(path) != entry.get("sha_after"):
+        if kind == "modified" and "sha_after" not in entry:
+            # interrupted before the write was recorded: undo whatever may have landed
+            if entry.get("absent_before"):
+                if path.is_file() and not path.is_symlink():
+                    path.unlink()
+                    restored.append(rel)
+                continue
+            if sha256_file(path) == entry.get("sha_before"):
+                continue
+        elif kind == "modified" and path.exists() and sha256_file(path) != entry.get("sha_after"):
             conflicts.append(f"{rel}: changed since migration, left in place")
             continue
         if kind in ("deleted", "modified") and "backup" in entry:

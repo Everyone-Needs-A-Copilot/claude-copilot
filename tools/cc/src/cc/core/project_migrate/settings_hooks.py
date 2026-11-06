@@ -11,7 +11,7 @@ FRAMEWORK_SOURCE = "claude-copilot"
 _SHIM = "copilot-hook.sh"
 
 
-def _is_framework(hook: Any, lock_commands: set[str]) -> Optional[bool]:
+def _is_framework(hook: Any, lock_commands: set[str], lookalike: Optional[str] = _SHIM) -> Optional[bool]:
     """True: framework-owned. False: not ours. None: looks like the shim but unproven."""
     if not isinstance(hook, dict):
         return False
@@ -21,12 +21,17 @@ def _is_framework(hook: Any, lock_commands: set[str]) -> Optional[bool]:
     if isinstance(cmd, str):
         if cmd in lock_commands:
             return True
-        if _SHIM in cmd:
+        if lookalike and lookalike in cmd:
             return None
     return False
 
 
-def strip_framework_hooks(text: str, lock: Optional[LockRecord]):
+def strip_framework_hooks(
+    text: str,
+    lock: Optional[LockRecord],
+    extra_commands: frozenset[str] | set[str] = frozenset(),
+    lookalike: Optional[str] = _SHIM,
+):
     """Returns (new_text, removed_count, ambiguous_commands, empty_after).
 
     `new_text` is None when nothing changes. Non-framework keys and hooks are
@@ -38,7 +43,7 @@ def strip_framework_hooks(text: str, lock: Optional[LockRecord]):
         return None, 0, [], False
     if not isinstance(data, dict) or not isinstance(data.get("hooks"), dict):
         return None, 0, [], False
-    commands = set(lock.hook_commands) if lock else set()
+    commands = (set(lock.hook_commands) if lock else set()) | set(extra_commands)
     removed = 0
     ambiguous: list[str] = []
     hooks = data["hooks"]
@@ -54,7 +59,7 @@ def strip_framework_hooks(text: str, lock: Optional[LockRecord]):
                 continue
             kept = []
             for hook in inner:
-                verdict = _is_framework(hook, commands)
+                verdict = _is_framework(hook, commands, lookalike)
                 if verdict is True:
                     removed += 1
                 else:

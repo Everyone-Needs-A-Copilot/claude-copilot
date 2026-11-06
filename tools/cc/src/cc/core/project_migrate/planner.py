@@ -44,6 +44,7 @@ _STATE_FILES = (
 )
 _WALK_SKIP = {".git", ".venv", "node_modules", ".pytest_cache", ".ruff_cache", "__pycache__", ".obsidian"}
 SETTINGS = ".claude/settings.json"
+CODEX_HOOKS = ".codex/hooks.json"
 EMPTY_MCP = {"mcpServers": {}}
 
 
@@ -195,6 +196,24 @@ class _Builder:
         self.act(EDIT_JSON, SETTINGS, f"remove {removed} framework hook registration(s); other keys kept",
                  removed=removed, delete_file=delete, sha=sha256_bytes(text.encode()))
 
+    def codex_hooks(self) -> None:
+        path = self.root / CODEX_HOOKS
+        if not path.is_file():
+            return
+        text = path.read_text(encoding="utf-8")
+        new, removed, _, empty = strip_framework_hooks(
+            text, self.lock, extra_commands=self.known.codex_hook_commands, lookalike=None)
+        if new is None:
+            self.keep(CODEX_HOOKS, "no framework hook registration")
+            return
+        created = bool(self.lock and self.lock.codex_hooks_created)
+        delete = empty and created
+        self.plan.staged[CODEX_HOOKS] = new or "{}\n"
+        self.act(EDIT_JSON, CODEX_HOOKS,
+                 f"remove {removed} framework Codex hook registration(s) (the plugin layer supplies them; "
+                 "two layers would fire twice); other hooks kept",
+                 removed=removed, delete_file=delete, sha=sha256_bytes(text.encode()))
+
     def instruction_files(self) -> None:
         for name in ("CLAUDE.md", "AGENTS.md"):
             path = self.root / name
@@ -319,6 +338,7 @@ def plan_migration(
     known: Optional[Known] = None,
     claude_root: Optional[Path] = None,
     codex_root: Optional[Path] = None,
+    allow_missing_codex: bool = False,
 ) -> MigrationPlan:
     root = Path(project).expanduser()
     if not root.exists():
@@ -334,6 +354,7 @@ def plan_migration(
     b.empty_mcp()
     b.marketplace()
     b.settings()
+    b.codex_hooks()
     b.instruction_files()
     b.pack_links()
     b.collect_active_packs()
@@ -343,6 +364,13 @@ def plan_migration(
     b.init_writes()
 
     plan = b.plan
+    if not b.known.codex_resolved:
+        msg = ("no codex-copilot root resolved (set CC_CODEX_COPILOT_ROOT or install ~/.copilot/current/codex-copilot): "
+               "the Codex gate, agents and AGENTS.md sections cannot be identified")
+        if allow_missing_codex:
+            plan.notes.append("override: " + msg + "; those Codex files are kept")
+        else:
+            plan.errors.append(msg)
     if plan.git:
         dirty = git_dirty_paths(root)
         affected = [a.path for a in plan.actions if not a.path.startswith("~")]

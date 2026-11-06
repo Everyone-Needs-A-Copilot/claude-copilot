@@ -11,7 +11,9 @@ def render_plan(plan: MigrationPlan) -> str:
     c = plan.counts()
     lines = [f"cc project migrate plan for {plan.project} (dry run: nothing written)"]
     lines.append("  " + ", ".join(f"{k}={v}" for k, v in sorted(c.items())))
-    if plan.refused:
+    for e in plan.errors:
+        lines.append(f"PLANNING ERROR (apply refused): {e}")
+    if plan.dirty:
         lines.append("REFUSED: uncommitted changes on paths this plan would change:")
         lines += [f"  dirty  {d}" for d in plan.dirty]
     for title, kinds in (("REMOVE", ("delete", "unlink")), ("EDIT", ("edit-json", "edit-text")), ("WRITE", ("write",))):
