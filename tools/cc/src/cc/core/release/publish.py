@@ -10,6 +10,7 @@ from __future__ import annotations
 import json
 import plistlib
 import re
+import subprocess
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Callable, Sequence
@@ -78,6 +79,18 @@ def write_release_files(target: Path, *, command_skill_names: Sequence[str] = ()
     write_plan(plan, target)
 
 
+def write_source_markers(target: Path, components: Sequence[schema.Component]) -> None:
+    """Bind the extracted framework to its verified commit so `tc provenance` runs in snapshot mode."""
+    item = next(c for c in components if c.name == layout.COMPONENT_CLAUDE)
+    tree = subprocess.run(["git", "-C", item.source, "rev-parse", f"{item.commit}^{{tree}}"],
+                          capture_output=True, text=True, check=False)
+    if tree.returncode != 0 or not tree.stdout.strip():
+        raise build.ReleaseBuildError(f"cannot resolve the tree of {item.commit} in {item.source}")
+    root = target / layout.COMPONENT_CLAUDE
+    (root / ".source-commit").write_text(item.commit + "\n", encoding="utf-8")
+    (root / ".source-tree").write_text(tree.stdout.strip() + "\n", encoding="utf-8")
+
+
 def make_post_build(home: Path | str | None = None, *, strict_frozen: bool = True,
                     retrust: Sequence[str] | bool = (), venv: bool = True,
                     command_skill_names: Sequence[str] = (),
@@ -87,6 +100,7 @@ def make_post_build(home: Path | str | None = None, *, strict_frozen: bool = Tru
 
     def hook(target: Path, components: Sequence[schema.Component]) -> None:
         if venv:
+            write_source_markers(target, components)
             build.build_cc_venv(target, components)
         marketplace_step(target, components)
         write_release_files(target, command_skill_names=command_skill_names,
