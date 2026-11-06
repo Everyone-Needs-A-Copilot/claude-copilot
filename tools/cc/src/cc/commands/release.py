@@ -65,11 +65,14 @@ def flip_cmd(release_id: str, home: Optional[Path] = HomeOpt, reason: str = "") 
 
 @release_app.command("rollback")
 def rollback_cmd(
-    to: Optional[str] = typer.Option(None, "--to"), home: Optional[Path] = HomeOpt, reason: str = ""
+    to: Optional[str] = typer.Option(None, "--to"),
+    steps: int = typer.Option(1, "--steps", min=1, help="Walk back this many releases"),
+    home: Optional[Path] = HomeOpt,
+    reason: str = "",
 ) -> None:
-    """Restore the previous (or --to named) release."""
+    """Walk back --steps releases through history, or to the --to named release."""
     try:
-        _emit(pointer.rollback(home, to=to, reason=reason))
+        _emit(pointer.rollback(home, to=to, steps=steps, reason=reason))
     except Exception as exc:
         _fail(f"rollback failed: {exc}")
 

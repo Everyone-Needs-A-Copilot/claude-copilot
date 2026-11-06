@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import os
+import shutil
 import subprocess
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -19,6 +20,19 @@ def git(root: Path, *args: str) -> str:
     return subprocess.run(["git", "-C", str(root), "-c", "commit.gpgsign=false",
                            "-c", "tag.gpgsign=false", *args],
                           check=True, capture_output=True, text=True, env=env).stdout.strip()
+
+
+@pytest.fixture(autouse=True)
+def _writable_cleanup(tmp_path):
+    """Built releases are read-only; restore write bits so tmp dirs are removed."""
+    yield
+    for dirpath, dirnames, filenames in os.walk(tmp_path):
+        os.chmod(dirpath, 0o700)
+        for name in filenames:
+            path = os.path.join(dirpath, name)
+            if not os.path.islink(path):
+                os.chmod(path, 0o600)
+    shutil.rmtree(tmp_path, ignore_errors=True)
 
 
 @pytest.fixture

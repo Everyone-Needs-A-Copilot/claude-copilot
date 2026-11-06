@@ -64,17 +64,7 @@ def append_history(home: Path | str | None, record: dict[str, Any]) -> None:
             os.fsync(handle.fileno())
 
 
-def flip(
-    release_id: str,
-    home: Path | str | None = None,
-    *,
-    action: str = "flip",
-    reason: str = "",
-) -> dict[str, Any]:
-    """Replace `current` with a symlink to `release_id` via rename (atomic)."""
-    target = layout.release_dir(release_id, home)
-    schema.load(target)  # refuses unknown or invalid releases; current untouched
-    previous = current_release_id(home)
+def _set_pointer(release_id: str, home: Path | str | None) -> None:
     pointer = layout.current_path(home)
     temp = pointer.with_name(f".{layout.CURRENT_NAME}.{os.getpid()}.tmp")
     if temp.is_symlink() or temp.exists():
@@ -85,6 +75,24 @@ def flip(
     except OSError as exc:
         temp.unlink(missing_ok=True)
         raise PointerError(f"cannot replace {pointer}: {exc}") from exc
+
+
+def flip(
+    release_id: str,
+    home: Path | str | None = None,
+    *,
+    action: str = "flip",
+    reason: str = "",
+) -> dict[str, Any]:
+    """Replace `current` with a symlink to `release_id` via rename (atomic).
+
+    The pointer and its history row stay consistent: if the history write
+    fails, the pointer is restored to where it was before the flip.
+    """
+    target = layout.release_dir(release_id, home)
+    schema.load(target)  # refuses unknown or invalid releases; current untouched
+    previous = current_release_id(home)
+    _set_pointer(release_id, home)
     record = {
         "ts": _now(),
         "action": action,
@@ -92,30 +100,76 @@ def flip(
         "previous": previous,
         "reason": reason,
     }
-    append_history(home, record)
+    try:
+        append_history(home, record)
+    except Exception as exc:
+        try:
+            if previous is not None:
+                _set_pointer(previous, home)
+            else:
+                layout.current_path(home).unlink(missing_ok=True)
+        except Exception as undo:  # noqa: BLE001
+            raise PointerError(
+                f"history write failed ({exc}) and pointer restore failed ({undo})"
+            ) from exc
+        raise PointerError(f"history write failed; pointer restored to {previous}: {exc}") from exc
     return record
 
 
-def previous_release(home: Path | str | None = None) -> str | None:
-    """Most recent earlier release still on disk that is not the current one."""
+def _lineage(home: Path | str | None) -> list[str]:
+    """Release stack replayed from history: flips push, rollbacks pop to target."""
+    stack: list[str] = []
+    for row in read_history(home):
+        release = row.get("release")
+        if not release:
+            continue
+        if row.get("action") == "rollback" and release in stack:
+            del stack[len(stack) - stack[::-1].index(release):]
+        else:
+            stack.append(release)
+    return stack
+
+
+def earlier_releases(home: Path | str | None = None) -> list[str]:
+    """Releases before `current` in history order, nearest first, still on disk."""
     current = current_release_id(home)
+    stack = _lineage(home)
+    if current in stack:
+        stack = stack[: len(stack) - stack[::-1].index(current) - 1]
     available = set(list_releases(home))
-    for row in reversed(read_history(home)):
-        candidate = row.get("release")
-        if candidate and candidate != current and candidate in available:
-            return candidate
-    return None
+    out: list[str] = []
+    for candidate in reversed(stack):
+        if candidate != current and candidate in available and candidate not in out:
+            out.append(candidate)
+    return out
+
+
+def previous_release(home: Path | str | None = None) -> str | None:
+    earlier = earlier_releases(home)
+    return earlier[0] if earlier else None
 
 
 def rollback(
-    home: Path | str | None = None, *, to: str | None = None, reason: str = ""
+    home: Path | str | None = None,
+    *,
+    to: str | None = None,
+    steps: int = 1,
+    reason: str = "",
 ) -> dict[str, Any]:
-    target = to or previous_release(home)
-    if target is None:
-        raise PointerError("no previous release to roll back to")
-    if target == current_release_id(home):
-        raise PointerError(f"{target} is already current")
-    return flip(target, home, action="rollback", reason=reason)
+    """Roll back `steps` releases through history, or to the named release."""
+    if to is None:
+        if steps < 1:
+            raise PointerError("steps must be at least 1")
+        earlier = earlier_releases(home)
+        if steps > len(earlier):
+            raise PointerError(
+                f"no earlier release: cannot roll back {steps} step(s); "
+                f"{len(earlier)} earlier release(s) available"
+            )
+        to = earlier[steps - 1]
+    if to == current_release_id(home):
+        raise PointerError(f"{to} is already current")
+    return flip(to, home, action="rollback", reason=reason)
 
 
 def status(home: Path | str | None = None) -> dict[str, Any]:
