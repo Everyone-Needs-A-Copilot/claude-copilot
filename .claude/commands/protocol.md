@@ -34,7 +34,7 @@ Before implementation, set the verification tier (T1 copy, T2 structural, T3
 foundational; `tc task tier`; from the diff, upward only, owner-only downgrades;
 untiered is T3), then state the deliverable, required acceptance criteria,
 affected consumers, verification lane/cap and exclusions in `tc`. Freeze this
-batch scope; use the engineering/QA Proportional Verification fixed finish line.
+batch scope; use the engineering/QA Proportional Verification fixed finish line. QA scope is the change's blast radius, per the `blast-radius-qa` skill (`cc skill get blast-radius-qa --scope machine --json`): feature only, one function, new feature plus adjacent, or full regression as one parallel sweep for cross-cutting change.
 After current source-bound QA approval (T3) or a valid tc attestation (T1/T2)
 satisfies every required criterion, close
 the task, report completion and separately pending work, then stop. Unrelated

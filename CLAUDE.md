@@ -171,6 +171,8 @@ After scoped approval, refill useful independent work within native/resource cap
 
 If absent, report fallback: `tc cycle --help` governs exclusive writes, actual cwd/branch, native dispatch, one integrator, current independent QA and authorized safe retirement. Read-only research needs no worktree; report missing cycle capability honestly.
 
+**Blast-Radius QA (2026-11-06):** default QA strategy: test the change's blast radius, not the whole product. Canonical text: the organization `blast-radius-qa` skill (`cc skill get blast-radius-qa --scope machine --json`; Codex reads the same file). It replaces any earlier QA-depth statement.
+
 ## Agent Routing
 
 Fan-out follows the validated ready set and actual runtime/resource capacity; no arbitrary framework cap. Finish each worker promptly, converge through one owner, and partition independent QA with cross-stream coverage. (2026-11-04)

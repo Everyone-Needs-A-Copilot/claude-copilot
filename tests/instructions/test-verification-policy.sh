@@ -47,6 +47,8 @@ def verify_policy(content):
         'one planned batch acceptance pass', 'rerun affected checks only',
         'do not silently reopen completed work', 'still blocks that criterion',
         'then stop', 'incomplete, not complete',
+        'Blast-Radius QA (2026-11-06)', 'cc skill get blast-radius-qa', 'one parallel sweep', 'one defect list',
+        'failed checks plus any check sharing code the fixes changed',
     ):
         assert required in content, required
 
@@ -87,6 +89,8 @@ for mutant in (
     policy.replace('light source check, not automatic T3', 'forced T3'),
     policy.replace('One or two renders', 'Full Playwright suite'),
     policy.replace('still blocks that criterion', 'never blocks completion'),
+    policy.replace('one defect list', 'serial fixes'),
+    policy.replace('cc skill get blast-radius-qa', 'cc skill get qa'),
 ):
     try:
         verify_policy(mutant)
@@ -108,6 +112,6 @@ assert '## Fixed Delivery Boundary' in protocol
 assert 'close\nthe task' in protocol and 'then stop' in protocol
 assert 'set the verification tier' in protocol and 'valid tc attestation (T1/T2)' in protocol
 assert 'sixth `Tier:` line' in protocol and 'T1 copy work is not substantial' in protocol
-print('PASS: 5 lane contracts, 3 tier rows, shared me/qa loading, fixed finish line, evidence authority, owner-requested obsolete-check rule, 14 negative controls')
+print('PASS: 5 lane contracts, 3 tier rows, shared me/qa loading, fixed finish line, evidence authority, owner-requested obsolete-check rule, 16 negative controls')
 print('UNTESTED: live model compliance; this check validates instruction structure only')
 PY
