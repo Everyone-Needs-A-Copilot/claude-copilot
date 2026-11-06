@@ -48,6 +48,17 @@ def source_repo(repos: Path, name: str, own: dict[str, bytes]) -> tuple[Path, Kn
     return root, known
 
 
+def canon(rel: Path, root: Path, path: str) -> None:
+    """Publish the project's copy of `path` in the release's claude-copilot tree (the canonical source)."""
+    dst = rel / "claude-copilot" / path
+    dst.parent.mkdir(parents=True, exist_ok=True)
+    dst.write_bytes((root / path).read_bytes())
+
+
+def held(plan) -> dict[str, str]:
+    return {h.path: h.reason for h in plan.holds}
+
+
 def removed(plan) -> set[str]:
     return {a.path for a in plan.actions if a.kind in ("delete", "unlink")}
 
@@ -92,7 +103,9 @@ def test_claude_copilot_apply_removes_locks_writes_marker_only(env):
 def test_named_source_repos_keep_their_own_paths(env, name, own, drop):
     tmp, repos = env
     root, known = source_repo(repos, name, {p: f"own {p}\n".encode() for p in own})
-    plan = plan_migration(root, known=known, release_dir=release(tmp, repos), allow_missing_codex=True)
+    rel = release(tmp, repos)
+    canon(rel, root, drop)
+    plan = plan_migration(root, known=known, release_dir=rel, allow_missing_codex=True)
     assert set(own) <= kept_as_source(plan)
     assert not removed(plan) & set(own)
     assert drop in removed(plan)  # a synced copy outside the protected paths still goes
@@ -101,22 +114,73 @@ def test_named_source_repos_keep_their_own_paths(env, name, own, drop):
 def test_control_tower_fixtures_are_protected_by_name(env):
     tmp, repos = env
     root, known = source_repo(repos, "copilot-control-tower", {"scripts/tests/fixtures/workspaces/a.json": b"{}\n"})
-    plan = plan_migration(root, known=known, release_dir=release(tmp, repos), allow_missing_codex=True)
+    rel = release(tmp, repos)
+    canon(rel, root, ".claude/agents/ta.md")
+    plan = plan_migration(root, known=known, release_dir=rel, allow_missing_codex=True)
     assert "scripts/tests/fixtures/workspaces/a.json" in kept_as_source(plan)
     assert ".claude/agents/ta.md" in removed(plan)
 
 
-def test_edited_lock_copies_of_a_source_repo_are_consumer_copies(env):
+def test_edited_lock_copy_of_a_framework_file_is_held_in_a_source_repo(env):
     tmp, repos = env
     root, known = source_repo(repos, "codex-copilot-internal", {})
-    (root / ".claude/agents/ta.md").write_text("---\nname: ta\n---\nolder fan-out text\n")
-    plan = plan_migration(root, known=known, release_dir=release(tmp, repos), allow_missing_codex=True)
-    assert ".claude/agents/ta.md" in removed(plan)
-    assert ".claude/agents/ta.md" not in {h.path for h in plan.holds}
-    plain = build_project(repos, "other", git=False)
-    (plain / ".claude/agents/ta.md").write_text("---\nname: ta\n---\nolder fan-out text\n")
-    assert ".claude/agents/ta.md" in {h.path for h in plan_migration(plain, known=known, release_dir=release(tmp, repos),
-                                                                      allow_missing_codex=True).holds}
+    rel = release(tmp, repos)
+    canon(rel, root, ".claude/agents/ta.md")
+    (root / ".claude/agents/ta.md").write_text("---\nname: ta\n---\nlocally edited text\n")
+    plan = plan_migration(root, known=known, release_dir=rel, allow_missing_codex=True)
+    assert ".claude/agents/ta.md" not in removed(plan)
+    assert ".claude/agents/ta.md" in held(plan)
+
+
+# The 11 unique-content files QA found (WP-349): each shape is known to the released index by content
+# (a sibling shipped the same bytes once) yet has no byte-identical copy in the release.
+UNIQUE_SHAPES = [
+    ("claude-copilot-internal", "scripts/ab_render.py", "keep"),
+    ("claude-copilot-internal", "scripts/test_lens.py", "keep"),
+    ("claude-copilot-internal", "scripts/test_render.py", "keep"),
+    ("claude-copilot-internal", "tests/fixtures/lens-golden/a.json", "keep"),
+    ("claude-copilot-internal", "tests/fixtures/lens-golden/b.json", "keep"),
+    ("claude-copilot-accounting", "scripts/test-release-coherence.py", "keep"),
+    ("knowledge-copilot", ".claude/commands/knowledge-setup.md", "keep"),
+    ("codex-copilot-internal", ".claude/commands/protocol.md", "held"),
+]
+
+
+@pytest.mark.parametrize("name,path,outcome", UNIQUE_SHAPES)
+def test_unique_content_is_never_removed_in_source_mode(env, name, path, outcome):
+    tmp, repos = env
+    root, known = source_repo(repos, name, {})
+    rel = release(tmp, repos)
+    data = f"unique content of {name}\n".encode()
+    _w(root, path, data)
+    if outcome == "held":  # an edited mirror of a framework file: the release has the path, with other bytes
+        _w(rel / "claude-copilot", path, b"the released protocol\n")
+    known.file_hashes[path] = {sha(data)}
+    # the lock lists it too, so the bytes-match-lock rule alone would have removed it
+    lock = json.loads((root / "copilot.lock.json").read_text())
+    lock["components"][0]["files"].append({"path": path, "checksum": sha(data), "ownership": "framework"})
+    (root / "copilot.lock.json").write_text(json.dumps(lock))
+    plan = plan_migration(root, known=known, release_dir=rel, allow_missing_codex=True, source_repo=True)
+    assert path not in removed(plan)
+    if outcome == "keep":
+        assert path in kept_as_source(plan)
+    else:
+        assert "held: edited copy" in held(plan)[path]
+    assert removed(plan) <= {"copilot.lock.json", ".codex-copilot.json"}
+
+
+def test_byte_identical_copy_in_the_release_is_removed_in_source_mode(env):
+    tmp, repos = env
+    root, known = source_repo(repos, "knowledge-copilot", {})
+    rel = release(tmp, repos)
+    _w(root, ".claude/agents/ta.md", b"released ta\n")
+    canon(rel, root, ".claude/agents/ta.md")
+    known.file_hashes[".claude/agents/ta.md"] = {sha(b"released ta\n")}
+    lock = json.loads((root / "copilot.lock.json").read_text())
+    lock["components"][0]["files"].append({"path": ".claude/agents/ta.md", "checksum": sha(b"released ta\n"), "ownership": "framework"})
+    (root / "copilot.lock.json").write_text(json.dumps(lock))
+    assert ".claude/agents/ta.md" in removed(plan_migration(root, known=known, release_dir=rel, allow_missing_codex=True,
+                                                            source_repo=True))
 
 
 def test_live_link_target_is_protected(env):

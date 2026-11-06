@@ -125,9 +125,6 @@ class _Builder:
             elif (verdict := classify(self.root, rel, self.known)) and verdict[0] == "delete":
                 self.act(DELETE, rel, f"framework copy, bytes match a released framework version ({component} lock is older)",
                          sha=sha256_file(path), copy=True, blob=verdict[1])
-            elif self.source_mode and not self.guard.protects(rel):
-                self.act(DELETE, rel, f"synced copy ({component} lock), edited since; a source repo's copies are consumer files",
-                         sha=sha256_file(path), copy=True)
             else:
                 self.hold(rel, f"the framework installed this file ({component}) but it has been edited since, so it was kept")
 
@@ -383,9 +380,14 @@ def _apply_guard(b: _Builder) -> None:
         if why:
             to_keep(a.path, why)
             plan.staged.pop(a.path, None)
-        elif b.source_mode and a.kind != WRITE and not _consumer_artefact(a):
-            to_keep(a.path, f"{SOURCE_LABEL}: not a consumer artefact of a source repo")
+        elif a.kind != WRITE and (verdict := _unproven_removal(b, a)):
+            state, reason = verdict
             plan.staged.pop(a.path, None)
+            if state == "held":
+                plan.holds.append(Item(a.path, reason, "hold"))
+                kept.add(a.path)
+            else:
+                to_keep(a.path, reason)
         elif b.source_mode and a.kind == WRITE and a.path != MARKER_FILENAME:
             continue  # source repos keep their own instruction files, ignore rules and trust
         else:
@@ -404,8 +406,19 @@ def _apply_guard(b: _Builder) -> None:
                           "removed; the marker is the only file written")
 
 
-def _consumer_artefact(a: Item) -> bool:
-    return a.path in LOCKS or bool(a.detail.get("copy"))
+def _unproven_removal(b: _Builder, a: Item) -> Optional[tuple[str, str]]:
+    """Invariant: a file is removed only if it is a lock or sync artefact, or a byte-identical copy exists in the
+    release. Anything else is the repo's own work: unique content is kept, an edited framework file is held."""
+    if a.path in LOCKS or not b.source_mode:
+        return None  # consumer projects: the lock checksum or a released version is the evidence
+    if not a.detail.get("copy"):
+        return "keep", f"{SOURCE_LABEL}: not a consumer artefact of a source repo"
+    state = b.guard.canonical_state(b.root, a.path, symlink=a.kind == UNLINK)
+    if state == "identical":
+        return None
+    if state == "differs":
+        return "held", "held: edited copy of a framework file (it differs from the released one), so it was kept"
+    return "keep", f"{SOURCE_LABEL}: no identical copy of this file exists in the release, so it is this repo's own content"
 
 
 def plan_migration(

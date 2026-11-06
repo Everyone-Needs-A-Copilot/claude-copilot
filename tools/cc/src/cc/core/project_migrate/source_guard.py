@@ -68,6 +68,7 @@ class SourceGuard:
     globs: list[str] = field(default_factory=list)   # copilot.project.json protectedPaths
     linked: list[str] = field(default_factory=list)  # live link targets resolving into this repo
     excluded: tuple[str, ...] = ()
+    canonical: list[Path] = field(default_factory=list)  # release component roots a copy must match byte for byte
 
     @property
     def is_source(self) -> bool:
@@ -95,6 +96,26 @@ class SourceGuard:
 
     def protects(self, rel: str) -> bool:
         return self.why(rel) is not None
+
+    def canonical_state(self, project: Path, rel: str, symlink: bool = False) -> str:
+        """"identical" (byte-identical copy in the release), "differs" (same path there, other bytes) or "absent"."""
+        mine = Path(project) / rel
+        state = "absent"
+        for root in self.canonical:
+            theirs = root / rel
+            if not (theirs.exists() or theirs.is_symlink()):
+                continue
+            try:
+                if symlink:
+                    same = theirs.is_symlink() and mine.is_symlink() and os.readlink(theirs) == os.readlink(mine)
+                else:
+                    same = theirs.is_file() and not theirs.is_symlink() and theirs.read_bytes() == mine.read_bytes()
+            except OSError:
+                same = False
+            if same:
+                return "identical"
+            state = "differs"
+        return state
 
 
 def _real(p: str | Path) -> str:
@@ -177,6 +198,11 @@ def build_guard(project: Path, release_dir: Optional[Path | str] = None) -> Sour
     else:
         alias = next((_ALIASES[n] for n in names if n in _ALIASES), "")
         guard.name = alias
+    # Canonical copies come from the foundation components only (names without a tier); a tier component is
+    # some repo's own content (the release archives it), so matching it would prove nothing about a copy.
+    guard.canonical = [Path(_real(release / c["path"])) for c in manifest.get("components", [])
+                       if c.get("path") and "/" not in str(c.get("name", "")) and str(c.get("name")) != guard.name
+                       and (release / c["path"]).is_dir()]
     if guard.name:
         guard.prefixes = list(read_roots(guard.name, repo))
         guard.excluded = BRIDGES if ALL not in guard.prefixes else ()
