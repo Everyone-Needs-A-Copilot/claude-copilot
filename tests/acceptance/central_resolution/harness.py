@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import shutil
 import stat
 import subprocess
 import time
@@ -162,9 +163,17 @@ def sentinel_snapshot(extra_repos: list[str]) -> dict:
 
 
 # ----------------------------------------------------------------------------- runtime drivers
-CODEX_BIN = os.environ.get("CR_CODEX_BIN", "/opt/homebrew/bin/codex")
+# The codex the owner's shell resolves (WP-319 used it: 0.167.0). /opt/homebrew/bin/codex is a stale 0.153.0 that does not
+# know the configured model, so every turn fails before a command is attempted.
+CODEX_BIN = os.environ.get("CR_CODEX_BIN") or shutil.which("codex") or "/opt/homebrew/bin/codex"
 CLAUDE_BIN = os.environ.get("CR_CLAUDE_BIN", str(rp.REAL_HOME / ".local" / "bin" / "claude"))
-CODEX_MODEL = os.environ.get("CR_CODEX_MODEL", "gpt-5.6-sol")  # config's own model is rejected by this account
+# Empty = the replica config's own model, exactly like the manual WP-319 probe. Forcing a model (-m) that the ChatGPT
+# account does not support fails the turn before any command is attempted ("model is not supported ... ChatGPT account").
+CODEX_MODEL = os.environ.get("CR_CODEX_MODEL", "")
+
+
+def codex_model_args() -> list:
+    return ["-m", CODEX_MODEL] if CODEX_MODEL else []
 RUNTIME_TIMEOUT = int(os.environ.get("CR_RUNTIME_TIMEOUT", "240"))
 
 
@@ -213,7 +222,7 @@ def codex_run(rep, cwd: Path, prompt: str, *, obs: Path | None = None, without_a
     without_agents_md: hide the replica CODEX_HOME/AGENTS.md for this one run only (restored in finally), so the model
     does not obey the coordinator rule and decline to attempt the command the hook is being probed with."""
     env = rep.env({"CRACC_OBS": str(obs)} if obs else {})
-    cmd = [CODEX_BIN, "exec", "-m", CODEX_MODEL, "--json", "--skip-git-repo-check", prompt]
+    cmd = [CODEX_BIN, "exec", *codex_model_args(), "--json", "--skip-git-repo-check", prompt]
     ag = rep.codex_home / "AGENTS.md"
     hidden = ag.with_name("AGENTS.md.cracc-hidden")
     moved = False
@@ -243,9 +252,15 @@ def codex_run(rep, cwd: Path, prompt: str, *, obs: Path | None = None, without_a
 def codex_hook_trace(rep, cwd: Path, obs: Path | None = None, prompt: str = "Reply with the single word OK") -> dict:
     """One non-JSON `codex exec` pass whose stdout shows `hook: <Event>` / `Completed` lines."""
     env = rep.env({"CRACC_OBS": str(obs)} if obs else {})
-    r = run([CODEX_BIN, "exec", "-m", CODEX_MODEL, "--skip-git-repo-check", prompt],
+    r = run([CODEX_BIN, "exec", *codex_model_args(), "--skip-git-repo-check", prompt],
             env=env, cwd=cwd, timeout=RUNTIME_TIMEOUT)
     return {"run": r, "text": r.out + "\n" + r.err}
+
+
+class RealEnv:
+    """Read-only stand-in for a Replica so codex_hooks_list can inventory the REAL machine (hooks/list only reads)."""
+    def env(self, extra: dict | None = None) -> dict:
+        return dict(os.environ)
 
 
 def codex_hooks_list(rep, cwd: Path, timeout: int = 60) -> dict:

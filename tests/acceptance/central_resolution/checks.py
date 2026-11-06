@@ -271,6 +271,21 @@ def framework_copies(ctx: Ctx, project: Path) -> dict:
 
 
 # ============================================================================== CR-R
+def _content_digest(root: Path) -> str:
+    """Digest of relative names and file bytes (symlinks followed), independent of absolute location and mtimes."""
+    import hashlib
+    h = hashlib.sha256()
+    for dirpath, dirnames, filenames in os.walk(root, followlinks=True):
+        dirnames.sort()
+        for n in sorted(filenames):
+            p = Path(dirpath, n)
+            try:
+                h.update(f"{p.relative_to(root)}\0".encode() + hashlib.sha256(p.read_bytes()).digest())
+            except OSError:
+                h.update(f"{p.relative_to(root)}\0unreadable".encode())
+    return h.hexdigest()
+
+
 @check("CR-R", "Replica fidelity and isolation", {"replica"})
 def check_r(ctx: Ctx, r: Result):
     rep = ctx.rep
@@ -307,12 +322,35 @@ def check_r(ctx: Ctx, r: Result):
          "real release is unhealthy or the replica rewrite broke a digest", ["core/release/engine/doctor.py"])
     r.ok("baseline-release", ctx.baseline_id == os.path.basename(os.readlink(rp.REAL_HOME / ".copilot" / "current")),
          "replica current == real current", ctx.baseline_id, "replica copy")
+    # Codex hook trust must be copied, never recomputed: same [hooks.state] entries (modulo the path map), same plugin bytes,
+    # and hooks/list must report the same per-hook status on the real machine and in the replica.
+    real_cfg = (rp.REAL_HOME / ".codex" / "config.toml").read_text()
+    rep_cfg = (rep.codex_home / "config.toml").read_text()
+    state = lambda t: t[t.find("[hooks.state]"):] if "[hooks.state]" in t else ""
+    same_state = bool(state(real_cfg)) and rep.rewrite(state(real_cfg)) == state(rep_cfg)
+    r.ok("codex-hook-state-copied", same_state,
+         "replica [hooks.state] (trusted hashes) equals the real one apart from the path map", "equal" if same_state else "differs",
+         "replica builder changed or dropped Codex trust entries", ["replica.py"])
+    real_mp = rp.REAL_HOME / ".copilot" / "current" / "codex-marketplace"
+    rep_mp = rep.copilot_home / "current" / "codex-marketplace"
+    same_bytes = _content_digest(real_mp) == _content_digest(rep_mp) if real_mp.exists() else True
+    r.ok("codex-plugin-bytes-identical", same_bytes,
+         "codex-marketplace plugin bytes in the replica are identical to the real ones (path rewrite must not touch them)",
+         "identical-or-absent" if same_bytes else "differs",
+         "path rewrite altered plugin files, which changes the Codex content hash", ["replica.py _rewrite_tree"])
+    real_inv = hn.codex_hooks_list(hn.RealEnv(), rp.SITES / "COPILOT" / "convoco")
+    rep_inv = hn.codex_hooks_list(rep, rep.projects["convoco"])
+    st = lambda inv: {k.split(":", 1)[-1]: (v["trust"], v["hash"]) for k, v in inv.items() if "@" in k or k.startswith("hooks/")}
+    r.ok("codex-hooks-list-match", bool(st(real_inv)) and st(real_inv) == st(rep_inv),
+         "Codex hooks/list trust status and hash per plugin hook match between the real machine and the replica",
+         f"real={ {k: v[0] for k, v in st(real_inv).items()} } replica={ {k: v[0] for k, v in st(rep_inv).items()} }",
+         "replica builder altered plugin bytes, config trust entries or marketplace path", ["replica.py"])
     r.evidence["support_repos"] = rep.support_repos
     r.evidence["notes"] = rep.notes
     r.evidence["release"] = ctx.baseline_id
     r.evidence["claude_version"] = hn.run([hn.CLAUDE_BIN, "--version"]).out.strip()
     r.evidence["codex_version"] = hn.run([hn.CODEX_BIN, "--version"]).out.strip()
-    r.evidence["codex_model"] = hn.CODEX_MODEL
+    r.evidence["codex_model"] = hn.CODEX_MODEL or "config default"
 
 
 # ============================================================================== CR-A

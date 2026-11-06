@@ -33,7 +33,8 @@ CLAUDE_COPY = ["settings.json", "CLAUDE.md", "agents", "commands", "skills", "ho
                "copilot", ".claude.json"]
 # ~/.codex: copy configuration, trust, skills, plugin cache, hooks, auth.
 CODEX_COPY = ["config.toml", "AGENTS.md", "skills", "plugins", "hooks", "hooks.json", ".hook-trust",
-              "auth.json", "installation_id", "version.json", "keybindings.json"]
+              "auth.json", "installation_id", "version.json", "keybindings.json",
+              "models_cache.json"]  # account-specific model list: without it Codex refetches an anonymous one and rejects the config model
 # ~/.copilot: everything except bulky history mirrors.
 COPILOT_SKIP = {"framework-snapshots", "legacy-mirrors", "mirrors", "materialized", "recovery", "triage",
                 "organization-snapshots", "rollback", "migrations", "registered-projects.json",
@@ -77,6 +78,12 @@ class Replica:
     def codex_home(self) -> Path:
         return self.home / ".codex"
 
+    @property
+    def tool_dirs(self) -> str:
+        """Directory of the codex binary (and its node), so a node-script codex runs under the sanitized PATH."""
+        b = os.environ.get("CR_CODEX_BIN") or shutil.which("codex")
+        return f"{os.path.dirname(b)}:" if b else ""
+
     def env(self, extra: dict | None = None) -> dict:
         """Environment for every command run against the replica."""
         env = {k: v for k, v in os.environ.items()
@@ -85,7 +92,7 @@ class Replica:
             "HOME": str(self.home),
             "CODEX_HOME": str(self.codex_home),
             "COPILOT_HOME": str(self.copilot_home),
-            "PATH": f"{self.home}/.local/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin",
+            "PATH": f"{self.home}/.local/bin:{self.tool_dirs}/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin",
             "GIT_CONFIG_GLOBAL": str(self.home / ".gitconfig"),
             "NO_COLOR": "1",
         })
