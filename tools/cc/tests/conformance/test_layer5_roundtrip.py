@@ -716,10 +716,9 @@ def test_setup_adapter_names_the_canonical_transaction(framework_repo_root):
     markdown = (
         framework_repo_root / ".claude" / "commands" / "setup-project.md"
     ).read_text(encoding="utf-8")
-    assert '"$CC_BIN" reconcile request' in markdown
-    assert '"$CC_BIN" reconcile plan' in markdown
-    assert '"$CC_BIN" reconcile apply' in markdown
-    assert '"$CC_BIN" reconcile verify' in markdown
+    # Updated: the wrapper now delegates to `cc project init` (no reconcile transaction).
+    assert '"$CC_BIN" project init' in markdown
+    assert "reconcile apply" not in markdown.replace("Retired: reconcile plans", "")
 
 
 def test_extract_bash_steps_raises_on_a_missing_marker(framework_repo_root):
