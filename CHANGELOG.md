@@ -1,5 +1,9 @@
 # Changelog
 
+## [5.34.6] - 2026-11-05
+
+- **Lock readers accept the Codex org-tier overlay, and `cc update` no longer holds a canonical symlinked skill.** The `codex-org` lock entry written by the Codex setup and update scripts is a recognized component that readers tolerate and writers preserve verbatim, which unblocks projects such as convoco and insights-copilot. A skill destination symlinked to its own layer's canonical source (same path, or same-repo checkout with identical bytes at the pinned ref) is treated as managed instead of held, which fixes `parallel-execution`; other symlinks stay protected. The cc component version is unchanged.
+
 ## [5.34.5] - 2026-11-05
 
 - **Reconcile adopts stale framework skill and plugin files that match history.** Unrecorded framework skill and plugin copies whose bytes match a prior release are adopted instead of blocking reconcile. The snapshot installer and `cc update` repoint `paths.claude_copilot_root` to the installed snapshot, the Codex root resolves to the pinned codex-foundation checkout and never a Claude snapshot, and installer refusals clean up the created snapshot and plugin. The cc component version is unchanged.
