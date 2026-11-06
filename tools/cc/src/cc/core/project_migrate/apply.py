@@ -13,7 +13,7 @@ from typing import Any, Optional
 
 from cc.core.project_init import InitError, init_project
 from cc.core.project_init.codex_trust import default_codex_config
-from cc.core.project_init.marker import MARKER_FILENAME, read_marker
+from cc.core.project_init.marker import MARKER_FILENAME, read_marker, write_marker
 from cc.core.project_init.registry import default_registry
 from cc.core.project_migrate.known import Known
 from cc.core.project_migrate.model import (
@@ -152,7 +152,8 @@ def _preflight(root: Path, plan: MigrationPlan, backup: Path, commit_branch: Opt
                                    f"{'planned twice' if a.path in seen else 'missing'}); nothing was changed")
             seen.add(a.path)
     unwritable: list[str] = []
-    targets = {a.path for a in plan.actions if not a.path.startswith("~")} | set(_INIT_FILES)
+    init_files = (MARKER_FILENAME,) if plan.source_repo else _INIT_FILES
+    targets = {a.path for a in plan.actions if not a.path.startswith("~")} | set(init_files)
     for rel in sorted(targets):
         path = root / rel
         parent = path.parent if (path.exists() or path.is_symlink() or rel in _INIT_FILES) else _nearest_existing(path.parent)
@@ -187,6 +188,8 @@ def apply_migration(
     registry: Optional[Path | str] = None,
     commit_branch: Optional[str] = None,
     allow_missing_codex: bool = False,
+    source_repo: bool = False,
+    release_dir: Optional[Path | str] = None,
 ) -> dict[str, Any]:
     """Apply the plan; returns the receipt. Leaves changes uncommitted unless `commit_branch`.
 
@@ -194,7 +197,8 @@ def apply_migration(
     rolls the project back from the manifest before the error is raised.
     """
     root = Path(project).expanduser().resolve()
-    plan = plan or plan_migration(root, known=known, allow_missing_codex=allow_missing_codex)
+    plan = plan or plan_migration(root, known=known, allow_missing_codex=allow_missing_codex,
+                                  source_repo=source_repo, release_dir=release_dir)
     if plan.errors:
         raise MigrateError("plan-error", "; ".join(plan.errors))
     if plan.dirty:
@@ -250,7 +254,8 @@ def apply_migration(
             _prune_empty(root, rel)
 
         # Project init: marker (with activePacks), thin sections, pack links, trust.
-        init_entries = {rel: rec.snapshot(rel, "modified") for rel in _INIT_FILES}
+        init_files = (MARKER_FILENAME,) if plan.source_repo else _INIT_FILES
+        init_entries = {rel: rec.snapshot(rel, "modified") for rel in init_files}
         packs = next((a.detail.get("active_packs") for a in plan.actions if a.path == MARKER_FILENAME), None)
         if packs:
             marker = read_marker(root)
@@ -259,14 +264,18 @@ def apply_migration(
                          init_entries[MARKER_FILENAME].get("mode", 0o644))
         cfg = Path(codex_config).expanduser() if codex_config else default_codex_config()
         reg = Path(registry).expanduser() if registry else default_registry()
-        pack_dirs = _pack_dirs(root, read_marker(root).get("activePacks") or [])
+        pack_dirs = [] if plan.source_repo else _pack_dirs(root, read_marker(root).get("activePacks") or [])
         dirs_before = {d: d.is_dir() for d in pack_dirs}
         made_dirs = [d for pd in pack_dirs for d in _missing_ancestors(pd)]
         links_before = _link_state(pack_dirs)
-        externals = {p: rec.snapshot_external(p) for p in (
+        externals = {} if plan.source_repo else {p: rec.snapshot_external(p) for p in (
             cfg, cfg.with_name(cfg.name + ".bak"), cfg.with_name(cfg.name + ".lock"),
             reg, reg.with_name(reg.name + ".lock"))}
-        init = init_project(root, codex_config=cfg, packs_root=packs_root, registry=reg)
+        if plan.source_repo:  # marker only: the repo's own CLAUDE.md/AGENTS.md, .gitignore and trust are not ours
+            init = {"result": "changed" if write_marker(root) else "unchanged", "project": str(root),
+                    "changed": [MARKER_FILENAME], "source_repo": True}
+        else:
+            init = init_project(root, codex_config=cfg, packs_root=packs_root, registry=reg)
         for path, entry in externals.items():
             after = sha256_file(path)
             if after == entry.get("sha_before") and (after is not None or entry.get("absent_before")) \

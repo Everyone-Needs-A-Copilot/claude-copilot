@@ -34,6 +34,7 @@ class Item:
 class MigrationPlan:
     project: str
     git: bool
+    source_repo: bool = False  # a release source repo: only consumer artefacts are touched, marker only is written
     actions: list[Item] = field(default_factory=list)   # delete/unlink/edit/write
     keeps: list[Item] = field(default_factory=list)     # explicitly kept, with reason
     holds: list[Item] = field(default_factory=list)     # ambiguous or modified: kept, reported
@@ -59,6 +60,7 @@ class MigrationPlan:
         return {
             "project": self.project,
             "git": self.git,
+            "source_repo": self.source_repo,
             "refused": self.refused,
             "counts": self.counts(),
             "actions": [asdict(a) for a in self.actions],

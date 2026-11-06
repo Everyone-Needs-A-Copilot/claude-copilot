@@ -41,6 +41,7 @@ def migrate_command(
     apply: bool = typer.Option(False, "--apply", help="Write the changes. Default is a dry run that only prints the plan."),
     commit_branch: Optional[str] = typer.Option(None, "--commit-branch", help="With --apply: commit the migration on a new branch."),
     allow_missing_codex: bool = typer.Option(False, "--allow-missing-codex", help="Proceed when no Codex root resolves; Codex files are kept."),
+    source_repo: bool = typer.Option(False, "--source-repo", help="Treat PATH as a framework source repo: remove only consumer artefacts (locks, synced copies outside protected source paths) and write the marker. Release components are detected automatically."),
     rollback: bool = typer.Option(False, "--rollback", help="Undo a migration from its backup manifest (latest by default)."),
     manifest: Optional[str] = typer.Option(None, "--manifest", help="With --rollback: the run id or backup folder to restore."),
     scan: bool = typer.Option(False, "--scan", help="Report copied framework files and locks per project (PATH, or --all); exit 1 if any."),
@@ -73,12 +74,12 @@ def migrate_command(
                 for c in result["conflicts"]:
                     typer.echo(f"left in place: {c}")
             raise typer.Exit(1 if result["conflicts"] else 0)
-        plan = plan_migration(path, allow_missing_codex=allow_missing_codex)
+        plan = plan_migration(path, allow_missing_codex=allow_missing_codex, source_repo=source_repo)
         if not apply:
             typer.echo(json.dumps(plan.to_dict()) if json_output else render_plan(plan))
             raise typer.Exit(1 if plan.refused else 0)
         receipt = apply_migration(path, plan=plan, commit_branch=commit_branch,
-                                  allow_missing_codex=allow_missing_codex)
+                                  allow_missing_codex=allow_missing_codex, source_repo=source_repo)
     except MigrateError as exc:
         body = {"schema_version": "1.0", "result": "error", "error": {"code": exc.code, "message": exc.message}}
         typer.echo(json.dumps(body) if json_output else f"error: {exc.message}")
@@ -111,5 +112,5 @@ def _scan(path: Path, scan_all: bool, json_output: bool, mixed: bool) -> None:
             for c in r["copied_paths"]:
                 typer.echo(f"    {c}")
         typer.echo(f"{report['total']} project(s): {report['clean']} clean, {report['copied_files']} copied file(s), "
-                   f"{report['lock_files']} lock(s)")
+                   f"{report['lock_files']} lock(s), {report['protected']} protected source path(s) kept")
     raise typer.Exit(1 if dirty else 0)

@@ -18,6 +18,7 @@ from cc.core.project_migrate.known import (
 from cc.core.project_migrate.model import (
     DELETE, EDIT_JSON, EDIT_TEXT, UNLINK, WRITE, Item, MigrateError, MigrationPlan,
 )
+from cc.core.project_migrate.source_guard import LOCKS, SOURCE_LABEL, SourceGuard, build_guard
 from cc.core.project_migrate.settings_hooks import strip_framework_hooks
 from cc.core.project_migrate.util import (
     git_dirty_paths, is_git_repo, overlaps, sha256_bytes, sha256_file,
@@ -70,9 +71,11 @@ def _read_json(path: Path) -> Any:
 
 
 class _Builder:
-    def __init__(self, root: Path, known: Known):
+    def __init__(self, root: Path, known: Known, guard: Optional[SourceGuard] = None, source_mode: bool = False):
         self.root = root
         self.known = known
+        self.guard = guard or SourceGuard()
+        self.source_mode = source_mode
         self.plan = MigrationPlan(project=str(root), git=is_git_repo(root))
         self.decided: set[str] = set()
         self.lock: Optional[LockRecord] = None
@@ -122,6 +125,9 @@ class _Builder:
             elif (verdict := classify(self.root, rel, self.known)) and verdict[0] == "delete":
                 self.act(DELETE, rel, f"framework copy, bytes match a released framework version ({component} lock is older)",
                          sha=sha256_file(path), copy=True, blob=verdict[1])
+            elif self.source_mode and not self.guard.protects(rel):
+                self.act(DELETE, rel, f"synced copy ({component} lock), edited since; a source repo's copies are consumer files",
+                         sha=sha256_file(path), copy=True)
             else:
                 self.hold(rel, f"the framework installed this file ({component}) but it has been edited since, so it was kept")
 
@@ -361,6 +367,47 @@ class _Builder:
         self.act(WRITE, "~/.codex/config.toml", "add the Codex per-project trust entry (machine state)")
 
 
+def _apply_guard(b: _Builder) -> None:
+    """Protected paths become "source (kept)"; in source-repo mode only consumer artefacts stay planned."""
+    plan, guard = b.plan, b.guard
+    kept = {k.path for k in plan.keeps}
+
+    def to_keep(path: str, reason: str) -> None:
+        if path not in kept:
+            kept.add(path)
+            plan.keeps.append(Item(path, reason, "keep"))
+
+    actions: list[Item] = []
+    for a in plan.actions:
+        why = None if a.kind == WRITE else guard.why(a.path)
+        if why:
+            to_keep(a.path, why)
+            plan.staged.pop(a.path, None)
+        elif b.source_mode and a.kind != WRITE and not _consumer_artefact(a):
+            to_keep(a.path, f"{SOURCE_LABEL}: not a consumer artefact of a source repo")
+            plan.staged.pop(a.path, None)
+        elif b.source_mode and a.kind == WRITE and a.path != MARKER_FILENAME:
+            continue  # source repos keep their own instruction files, ignore rules and trust
+        else:
+            actions.append(a)
+    plan.actions = actions
+    holds: list[Item] = []
+    for h in plan.holds:
+        why = guard.why(h.path.split(": ", 1)[0])
+        if why:
+            to_keep(h.path, why)
+        else:
+            holds.append(h)
+    plan.holds = holds
+    if b.source_mode:
+        plan.notes.append("source repo: only locks, .codex-copilot.json and synced copies outside protected paths are "
+                          "removed; the marker is the only file written")
+
+
+def _consumer_artefact(a: Item) -> bool:
+    return a.path in LOCKS or bool(a.detail.get("copy"))
+
+
 def plan_migration(
     project: Path | str,
     *,
@@ -368,6 +415,8 @@ def plan_migration(
     claude_root: Optional[Path] = None,
     codex_root: Optional[Path] = None,
     allow_missing_codex: bool = False,
+    source_repo: bool = False,
+    release_dir: Optional[Path | str] = None,
 ) -> MigrationPlan:
     root = Path(project).expanduser()
     if not root.exists():
@@ -375,7 +424,9 @@ def plan_migration(
     if not root.is_dir():
         raise MigrateError("not-a-directory", f"Not a folder: {root}")
     root = root.resolve()
-    b = _Builder(root, known or build_known(claude_root, codex_root))
+    guard = build_guard(root, release_dir)
+    b = _Builder(root, known or build_known(claude_root, codex_root), guard, source_repo or guard.is_source)
+    b.plan.source_repo = b.source_mode
     b.lock = read_lock(root)
     b.lock_files()
     b.bridges()
@@ -394,6 +445,7 @@ def plan_migration(
     b.init_writes()
 
     plan = b.plan
+    _apply_guard(b)
     if not b.known.codex_resolved:
         msg = ("no codex-copilot root resolved (set CC_CODEX_COPILOT_ROOT or install ~/.copilot/current/codex-copilot): "
                "the Codex gate, agents and AGENTS.md sections cannot be identified")
