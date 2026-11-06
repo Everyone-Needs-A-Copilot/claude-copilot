@@ -50,12 +50,25 @@ for row in M["files"]:
 if problems:
     print("\n".join(problems), file=sys.stderr); sys.exit(1)
 
+def adopted_rows():
+    try: return json.loads((chome / "links-receipt.json").read_text()).get("adopted", [])
+    except (OSError, ValueError): return []
+
+adopted = adopted_rows()
 for link in own_links():
     if link.is_symlink():
         target = os.readlink(link)
         if target.startswith(str(chome / "current")) or target.startswith(str(chome / "generated")):
             link.unlink()
 shutil.rmtree(chome / "generated" / "command-skills", ignore_errors=True)
+restored = 0
+for row in adopted:  # framework-owned copies the switch backed up and replaced with links
+    target, saved = home / row["path"], Path(row["backup"])
+    if not (saved.exists() or saved.is_symlink()): continue
+    if target.is_symlink(): target.unlink()
+    if target.exists(): continue
+    target.parent.mkdir(parents=True, exist_ok=True)
+    shutil.move(str(saved), str(target)); restored += 1
 for row in M["files"]:
     path = Path(row["path"]); backup = row["backup"]
     if path.is_symlink() or path.exists(): path.unlink()
@@ -68,7 +81,7 @@ for name in M["remove"]:
     p = Path(name)
     if p.is_symlink() or p.is_file(): p.unlink()
     elif p.is_dir(): shutil.rmtree(p, ignore_errors=True)
-print(f"rolled back: {len(M['files'])} files restored, links removed; releases kept in {chome / 'releases'}")
+print(f"rolled back: {len(M['files'])} files restored, links removed, {restored} adopted copies restored; releases kept in {chome / 'releases'}")
 '''
 
 
