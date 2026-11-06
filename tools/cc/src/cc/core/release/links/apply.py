@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import Any
 
 from ..engine import layout
+from . import adopt as adoption
 from .plan import FRAMEWORK_RULES_IMPORT, LinkEntry, LinkPlan, is_safe_link_path
 
 RECEIPT_SCHEMA = 1
@@ -26,6 +27,8 @@ class ApplyReport:
     unchanged: list[str] = field(default_factory=list)
     removed: list[str] = field(default_factory=list)
     skipped: list[dict[str, str]] = field(default_factory=list)  # non-framework / modified items
+    adopted: list[dict[str, str]] = field(default_factory=list)  # framework-owned copies backed up and linked
+    customized: list[dict[str, str]] = field(default_factory=list)  # owner-customized copies kept (name, path, shadows, diff)
     claude_md: str = "unchanged"
     agents_md: str = "skipped"
     codex_combined_bytes: int = 0
@@ -105,8 +108,22 @@ def _materialize_generated(entry: LinkEntry) -> None:
     _atomic_write(directory / "SKILL.md", entry.generated or "")
 
 
+def _backup_copy(home: Path, link: str, release_id: str, dry_run: bool) -> str:
+    """Move a framework-owned real copy into the release backup area; returns the backup path."""
+    root = adoption.backup_dir(home, release_id)
+    dest = root / link
+    n = 0
+    while dest.exists() or dest.is_symlink():
+        n += 1
+        dest = root / f"{link}.{n}"
+    if not dry_run:
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        shutil.move(str(home / link), str(dest))
+    return str(dest)
+
+
 def _sync_entry(home: Path, entry: LinkEntry, owned: dict[str, str], report: ApplyReport,
-                dry_run: bool) -> bool:
+                dry_run: bool, adopt_paths: frozenset[str] = frozenset(), release_id: str = "") -> bool:
     """Make one link match; True if the receipt should record it."""
     if _link_escapes(home, entry.link):
         report.skipped.append({"path": entry.link, "reason": "unsafe link path rejected"})
@@ -130,6 +147,15 @@ def _sync_entry(home: Path, entry: LinkEntry, owned: dict[str, str], report: App
                 _materialize_generated(entry)
             _atomic_symlink(path, entry.target)
         report.updated.append(entry.link)
+        return True
+    if entry.link in adopt_paths and current is None:
+        backup = _backup_copy(home, entry.link, release_id, dry_run)
+        if not dry_run:
+            if entry.generated is not None:
+                _materialize_generated(entry)
+            _atomic_symlink(path, entry.target)
+        report.adopted.append({"path": entry.link, "backup": backup})
+        report.created.append(entry.link)
         return True
     reason = ("modified since generated" if entry.link in owned
               else "exists and is not a framework link")
@@ -209,11 +235,23 @@ def _apply_agents_md(home: Path, plan: LinkPlan, report: ApplyReport, dry_run: b
     return True
 
 
-def apply_plan(plan: LinkPlan, home: Path | str | None = None, *, dry_run: bool = False) -> ApplyReport:
-    """Create, update and remove links so HOME matches the plan; only receipt-owned items change."""
+def apply_plan(plan: LinkPlan, home: Path | str | None = None, *, dry_run: bool = False,
+               adopt: adoption.FrameworkIndex | bool | None = None) -> ApplyReport:
+    """Create, update and remove links so HOME matches the plan; only receipt-owned items change.
+
+    `adopt` turns on adoption: a FrameworkIndex, or True to build `default_index` from HOME and the
+    release. Real copies matching a historical framework version are backed up and linked; others are
+    kept and listed in `report.customized`. Without it, real copies are skipped as before.
+    """
     base = Path(home) if home is not None else Path.home()
     report = ApplyReport(description_chars=dict(plan.description_chars),
                          project_collisions=list(plan.project_collisions))
+    result = adoption.AdoptionResult()
+    if adopt:
+        index = adopt if isinstance(adopt, adoption.FrameworkIndex) else adoption.default_index(
+            base, layout.release_dir(plan.release_id, base))
+        result = adoption.classify(plan, base, index)
+    adopt_paths = frozenset(a.path for a in result.adopt)
     receipt_path = layout.links_receipt_path(base)
     receipt_path.parent.mkdir(parents=True, exist_ok=True)
     with open(receipt_path.with_name(receipt_path.name + ".lock"), "w") as lock:
@@ -224,9 +262,14 @@ def apply_plan(plan: LinkPlan, home: Path | str | None = None, *, dry_run: bool 
         keep: set[str] = set()
         for entry in plan.entries:
             keep.add(entry.link)
-            if _sync_entry(base, entry, owned, report, dry_run):
+            if _sync_entry(base, entry, owned, report, dry_run, adopt_paths, plan.release_id):
                 recorded.append({"path": entry.link, "target": entry.target, "runtime": entry.runtime,
                                  "kind": entry.kind, "source": entry.source})
+        for item in result.adopt:  # category folders: stale copies of skills the links already serve
+            if item.path not in keep:
+                report.adopted.append({"path": item.path,
+                                       "backup": _backup_copy(base, item.path, plan.release_id, dry_run)})
+        report.customized.extend(c.as_dict() for c in result.customized)
         _remove_stale(base, owned, keep, report, dry_run)
         report.claude_md, claude_state = _apply_claude_md(base, receipt, dry_run)
         wrote_block = _apply_agents_md(base, plan, report, dry_run)
@@ -234,6 +277,11 @@ def apply_plan(plan: LinkPlan, home: Path | str | None = None, *, dry_run: bool 
             new_receipt = {
                 "schema": RECEIPT_SCHEMA, "release": plan.release_id, "links": recorded,
                 "claude_md": claude_state,
+                "adopted": sorted(
+                    [*({"path": a["path"], "backup": a["backup"]} for a in report.adopted),
+                     *(row for row in receipt.get("adopted", [])
+                       if row["path"] not in {a["path"] for a in report.adopted})],
+                    key=lambda r: r["path"]),
                 "agents_md": ({"sep": report.agents_sep} if report.agents_sep is not None else receipt.get("agents_md"))
                 if (wrote_block or receipt.get("agents_md")) else None,
             }
@@ -268,6 +316,11 @@ def remove_all(home: Path | str | None = None) -> ApplyReport:
                 before = before[: -len(sep)]
             _atomic_write(agents, before + after)
             report.agents_md = "removed"
+    for row in receipt.get("adopted", []):  # put the owner's pre-adoption copies back
+        dest, src = base / row["path"], Path(row["backup"])
+        if is_safe_link_path(row["path"]) and src.exists() and not (dest.exists() or dest.is_symlink()):
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            shutil.move(str(src), str(dest))
     shutil.rmtree(layout.copilot_home(base) / "generated" / "command-skills", ignore_errors=True)
     if receipt_path.exists():
         receipt_path.unlink()
