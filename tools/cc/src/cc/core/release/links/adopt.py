@@ -60,6 +60,15 @@ class FrameworkIndex:
     def __init__(self) -> None:
         self.digests: set[str] = set()
         self.sources: dict[str, int] = {}
+        self.roots: list[Path] = []  # checkouts and worktrees the release covers (symlink adoption)
+
+    def add_root(self, root: Path | str) -> None:
+        real = Path(os.path.realpath(root))
+        if real not in self.roots:
+            self.roots.append(real)
+
+    def covers(self, real_path: Path) -> bool:
+        return any(real_path == r or r in real_path.parents for r in self.roots)
 
     def add_bytes(self, data: bytes, source: str) -> None:
         raw, norm = _digests(data)
@@ -140,6 +149,14 @@ def _git_dir(path: Path) -> bool:
     return (path / ".git").exists()
 
 
+def _worktrees(repo: Path) -> list[Path]:
+    out = subprocess.run(["git", "-C", str(repo), "worktree", "list", "--porcelain"],
+                         capture_output=True, text=True, check=False)
+    if out.returncode != 0:
+        return []
+    return [Path(line[len("worktree "):]) for line in out.stdout.splitlines() if line.startswith("worktree ")]
+
+
 def default_index(home: Path | str | None = None, release_dir: Path | str | None = None,
                   extra_repos: Iterable[Path | str] = ()) -> FrameworkIndex:
     """Index from what the machine records: release sources, older framework trees, lock records."""
@@ -160,6 +177,10 @@ def default_index(home: Path | str | None = None, release_dir: Path | str | None
             continue
         seen.add(repo)
         index.add_git_history(repo, f"git:{repo.name}")
+        index.add_root(repo)
+        for tree in _worktrees(repo):
+            index.add_root(tree)
+    index.add_root(copilot)  # releases and the current pointer are framework by definition
     for parent, label in ((copilot / "framework-snapshots", "snapshot"), (copilot / layout.RELEASES_DIRNAME, "release")):
         if not parent.is_dir():
             continue
@@ -181,8 +202,9 @@ def default_index(home: Path | str | None = None, release_dir: Path | str | None
 @dataclass
 class Adoption:
     path: str  # relative to HOME
-    kind: str  # file | dir
+    kind: str  # file | dir | symlink
     backup: str  # relative to HOME
+    old_target: str = ""  # symlink adoption: where the link pointed before
 
 
 @dataclass
@@ -261,10 +283,52 @@ def _diff_summary(local: Path, target: Path, generated: str | None) -> str:
             f"{len(only_release)} only in the release")
 
 
+def _lexical_target(path: Path) -> Path:
+    raw = Path(os.readlink(path))
+    return raw if raw.is_absolute() else path.parent / raw
+
+
+def _classify_symlink(home: Path, link: str, name: str, path: Path, index: FrameworkIndex,
+                      out: AdoptionResult) -> None:
+    """A symlink resolving into a covered checkout or worktree bypasses the release: adopt it.
+
+    Anything else (another place, or a link to a copy the owner keeps) is owner content.
+    """
+    old = os.readlink(path)
+    if str(_lexical_target(path)).startswith(str(layout.copilot_home(home)) + os.sep):
+        return  # already served by a release: receipt-owned or foreign, apply decides, nothing bypasses
+    real = Path(os.path.realpath(path))
+    if index.covers(real):
+        out.adopt.append(Adoption(link, "symlink", "", old))
+        return
+    out.customized.append(Customized(name, str(path), link,
+                                     f"symlink to {old} (resolves to {real}), outside the checkouts the release covers"))
+
+
+def _settle_chained(home: Path, out: AdoptionResult) -> None:
+    """A link kept for pointing at a home skill dir that this run adopts follows that decision."""
+    adopted = {a.path: a for a in out.adopt}
+    for c in list(out.customized):
+        path = Path(c.path)
+        if not path.is_symlink():
+            continue
+        target = _lexical_target(path)
+        try:
+            rel = str(Path(os.path.normpath(target)).relative_to(os.path.normpath(home)))
+        except ValueError:
+            continue
+        if rel in adopted and adopted[rel].kind != "symlink":
+            out.customized.remove(c)
+            out.adopt.append(Adoption(str(path.relative_to(home)), "symlink", "", os.readlink(path)))
+
+
 def _classify(home: Path, link: str, name: str, target: str, generated: str | None,
               index: FrameworkIndex, out: AdoptionResult) -> None:
     path = home / link
-    if path.is_symlink() or not path.exists():
+    if path.is_symlink():
+        _classify_symlink(home, link, name, path, index, out)
+        return
+    if not path.exists():
         return
     if _is_framework_owned(path, index, generated):
         out.adopt.append(Adoption(link, "file" if path.is_file() else "dir", ""))
@@ -308,6 +372,7 @@ def classify(plan: LinkPlan, home: Path | str, index: FrameworkIndex) -> Adoptio
                 out.customized.append(Customized(
                     child.name, str(child), f"category folder shadowing {', '.join(overlap) or 'framework skills'}",
                     f"{len(bad)} file(s) not matching any framework version, e.g. {', '.join(bad[:3])}"))
+    _settle_chained(base, out)
     return out
 
 

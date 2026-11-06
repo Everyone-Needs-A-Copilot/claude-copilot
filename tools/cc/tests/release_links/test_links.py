@@ -433,3 +433,103 @@ def test_default_index_reads_git_history_and_lock_records(home, release, tmp_pat
     index = default_index(home, release, extra_repos=[repo])
     assert index.matches(b"v1 me\n") and index.matches(b"v2 me\r\n") and index.matches(b"recorded content")
     assert not index.matches(b"mine")
+
+
+# ---- adoption of symlinks into covered checkouts -------------------------------------------------
+
+def _dev_checkout(tmp_path: Path, name: str = "knowledge-dev") -> Path:
+    repo = tmp_path / name
+    skill(repo / "03-ai-enabling/01-skills", "cat/shared", "shared", "dev version")
+    return repo
+
+
+def test_symlink_into_covered_checkout_is_repointed_and_old_target_recorded(home, release, tmp_path):
+    repo = _dev_checkout(tmp_path)
+    old = repo / "03-ai-enabling/01-skills/cat/shared"
+    link = home / ".claude/skills/shared"
+    link.parent.mkdir(parents=True)
+    link.symlink_to(old)
+    index = FrameworkIndex()
+    index.add_root(repo)
+    plan = build_plan(release, home)
+    report = apply_plan(plan, home, adopt=index)
+    entry = next(e for e in plan.entries if e.link == ".claude/skills/shared")
+    assert os.readlink(link) == entry.target
+    [row] = [a for a in report.adopted if a["path"] == ".claude/skills/shared"]
+    assert row["kind"] == "symlink" and row["old_target"] == str(old)
+    saved = layout.links_receipt_path(home).read_text()
+    assert str(old) in saved
+    assert os.readlink(row["backup"]) == str(old)
+
+
+def test_symlink_elsewhere_is_owner_content_kept_and_listed(home, release, tmp_path):
+    other = tmp_path / "elsewhere" / "shared"
+    skill(other.parent, "shared", "shared")
+    link = home / ".claude/skills/shared"
+    link.parent.mkdir(parents=True)
+    link.symlink_to(other)
+    index = FrameworkIndex()
+    index.add_root(_dev_checkout(tmp_path))
+    report = apply_plan(build_plan(release, home), home, adopt=index)
+    assert os.readlink(link) == str(other)
+    [c] = [c for c in report.customized if c["name"] == "shared"]
+    assert str(other) in c["diff"] and not report.adopted
+
+
+def test_symlink_into_a_worktree_of_a_covered_repo_is_adopted(home, release, tmp_path):
+    import subprocess
+    repo = _dev_checkout(tmp_path)
+    run = lambda *a: subprocess.run(["git", "-C", str(repo), "-c", "user.name=t", "-c", "user.email=t@t",  # noqa: E731
+                                     "-c", "commit.gpgsign=false", *a], check=True, capture_output=True)
+    run("init", "-q"); run("add", "-A"); run("commit", "-qm", "x")
+    wt = tmp_path / "wt"
+    run("worktree", "add", "-q", str(wt), "-b", "side")
+    link = home / ".claude/skills/shared"
+    link.parent.mkdir(parents=True)
+    link.symlink_to(wt / "03-ai-enabling/01-skills/cat/shared")
+    manifest = layout.current_path(home) / layout.MANIFEST_NAME
+    manifest.write_text('{"components": [{"source": "%s"}]}' % repo)
+    from cc.core.release.links import default_index
+    index = default_index(home, release)
+    assert wt.resolve() in index.roots or wt in index.roots
+    report = apply_plan(build_plan(release, home), home, adopt=index)
+    assert link.is_symlink() and ".copilot" in os.readlink(link)
+    assert [a["kind"] for a in report.adopted] == ["symlink"]
+
+
+def test_codex_link_through_a_claude_link_follows_the_claude_decision(home, release, tmp_path):
+    repo = _dev_checkout(tmp_path)
+    claude = home / ".claude/skills/shared"
+    codex = home / ".codex/skills/shared"
+    claude.parent.mkdir(parents=True); codex.parent.mkdir(parents=True)
+    claude.symlink_to(repo / "03-ai-enabling/01-skills/cat/shared")
+    codex.symlink_to(claude)
+    index = FrameworkIndex()
+    index.add_root(repo)
+    apply_plan(build_plan(release, home), home, adopt=index)
+    assert ".copilot" in os.readlink(claude) and ".copilot" in os.readlink(codex)
+
+
+def test_dry_run_symlink_adoption_changes_nothing(home, release, tmp_path):
+    repo = _dev_checkout(tmp_path)
+    link = home / ".claude/skills/shared"
+    link.parent.mkdir(parents=True)
+    old = repo / "03-ai-enabling/01-skills/cat/shared"
+    link.symlink_to(old)
+    index = FrameworkIndex()
+    index.add_root(repo)
+    report = apply_plan(build_plan(release, home), home, dry_run=True, adopt=index)
+    assert report.adopted and os.readlink(link) == str(old)
+
+
+def test_remove_all_restores_adopted_symlink_exactly(home, release, tmp_path):
+    repo = _dev_checkout(tmp_path)
+    link = home / ".claude/skills/shared"
+    link.parent.mkdir(parents=True)
+    old = repo / "03-ai-enabling/01-skills/cat/shared"
+    link.symlink_to(old)
+    index = FrameworkIndex()
+    index.add_root(repo)
+    apply_plan(build_plan(release, home), home, adopt=index)
+    remove_all(home)
+    assert os.readlink(link) == str(old)

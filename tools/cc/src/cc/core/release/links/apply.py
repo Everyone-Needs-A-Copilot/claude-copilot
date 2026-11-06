@@ -123,7 +123,8 @@ def _backup_copy(home: Path, link: str, release_id: str, dry_run: bool) -> str:
 
 
 def _sync_entry(home: Path, entry: LinkEntry, owned: dict[str, str], report: ApplyReport,
-                dry_run: bool, adopt_paths: frozenset[str] = frozenset(), release_id: str = "") -> bool:
+                dry_run: bool, adopt_paths: frozenset[str] = frozenset(), release_id: str = "",
+                adopt_links: dict[str, str] | None = None) -> bool:
     """Make one link match; True if the receipt should record it."""
     if _link_escapes(home, entry.link):
         report.skipped.append({"path": entry.link, "reason": "unsafe link path rejected"})
@@ -148,13 +149,16 @@ def _sync_entry(home: Path, entry: LinkEntry, owned: dict[str, str], report: App
             _atomic_symlink(path, entry.target)
         report.updated.append(entry.link)
         return True
-    if entry.link in adopt_paths and current is None:
+    if entry.link in adopt_paths and (current is None or entry.link in (adopt_links or {})):
         backup = _backup_copy(home, entry.link, release_id, dry_run)
         if not dry_run:
             if entry.generated is not None:
                 _materialize_generated(entry)
             _atomic_symlink(path, entry.target)
-        report.adopted.append({"path": entry.link, "backup": backup})
+        row = {"path": entry.link, "backup": backup}
+        if current is not None:
+            row.update(kind="symlink", old_target=current)
+        report.adopted.append(row)
         report.created.append(entry.link)
         return True
     reason = ("modified since generated" if entry.link in owned
@@ -252,6 +256,7 @@ def apply_plan(plan: LinkPlan, home: Path | str | None = None, *, dry_run: bool 
             base, layout.release_dir(plan.release_id, base))
         result = adoption.classify(plan, base, index)
     adopt_paths = frozenset(a.path for a in result.adopt)
+    adopt_links = {a.path: a.old_target for a in result.adopt if a.kind == "symlink"}
     receipt_path = layout.links_receipt_path(base)
     receipt_path.parent.mkdir(parents=True, exist_ok=True)
     with open(receipt_path.with_name(receipt_path.name + ".lock"), "w") as lock:
@@ -262,11 +267,13 @@ def apply_plan(plan: LinkPlan, home: Path | str | None = None, *, dry_run: bool 
         keep: set[str] = set()
         for entry in plan.entries:
             keep.add(entry.link)
-            if _sync_entry(base, entry, owned, report, dry_run, adopt_paths, plan.release_id):
+            if _sync_entry(base, entry, owned, report, dry_run, adopt_paths, plan.release_id, adopt_links):
                 recorded.append({"path": entry.link, "target": entry.target, "runtime": entry.runtime,
                                  "kind": entry.kind, "source": entry.source})
         for item in result.adopt:  # category folders: stale copies of skills the links already serve
             if item.path not in keep:
+                if item.kind == "symlink":
+                    continue  # only links the plan serves are repointed
                 report.adopted.append({"path": item.path,
                                        "backup": _backup_copy(base, item.path, plan.release_id, dry_run)})
         report.customized.extend(c.as_dict() for c in result.customized)
@@ -278,7 +285,7 @@ def apply_plan(plan: LinkPlan, home: Path | str | None = None, *, dry_run: bool 
                 "schema": RECEIPT_SCHEMA, "release": plan.release_id, "links": recorded,
                 "claude_md": claude_state,
                 "adopted": sorted(
-                    [*({"path": a["path"], "backup": a["backup"]} for a in report.adopted),
+                    [*({k: v for k, v in a.items()} for a in report.adopted),
                      *(row for row in receipt.get("adopted", [])
                        if row["path"] not in {a["path"] for a in report.adopted})],
                     key=lambda r: r["path"]),
@@ -318,9 +325,13 @@ def remove_all(home: Path | str | None = None) -> ApplyReport:
             report.agents_md = "removed"
     for row in receipt.get("adopted", []):  # put the owner's pre-adoption copies back
         dest, src = base / row["path"], Path(row["backup"])
-        if is_safe_link_path(row["path"]) and src.exists() and not (dest.exists() or dest.is_symlink()):
-            dest.parent.mkdir(parents=True, exist_ok=True)
+        if not is_safe_link_path(row["path"]) or dest.exists() or dest.is_symlink():
+            continue
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        if src.exists() or src.is_symlink():
             shutil.move(str(src), str(dest))
+        elif row.get("kind") == "symlink" and row.get("old_target"):
+            os.symlink(row["old_target"], dest)  # backup gone: recreate from the recorded target
     shutil.rmtree(layout.copilot_home(base) / "generated" / "command-skills", ignore_errors=True)
     if receipt_path.exists():
         receipt_path.unlink()

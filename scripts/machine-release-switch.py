@@ -64,7 +64,10 @@ shutil.rmtree(chome / "generated" / "command-skills", ignore_errors=True)
 restored = 0
 for row in adopted:  # framework-owned copies the switch backed up and replaced with links
     target, saved = home / row["path"], Path(row["backup"])
-    if not (saved.exists() or saved.is_symlink()): continue
+    if not (saved.exists() or saved.is_symlink()):
+        if row.get("old_target") and not (target.exists() or target.is_symlink()):
+            target.parent.mkdir(parents=True, exist_ok=True); os.symlink(row["old_target"], target); restored += 1
+        continue
     if target.is_symlink(): target.unlink()
     if target.exists(): continue
     target.parent.mkdir(parents=True, exist_ok=True)
@@ -118,7 +121,10 @@ restored = 0
 for row in now.get("adopted", []):
     if row["path"] in old_adopted: continue
     target, saved = home / row["path"], Path(row["backup"])
-    if not (saved.exists() or saved.is_symlink()): continue
+    if not (saved.exists() or saved.is_symlink()):
+        if row.get("old_target") and not (target.exists() or target.is_symlink()):
+            target.parent.mkdir(parents=True, exist_ok=True); os.symlink(row["old_target"], target); restored += 1
+        continue
     if target.is_symlink() and under(os.readlink(target)): target.unlink()
     if target.exists() or target.is_symlink(): continue
     target.parent.mkdir(parents=True, exist_ok=True)
