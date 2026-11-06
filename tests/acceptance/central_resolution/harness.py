@@ -208,11 +208,23 @@ def claude_tool_calls(events: list) -> list[dict]:
     return calls
 
 
-def codex_run(rep, cwd: Path, prompt: str, *, obs: Path | None = None) -> dict:
-    """Headless `codex exec` in the replica: default approval/sandbox from config, never the bypass flag."""
+def codex_run(rep, cwd: Path, prompt: str, *, obs: Path | None = None, without_agents_md: bool = False) -> dict:
+    """Headless `codex exec` in the replica: default approval/sandbox from config, never the bypass flag.
+    without_agents_md: hide the replica CODEX_HOME/AGENTS.md for this one run only (restored in finally), so the model
+    does not obey the coordinator rule and decline to attempt the command the hook is being probed with."""
     env = rep.env({"CRACC_OBS": str(obs)} if obs else {})
     cmd = [CODEX_BIN, "exec", "-m", CODEX_MODEL, "--json", "--skip-git-repo-check", prompt]
-    r = run(cmd, env=env, cwd=cwd, timeout=RUNTIME_TIMEOUT)
+    ag = rep.codex_home / "AGENTS.md"
+    hidden = ag.with_name("AGENTS.md.cracc-hidden")
+    moved = False
+    if without_agents_md and ag.exists():
+        ag.rename(hidden)
+        moved = True
+    try:
+        r = run(cmd, env=env, cwd=cwd, timeout=RUNTIME_TIMEOUT)
+    finally:
+        if moved:
+            hidden.rename(ag)
     items = []
     for line in r.out.splitlines():
         try:
