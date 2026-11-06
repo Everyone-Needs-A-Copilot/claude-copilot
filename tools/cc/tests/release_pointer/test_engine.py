@@ -223,3 +223,56 @@ def test_sources_from_layers_maps_tiers():
     ]}
     with pytest.raises(build.ReleaseBuildError, match="knowledge/organization"):
         build.sources_from_layers(layers, {})
+
+
+def test_history_failure_restores_pointer(home, make_release, monkeypatch):
+    a, b = make_release("v1"), make_release("v2")
+    pointer.flip(a.release_id, home)
+
+    def boom(*_a, **_k):
+        raise OSError("disk full")
+
+    monkeypatch.setattr(pointer, "append_history", boom)
+    with pytest.raises(pointer.PointerError):
+        pointer.flip(b.release_id, home)
+    assert pointer.current_release_id(home) == a.release_id
+
+
+def test_history_failure_on_first_flip_removes_pointer(home, make_release, monkeypatch):
+    a = make_release()
+    monkeypatch.setattr(pointer, "append_history", lambda *_a, **_k: (_ for _ in ()).throw(OSError("x")))
+    with pytest.raises(pointer.PointerError):
+        pointer.flip(a.release_id, home)
+    assert pointer.current_release_id(home) is None
+
+
+def test_repeated_rollback_walks_back_through_history(home, make_release):
+    a, b, c = make_release("v1"), make_release("v2"), make_release("v1")
+    for item in (a, b, c):
+        pointer.flip(item.release_id, home)
+    pointer.rollback(home)
+    assert pointer.current_release_id(home) == b.release_id
+    pointer.rollback(home)
+    assert pointer.current_release_id(home) == a.release_id
+    with pytest.raises(pointer.PointerError, match="no earlier release"):
+        pointer.rollback(home)
+
+
+def test_rollback_multiple_steps(home, make_release):
+    a, b, c = make_release("v1"), make_release("v2"), make_release("v1")
+    for item in (a, b, c):
+        pointer.flip(item.release_id, home)
+    pointer.rollback(home, steps=2)
+    assert pointer.current_release_id(home) == a.release_id
+    with pytest.raises(pointer.PointerError, match="no earlier release"):
+        pointer.rollback(home, steps=1)
+
+
+def test_shim_warns_on_stderr_and_exits_zero_when_current_missing(home):
+    import subprocess
+
+    shims.install(home)
+    shim = layout.bin_dir(home) / "cc"
+    result = subprocess.run([str(shim)], capture_output=True, text=True)
+    assert result.returncode == 0
+    assert result.stderr.count("\n") == 1 and "no current release" in result.stderr
