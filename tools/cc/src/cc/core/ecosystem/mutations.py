@@ -899,6 +899,194 @@ def list_sources(
         }
 
 
+# ---------------------------------------------------------------------------
+# User-level registration (~/.claude/settings.json), central resolution.
+#
+# Registers the five framework hook events ONCE for every project; the shim
+# itself (copilot-hook.sh, reached through ~/.copilot/current) gates on the
+# project marker, so projects carry no registration. Safety contract: back up
+# first, atomic replace, never touch a key we did not add, receipt-scoped
+# reversal. Callers inject `home`; nothing here reads the real home implicitly.
+# ---------------------------------------------------------------------------
+
+USER_SOURCE = "claude-copilot-user"
+USER_ENV: dict[str, str] = {"SLASH_COMMAND_TOOL_CHAR_BUDGET": "100000"}
+USER_RECEIPT_NAME = "user-settings-receipt.json"
+_USER_SHIM = "$HOME/.copilot/current/claude-copilot/.claude/hooks/copilot-hook.sh"
+
+_USER_EVENTS: tuple[tuple[str, str, str], ...] = (
+    ("SessionStart", "startup|resume|clear|compact", "session-start"),
+    ("PreToolUse", "Bash|Read|Edit|Write|Agent", "pretool-check"),
+    ("SubagentStop", "me|qa", "subagent-stop"),
+    ("UserPromptSubmit", "", "user-prompt-submit"),
+    ("PreCompact", "", "pre-compact-handoff"),
+)
+
+
+def _user_command(event_name: str) -> str:
+    """Stable command string (identical across releases). Runs the shim through
+    the release pointer; if the pointer/file is absent it exits 0 (never blocks)
+    unless the project opted into fail-closed with .claude/copilot-required."""
+    return (
+        f'f="{_USER_SHIM}"; '
+        f'if [ -f "$f" ]; then exec bash "$f" {event_name}; fi; '
+        'if [ -f "${CLAUDE_PROJECT_DIR:-.}/.claude/copilot-required" ]; then '
+        'echo "[copilot-hook] release pointer missing; run cc release status" >&2; exit 2; fi; '
+        "exit 0"
+    )
+
+
+def user_hook_entries() -> tuple[HookEntrySpec, ...]:
+    return tuple(HookEntrySpec(e, m, _user_command(n)) for e, m, n in _USER_EVENTS)
+
+
+@dataclass(frozen=True)
+class UserSettingsOutcome:
+    status: str  # applied | unchanged | removed | not-installed | blocked
+    detail: str
+    backup: Optional[str] = None
+    env_added: tuple[str, ...] = ()
+    settings_path: Optional[str] = None
+
+
+def user_settings_path(home: Path | str) -> Path:
+    return Path(home) / ".claude" / "settings.json"
+
+
+def _user_receipt_path(home: Path | str) -> Path:
+    return Path(home) / ".copilot" / USER_RECEIPT_NAME
+
+
+def _atomic_replace(path: Path, data: bytes) -> None:
+    import os
+    import tempfile
+
+    path.parent.mkdir(parents=True, exist_ok=True)
+    mode = path.stat().st_mode & 0o777 if path.exists() else 0o600
+    fd, tmp = tempfile.mkstemp(dir=str(path.parent), prefix=f".{path.name}.", suffix=".tmp")
+    try:
+        with os.fdopen(fd, "wb") as handle:
+            handle.write(data)
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.chmod(tmp, mode)
+        os.replace(tmp, path)
+    except BaseException:
+        try:
+            os.unlink(tmp)
+        except OSError:
+            pass
+        raise
+
+
+def _read_user_settings(path: Path) -> tuple[Optional[dict[str, Any]], Optional[bytes], str]:
+    if not path.exists():
+        return {}, None, ""
+    raw = path.read_bytes()
+    try:
+        doc = json.loads(raw.decode("utf-8")) if raw.strip() else {}
+    except (json.JSONDecodeError, UnicodeDecodeError) as exc:
+        return None, raw, f"settings.json is not valid JSON: {exc}"
+    if not isinstance(doc, dict):
+        return None, raw, "settings.json does not contain a JSON object"
+    return doc, raw, ""
+
+
+def _backup(path: Path, raw: Optional[bytes]) -> Optional[str]:
+    if raw is None:
+        return None
+    stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%fZ")
+    backup = path.with_name(f"{path.name}.copilot-backup-{stamp}")
+    backup.write_bytes(raw)
+    backup.chmod(0o600)
+    return str(backup)
+
+
+def apply_user_settings(home: Path | str, *, dry_run: bool = False) -> UserSettingsOutcome:
+    """Idempotently register the shim entries and the skill-listing budget in
+    `<home>/.claude/settings.json`. An existing value for the env key is the
+    owner's and is left alone."""
+    path = user_settings_path(home)
+    doc, raw, error = _read_user_settings(path)
+    if doc is None:
+        return UserSettingsOutcome("blocked", error, settings_path=str(path))
+    merged, _ = merge_hook_entries(doc, user_hook_entries(), source=USER_SOURCE)
+    env = merged.get("env")
+    if env is None:
+        env = {}
+    elif not isinstance(env, dict):
+        return UserSettingsOutcome("blocked", "settings 'env' is not an object", settings_path=str(path))
+    else:
+        env = dict(env)
+    env_added = tuple(k for k in USER_ENV if k not in env)
+    for key in env_added:
+        env[key] = USER_ENV[key]
+    merged["env"] = env
+    new_bytes = canonical_settings_bytes(merged)
+    if raw is not None and new_bytes == raw:
+        return UserSettingsOutcome("unchanged", "Already registered.", settings_path=str(path))
+    # Canonical rewrite of an owner-formatted file that otherwise matches: still a change.
+    if dry_run:
+        return UserSettingsOutcome("applied", "Dry run: nothing written.", env_added=env_added, settings_path=str(path))
+    receipt_path = _user_receipt_path(home)
+    prior = {}
+    if receipt_path.exists():
+        try:
+            prior = json.loads(receipt_path.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            prior = {}
+    backup = _backup(path, raw)
+    receipt = {
+        "schema_version": "1.0",
+        "source": USER_SOURCE,
+        "settings": str(path),
+        "applied_at": _utc_now(),
+        "env_added": sorted(set(env_added) | set(prior.get("env_added", []))),
+        "entries": [e.as_dict() for e in user_hook_entries()],
+        "backup": backup,
+        "settings_existed_before": raw is not None or bool(prior.get("settings_existed_before")),
+    }
+    _atomic_replace(receipt_path, (json.dumps(receipt, indent=2) + "\n").encode("utf-8"))
+    _atomic_replace(path, new_bytes)
+    return UserSettingsOutcome("applied", "User-level hooks registered.", backup, env_added, str(path))
+
+
+def remove_user_settings(home: Path | str) -> UserSettingsOutcome:
+    """Reverse `apply_user_settings`: strip only our fingerprinted entries and
+    only the env keys the receipt says we added (and still hold our value)."""
+    path = user_settings_path(home)
+    doc, raw, error = _read_user_settings(path)
+    if doc is None:
+        return UserSettingsOutcome("blocked", error, settings_path=str(path))
+    receipt_path = _user_receipt_path(home)
+    receipt: dict[str, Any] = {}
+    if receipt_path.exists():
+        try:
+            receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            receipt = {}
+    result = remove_hook_entries(doc, user_hook_entries())
+    out = dict(result.settings)
+    removed_env: list[str] = []
+    env = out.get("env")
+    if isinstance(env, dict):
+        env = dict(env)
+        for key in receipt.get("env_added", []):
+            if key in USER_ENV and env.get(key) == USER_ENV[key]:
+                del env[key]
+                removed_env.append(key)
+        if env:
+            out["env"] = env
+        else:
+            out.pop("env", None)
+    if not result.removed and not removed_env:
+        return UserSettingsOutcome("not-installed", "Nothing to remove.", settings_path=str(path))
+    backup = _backup(path, raw)
+    _atomic_replace(path, canonical_settings_bytes(out))
+    receipt_path.unlink(missing_ok=True)
+    return UserSettingsOutcome("removed", "User-level hooks removed.", backup, tuple(removed_env), str(path))
+
+
 __all__ = [
     "ApplyOutcome",
     "DEFAULT_HOOK_ENTRIES",
@@ -909,7 +1097,13 @@ __all__ = [
     "RemovalResult",
     "RemoveResult",
     "RollbackResult",
+    "USER_ENV",
+    "UserSettingsOutcome",
     "apply_settings_hook",
+    "apply_user_settings",
+    "remove_user_settings",
+    "user_hook_entries",
+    "user_settings_path",
     "canonical_settings_bytes",
     "derive_mutation_id",
     "find_mutation",

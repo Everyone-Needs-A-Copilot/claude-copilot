@@ -85,6 +85,23 @@
 #   its vendored shim to one whose SHIM_PROTOCOL_MAX covers the new
 #   floor.
 #
+# USER-LEVEL MODE (central resolution, ADR-001 decision 4):
+#   When THIS file runs from a release (not from the project's own
+#   .claude/hooks/), it is the user-level shim registered once in
+#   ~/.claude/settings.json by `cc settings-hook user-add`. In that mode:
+#     1. exit 0, silent, unless copilot.project.json exists in
+#        $CLAUDE_PROJECT_DIR (or cwd) or an ancestor;
+#     2. exit 0 if .claude/copilot-hooks-disabled exists;
+#     3. exit 0 if the project still registers its own copy of this shim
+#        in .claude/settings*.json (the legacy registration fires instead,
+#        so each hook runs exactly once);
+#     4. dispatch to $COPILOT_HOME/current/claude-copilot/.claude/hooks
+#        (default $HOME/.copilot), so a release flip changes the logic but
+#        never the registered command string;
+#     5. never apply the Bash fail-closed default: an unreachable framework
+#        fails closed only when .claude/copilot-required is present.
+#   The vendored (project-level) mode below is unchanged.
+#
 # STATE:
 #   Delegates with COPILOT_HOOK_STATE_DIR set to THIS project's own
 #   .claude/hooks/state, so /freeze and force-delegate streaks are
@@ -104,7 +121,33 @@ if [[ -z "$EVENT" ]]; then
 fi
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" 2>/dev/null && pwd)" || SCRIPT_DIR=""
-PROJECT_DIR="${CLAUDE_PROJECT_DIR:-$(dirname "$(dirname "$SCRIPT_DIR")")}"
+SHIM_MODE="vendored"
+if [[ -n "${CLAUDE_PROJECT_DIR:-}" ]]; then
+  PROJECT_DIR="$CLAUDE_PROJECT_DIR"
+else
+  # No harness-provided project dir: fall back to the git toplevel of $PWD
+  # (or $PWD itself) rather than assuming this file is the project's copy.
+  PROJECT_DIR="$(git -C "$PWD" rev-parse --show-toplevel 2>/dev/null || true)"
+  [[ -n "$PROJECT_DIR" ]] || PROJECT_DIR="$PWD"
+fi
+_own="$(cd "$PROJECT_DIR/.claude/hooks" 2>/dev/null && pwd -P)" || _own=""
+_here="$(cd "$SCRIPT_DIR" 2>/dev/null && pwd -P)" || _here=""
+if [[ "$_own" != "$_here" ]]; then SHIM_MODE="user"; fi
+
+# User-level gates (see header): all silent exit 0, evaluated before anything else.
+if [[ "$SHIM_MODE" == "user" ]]; then
+  _dir="$PROJECT_DIR"; _marked=0
+  while :; do
+    if [[ -f "$_dir/copilot.project.json" ]]; then _marked=1; PROJECT_DIR="$_dir"; break; fi
+    [[ "$_dir" == "/" || -z "$_dir" ]] && break
+    _dir="$(dirname "$_dir")"
+  done
+  [[ "$_marked" == "1" ]] || exit 0
+  [[ -e "$PROJECT_DIR/.claude/copilot-hooks-disabled" ]] && exit 0
+  for _f in "$PROJECT_DIR/.claude/settings.json" "$PROJECT_DIR/.claude/settings.local.json"; do
+    if [[ -f "$_f" ]] && grep -qF 'hooks/copilot-hook.sh' "$_f" 2>/dev/null; then exit 0; fi
+  done
+fi
 REQUIRED_MARKER="${PROJECT_DIR}/.claude/copilot-required"
 
 _deny() {
@@ -150,7 +193,7 @@ _unreachable() {
     _deny "${full} (blocked: .claude/copilot-required is present)"
   fi
 
-  if [[ "$EVENT" != "pretool-check" ]]; then
+  if [[ "$EVENT" != "pretool-check" || "$SHIM_MODE" == "user" ]]; then
     _exit_open "$full"
   fi
 
@@ -201,6 +244,9 @@ except Exception:
 HOOKS_ROOT=""
 if [[ -n "${COPILOT_HOOKS_ROOT:-}" ]]; then
   HOOKS_ROOT="$COPILOT_HOOKS_ROOT"
+elif [[ "$SHIM_MODE" == "user" ]]; then
+  HOOKS_ROOT="${COPILOT_HOME:-$HOME/.copilot}/current/claude-copilot/.claude/hooks"
+  [[ -d "$HOOKS_ROOT" ]] || HOOKS_ROOT="$SCRIPT_DIR"
 else
   if command -v cc &>/dev/null; then
     configured="$(cc config get paths.claude_copilot_root --raw 2>/dev/null || true)"
