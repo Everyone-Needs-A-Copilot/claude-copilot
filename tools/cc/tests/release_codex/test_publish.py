@@ -48,10 +48,16 @@ def _extractor(src, _tag, destination: Path):
         (destination / "skills" / "me" / "SKILL.md").write_text("---\nname: me\ndescription: d\n---\n")
 
 
+def _same_hash_lister(_bin, _home, _cwd):
+    return [{"pluginId": "codex-copilot@enac-materialized", "trustStatus": "trusted",
+             "currentHash": "sha256:h/sha256:c"}]
+
+
 def _run(sources, home, codex_home, fake_codex, **kw):
     return publisher.publish(
         sources, home, codex_home, venv=False, codex_bin=fake_codex, control_tower_app=kw.pop("app"),
-        verifier=lambda s: build.VerifiedTag("a" * 40, "SHA256:test"), extractor=_extractor, **kw)
+        verifier=lambda s: build.VerifiedTag("a" * 40, "SHA256:test"), extractor=_extractor,
+        hooks_lister=kw.pop("hooks_lister", _same_hash_lister), **kw)
 
 
 def test_publish_runs_every_step_and_passes_doctor(home, codex_home, fake_codex, sources, ct_app, monkeypatch):
@@ -72,8 +78,12 @@ def test_publish_fails_closed_and_restores_previous_release(home, codex_home, fa
     import time; time.sleep(1.1)  # release ids have one-second resolution
     monkeypatch.setenv("FAKE_UPGRADE", "no")
     monkeypatch.setenv("FAKE_ADD", "fail")
+    def gate_runner(argv, env):  # the gate's throwaway install must not see the injected codex-step failure
+        import subprocess
+        return subprocess.run(list(argv), env={**env, "FAKE_ADD": "ok", "FAKE_UPGRADE": "ok"},
+                              capture_output=True, text=True)
     with pytest.raises(publisher.PublishError) as caught:
-        _run(sources, home, codex_home, fake_codex, app=ct_app)
+        _run(sources, home, codex_home, fake_codex, app=ct_app, trust_runner=gate_runner)
     assert caught.value.step == "codex" and caught.value.restored
     assert f"--to {first.release_id}" in caught.value.rollback_hint
     assert pointer.current_release_id(home) == first.release_id

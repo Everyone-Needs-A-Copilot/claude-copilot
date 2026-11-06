@@ -18,6 +18,7 @@ from typing import Callable, Sequence
 from .codex import marketplace as codex_marketplace
 from .codex import step as codex_step
 from .codex import config as codex_config
+from .codex import trust_gate
 from .engine import build, doctor, layout, pointer, schema
 from .links import apply_plan, build_plan, plan_from_json, write_plan
 
@@ -43,10 +44,11 @@ class PublishReport:
     links: dict = field(default_factory=dict)
     codex: dict = field(default_factory=dict)
     checks: list[dict] = field(default_factory=list)
+    trust: dict = field(default_factory=dict)
 
     def to_json(self) -> dict:
         return {"release": self.release_id, "previous": self.previous, "flipped": self.flipped,
-                "links": self.links, "codex": self.codex, "checks": self.checks}
+                "links": self.links, "codex": self.codex, "checks": self.checks, "trust": self.trust}
 
 
 def control_tower_pin(app: Path | str = CONTROL_TOWER_APP, metadata: Path | str | None = None) -> dict:
@@ -187,7 +189,9 @@ def publish(sources: Sequence[build.ComponentSource], home: Path | str | None = 
             verifier: build.Verifier = build.default_verifier,
             extractor: build.Extractor = build.default_extractor,
             codex_runner: codex_step.Runner = codex_step.default_runner, codex_bin: str = "codex",
-            control_tower_app: Path | str = CONTROL_TOWER_APP) -> PublishReport:
+            control_tower_app: Path | str = CONTROL_TOWER_APP,
+            hooks_lister: trust_gate.HooksLister = trust_gate.app_server_hooks,
+            trust_runner: codex_step.Runner | None = None) -> PublishReport:
     previous = pointer.current_release_id(home)
     hint = "cc release rollback" + (f" --to {previous}" if previous else "")
     try:
@@ -198,6 +202,17 @@ def publish(sources: Sequence[build.ComponentSource], home: Path | str | None = 
     except Exception as exc:  # nothing was flipped; the partial directory is already removed
         raise PublishError(f"build failed: {exc}", step="build", restored=True, rollback_hint=hint) from exc
     report = PublishReport(manifest.release_id, previous)
+    try:  # before any change: ask Codex whether this release would reset plugin trust
+        gate = trust_gate.check(
+            layout.release_dir(manifest.release_id, home),
+            layout.release_dir(previous, home) if previous else None,
+            Path(codex_home) if codex_home else codex_step.default_codex_home(home),
+            codex_bin=codex_bin, runner=trust_runner or codex_runner, lister=hooks_lister, strict=strict_frozen)
+    except Exception as exc:
+        raise PublishError(f"trust-gate failed: {exc}; nothing was flipped (built release "
+                           f"{manifest.release_id} is inert)", step="trust-gate", restored=True,
+                           rollback_hint=hint) from exc
+    report.trust = gate.to_json()
     step = "flip"
     config_changed = False
     try:
