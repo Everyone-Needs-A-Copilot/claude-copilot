@@ -39,11 +39,12 @@ class MigrationPlan:
     holds: list[Item] = field(default_factory=list)     # ambiguous or modified: kept, reported
     dirty: list[str] = field(default_factory=list)      # dirty paths overlapping the plan
     notes: list[str] = field(default_factory=list)
+    errors: list[str] = field(default_factory=list)     # planning errors: apply is refused
     staged: dict[str, str] = field(default_factory=dict, repr=False)  # path -> new text (not serialized)
 
     @property
     def refused(self) -> bool:
-        return bool(self.dirty)
+        return bool(self.dirty or self.errors)
 
     def counts(self) -> dict[str, int]:
         out: dict[str, int] = {}
@@ -65,4 +66,5 @@ class MigrationPlan:
             "holds": [asdict(a) for a in self.holds],
             "dirty": list(self.dirty),
             "notes": list(self.notes),
+            "errors": list(self.errors),
         }

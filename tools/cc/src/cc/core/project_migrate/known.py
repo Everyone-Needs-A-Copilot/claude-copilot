@@ -36,6 +36,7 @@ class LockRecord:
     symlinks: dict[str, str] = field(default_factory=dict)       # managed internal-symlink paths
     hook_commands: set[str] = field(default_factory=set)         # registered hook command strings
     settings_created: bool = False                               # settings.json absent before framework
+    codex_hooks_created: bool = False                            # .codex/hooks.json absent before framework
     valid: bool = True
     error: str = ""
 
@@ -64,6 +65,8 @@ def read_lock(project: Path) -> Optional[LockRecord]:
                         rec.hook_commands.add(str(entry["command"]))
                 if mut.get("target_existed_before") is False and mut.get("target") == ".claude/settings.json":
                     rec.settings_created = True
+                if mut.get("target_existed_before") is False and mut.get("target") == ".codex/hooks.json":
+                    rec.codex_hooks_created = True
     except (OSError, ValueError, KeyError, TypeError, AttributeError) as exc:
         rec = LockRecord(valid=False, error=f"{exc.__class__.__name__}: {exc}")
     return rec
@@ -76,6 +79,8 @@ class Known:
     file_hashes: dict[str, set[str]]                 # project-relative path -> sha256 set
     tree_hashes: dict[str, set[str]]                 # dir prefix -> sha256 set (any file name)
     sections: dict[str, set[str]]                    # instruction-file section key -> texts
+    codex_resolved: bool = True                      # a codex-copilot root was found
+    codex_hook_commands: set[str] = field(default_factory=set)  # commands in the framework's Codex hooks.json
 
 
 def build_known(
@@ -124,4 +129,17 @@ def build_known(
         pass
     for k, v in (extra_sections or {}).items():
         sections.setdefault(k, set()).update(v)
-    return Known(file_hashes, tree_hashes, sections)
+    return Known(file_hashes, tree_hashes, sections, codex_resolved=codex is not None,
+                 codex_hook_commands=_codex_hook_commands(codex))
+
+
+def _codex_hook_commands(codex: Optional[Path]) -> set[str]:
+    """Hook commands the framework's own Codex hooks.json registers (its identity record)."""
+    if codex is None:
+        return set()
+    try:
+        data = json.loads((codex / "plugins" / "codex-copilot" / "hooks" / "hooks.json").read_text(encoding="utf-8"))
+        return {h["command"] for groups in data["hooks"].values() for g in groups
+                for h in g.get("hooks", []) if isinstance(h.get("command"), str)}
+    except (OSError, ValueError, KeyError, TypeError, AttributeError):
+        return set()

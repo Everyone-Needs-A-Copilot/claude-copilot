@@ -73,6 +73,47 @@ def _git(root: Path, *args: str) -> subprocess.CompletedProcess:
     return subprocess.run(["git", "-C", str(root), *args], capture_output=True, text=True, check=False)
 
 
+def _nearest_existing(path: Path) -> Path:
+    while not path.exists() and path != path.parent:
+        path = path.parent
+    return path
+
+
+def _preflight(root: Path, plan: MigrationPlan, backup: Path, commit_branch: Optional[str]) -> None:
+    """Check every apply precondition before the first write."""
+    if commit_branch and plan.git:
+        if _git(root, "check-ref-format", "--branch", commit_branch).returncode != 0:
+            raise MigrateError("git-branch", f"'{commit_branch}' is not a valid branch name; nothing was changed")
+        if _git(root, "rev-parse", "--verify", "--quiet", f"refs/heads/{commit_branch}").returncode == 0:
+            raise MigrateError("git-branch", f"branch '{commit_branch}' already exists; choose another name. "
+                                             "Nothing was changed")
+        if _git(root, "rev-parse", "--verify", "--quiet", "HEAD").returncode != 0:
+            raise MigrateError("git-branch", "the repository has no commit to branch from; nothing was changed")
+    unwritable: list[str] = []
+    targets = {a.path for a in plan.actions if not a.path.startswith("~")} | set(_INIT_FILES)
+    for rel in sorted(targets):
+        path = root / rel
+        parent = path.parent if (path.exists() or path.is_symlink() or rel in _INIT_FILES) else _nearest_existing(path.parent)
+        if not os.access(parent, os.W_OK | os.X_OK) or (path.is_file() and not os.access(path, os.R_OK)):
+            unwritable.append(rel)
+    if unwritable:
+        raise MigrateError("not-writable", "cannot write: " + ", ".join(unwritable) + "; nothing was changed")
+    anchor = _nearest_existing(backup.parent)
+    if not anchor.is_dir() or not os.access(anchor, os.W_OK | os.X_OK):
+        raise MigrateError("backup-unwritable", f"backup location {backup} is not writable; nothing was changed")
+    if _is_inside(backup, root):
+        raise MigrateError("backup-inside-project", f"backup location {backup} is inside the project; "
+                                                    "nothing was changed")
+
+
+def _is_inside(path: Path, root: Path) -> bool:
+    try:
+        Path(os.path.realpath(path)).relative_to(os.path.realpath(root))
+        return True
+    except ValueError:
+        return False
+
+
 def apply_migration(
     project: Path | str,
     *,
@@ -83,11 +124,18 @@ def apply_migration(
     packs_root: Optional[Path | str] = None,
     registry: Optional[Path | str] = None,
     commit_branch: Optional[str] = None,
+    allow_missing_codex: bool = False,
 ) -> dict[str, Any]:
-    """Apply the plan; returns the receipt. Leaves changes uncommitted unless `commit_branch`."""
+    """Apply the plan; returns the receipt. Leaves changes uncommitted unless `commit_branch`.
+
+    Every precondition is checked before the first write. Any failure after that point
+    rolls the project back from the manifest before the error is raised.
+    """
     root = Path(project).expanduser().resolve()
-    plan = plan or plan_migration(root, known=known)
-    if plan.refused:
+    plan = plan or plan_migration(root, known=known, allow_missing_codex=allow_missing_codex)
+    if plan.errors:
+        raise MigrateError("plan-error", "; ".join(plan.errors))
+    if plan.dirty:
         raise MigrateError("dirty", "uncommitted changes on paths this plan would change: " + ", ".join(plan.dirty))
     drifted = [a.path for a in plan.actions
                if a.detail.get("sha") and not a.path.startswith("~")
@@ -98,9 +146,12 @@ def apply_migration(
     run_id = time.strftime("%Y%m%dT%H%M%S") + "-" + uuid.uuid4().hex[:6]
     backup = Path(backup_root).expanduser() if backup_root else default_backup_root()
     backup = backup / root.name / run_id
+    _preflight(root, plan, backup, commit_branch)
     backup.mkdir(parents=True, exist_ok=True)
     rec = _Recorder(root, backup)
     head_before = _git(root, "rev-parse", "HEAD").stdout.strip() if plan.git else ""
+    start_branch = _git(root, "branch", "--show-current").stdout.strip() if plan.git else ""
+    created_branch = False
 
     by_kind: dict[str, list[Any]] = {}
     for a in plan.actions:
@@ -157,24 +208,37 @@ def apply_migration(
                 rec.entries.remove(entry)
             else:
                 entry["sha_after"] = after
-    except (InitError, OSError, ValueError) as exc:
-        rec.write_manifest({"id": run_id, "status": "failed", "error": str(exc)})
-        raise MigrateError("apply-failed", f"{exc}; roll back with the manifest in {backup}") from exc
 
-    changed_paths = sorted({e["path"] for e in rec.entries})
-    commit = ""
-    branch = ""
-    if commit_branch and plan.git:
-        branch = commit_branch
-        co = _git(root, "checkout", "-b", branch)
-        if co.returncode != 0:
-            raise MigrateError("git-branch", co.stderr.strip() or "git checkout -b failed")
-        _git(root, "add", "-A", "--", *changed_paths)
-        cm = _git(root, "commit", "-m", f"chore: migrate to central framework resolution ({run_id})",
-                  "-m", "Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>")
-        if cm.returncode != 0:
-            raise MigrateError("git-commit", cm.stderr.strip() or cm.stdout.strip())
-        commit = _git(root, "rev-parse", "HEAD").stdout.strip()
+        changed_paths = sorted({e["path"] for e in rec.entries})
+        commit = ""
+        branch = ""
+        if commit_branch and plan.git:
+            branch = commit_branch
+            co = _git(root, "checkout", "-b", branch)
+            if co.returncode != 0:
+                raise MigrateError("git-branch", co.stderr.strip() or "git checkout -b failed")
+            created_branch = True
+            _git(root, "add", "-A", "--", *changed_paths)
+            cm = _git(root, "commit", "-m", f"chore: migrate to central framework resolution ({run_id})",
+                      "-m", "Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>")
+            if cm.returncode != 0:
+                raise MigrateError("git-commit", cm.stderr.strip() or cm.stdout.strip())
+            commit = _git(root, "rev-parse", "HEAD").stdout.strip()
+    except Exception as exc:  # noqa: BLE001 - any mid-apply failure must undo the writes
+        rec.write_manifest({"id": run_id, "status": "failed", "error": str(exc)})
+        if created_branch:
+            _git(root, "checkout", start_branch or head_before)
+            _git(root, "branch", "-D", commit_branch or "")
+        try:
+            from cc.core.project_migrate.rollback import rollback_migration
+
+            result = rollback_migration(backup)
+            tail = (f"rolled back automatically ({len(result['restored'])} restored"
+                    + (f", conflicts: {result['conflicts']}" if result["conflicts"] else "") + ")")
+        except Exception as rb:  # noqa: BLE001
+            tail = f"AUTOMATIC ROLLBACK FAILED ({rb}); roll back with the manifest in {backup}"
+        code = exc.code if isinstance(exc, MigrateError) else "apply-failed"
+        raise MigrateError(code, f"{getattr(exc, 'message', exc)}; {tail}") from exc
 
     recovery = [f"cc project migrate {root} --rollback {backup}"]
     if plan.git and head_before:
