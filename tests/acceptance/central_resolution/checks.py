@@ -650,9 +650,22 @@ def check_f(ctx: Ctx, r: Result):
         denied = '"permissionDecision":"deny"' in p.out.replace(" ", "")
         r.ok(f"codex-payload-{label}", denied == deny, f"Codex plugin guard shim {'denies' if deny else 'allows'} `{cmd}` for a main thread",
              f"rc={p.rc} out={p.out[:160]!r} err={p.err[:120]!r}", "codex-copilot/templates/central-hooks/coordinator-guard.sh", [str(shim)])
-    # live: Claude
+    # deterministic trust inventory (Codex app-server hooks/list; no model): every plugin hook must be trusted or it never runs
     role = "the-herd"
     proj = ctx.project(role)
+    inv = hn.codex_hooks_list(rep, proj)
+    plug = {k: v for k, v in inv.items() if k.startswith("codex-copilot@enac-materialized:")}
+    guard = {k: v for k, v in plug.items() if v["event"] == "preToolUse" and "coordinator-guard.sh" in v["command"]}
+    r.ok("codex-hooks-listed", bool(plug), "Codex lists the codex-copilot plugin hooks for a migrated project", f"{len(plug)} hooks", "plugin not enabled / marketplace path", ["~/.codex/config.toml"])
+    r.ok("codex-guard-hook-trusted", bool(guard) and all(v["trust"] == "trusted" for v in guard.values()),
+         "the coordinator-guard PreToolUse hook is trusted (untrusted hooks never run, so `cat` would be allowed)",
+         json.dumps({k.split(':', 1)[1]: v["trust"] for k, v in guard.items()}) + " untrusted_all=" + json.dumps(sorted(k.split(':', 1)[1] for k, v in plug.items() if v["trust"] != "trusted")),
+         "PRODUCT: trust entries are written per hook group index; hooks/hooks.json defines 6 hooks but only the 5 pre_tool_use:0, post_tool_use:0/1, user_prompt_submit:0, subagent_start:0 are trusted; pre_tool_use:1:0 (coordinator-guard) has none",
+         ["codex-copilot/templates (trust writer)", "~/.codex/config.toml [hooks.state]", "codex-marketplace/plugins/codex-copilot/hooks/hooks.json"])
+    r.ok("codex-all-plugin-hooks-trusted", bool(plug) and all(v["trust"] == "trusted" for v in plug.values()),
+         "all codex-copilot plugin hooks are trusted", str({k.split(':', 1)[1]: v["trust"] for k, v in plug.items()}),
+         "see codex-guard-hook-trusted", ["~/.codex/config.toml [hooks.state]"])
+    # live: Claude
     cl = hn.claude_run(rep, proj, "Use the Bash tool directly (no subagent) to run exactly: cat README.md   Then use the Bash tool to run exactly: git status --short   Report what each call returned.",
                        allowed=["Bash(cat:*)", "Bash(git status:*)"])
     calls = hn.claude_tool_calls(cl["events"])
@@ -705,6 +718,36 @@ def _hash_state(ctx: Ctx) -> dict:
     return h
 
 
+
+def resolved_probe(ctx: Ctx, r: Result, tag: str, want: str | None):
+    """Deterministic agent/command/skill probe: the file each runtime would load, resolved inside the sandbox.
+    Asserts (a) realpath is inside the CURRENT release, (b) its sha256 equals the release file's, (c) the probe token is
+    present (want='V1') or absent (want=None).  No model reply is involved."""
+    home = ctx.rep.home
+    cur = Path(os.path.realpath(ctx.ch / "current"))
+    surfaces = {
+        "claude-agent": (home / ".claude/agents" / f"{AGENT}.md", "AGENT"),
+        "claude-command": (home / ".claude/commands" / f"{COMMAND}.md", "COMMAND"),
+        "claude-skill": (home / ".claude/skills" / SKILL / "SKILL.md", "SKILL"),
+        "codex-skill": (home / ".codex/skills" / SKILL / "SKILL.md", "SKILL"),
+    }
+    for name, (path, kind) in surfaces.items():
+        real = Path(os.path.realpath(path)) if path.exists() else None
+        inside = bool(real) and (real == cur or cur in real.parents)
+        digest = hn.sha256_file(real) if real and real.is_file() else None
+        token = f"CRACC-{kind}-{want}" if want else "CRACC-"
+        has = bool(real and real.is_file() and token in real.read_text(errors="replace"))
+        r.ok(f"{tag}-resolved-{name}", inside and (has if want else not has),
+             f"{name} resolves to a file inside the current release whose content {'contains ' + token if want else 'has no CRACC probe'}",
+             f"link={path} -> {real} inside_current={inside} sha256={digest and digest[:16]} token_present={has}",
+             "user-level link not resolving through current, or a project/personal copy shadows it",
+             ["~/.claude/{agents,commands,skills}", "~/.codex/skills", "release links.json"])
+    # Codex has no user-level agent or command surface a release flip can change: assert that precisely.
+    stray = [str(p) for p in (ctx.rep.codex_home / "agents", ctx.rep.codex_home / "prompts") if p.exists()]
+    r.ok(f"{tag}-codex-no-agent-command-surface", not stray,
+         "Codex has no user-level agent/command directory (specialists are plugin skills frozen for trust); none exists to go stale",
+         f"present={stray}", "a Codex agent/prompt directory appeared and is not covered by release links", ["~/.codex/agents", "~/.codex/prompts"])
+
 def _observe(ctx: Ctx, tag: str, roles: list) -> dict:
     """Run all four observations in every role (3 claude calls + 1 codex call each); returns per-role evidence."""
     def one(role: str) -> dict:
@@ -732,31 +775,23 @@ def _observe(ctx: Ctx, tag: str, roles: list) -> dict:
 def _assert_observed(r: Result, tag: str, obs: dict, want: str | None, ver: str):
     """want = 'V1' (changes visible) or None (old versions: tokens must read NONE, hook ver v0)."""
     for role, o in obs.items():
-        for kind in ("agent", "command", "skill"):
-            res = o[kind]["result"].strip()
-            if want:
-                good = f"CRACC-{kind.upper()}-{want}" in res
-            else:
-                good = "CRACC-" not in res
-            r.ok(f"{tag}-claude-{kind}-{role}", good,
-                 f"claude -p {kind} {'observes ' + 'CRACC-' + kind.upper() + '-' + want if want else 'shows no CRACC token (old version)'}",
-                 f"reply={res[:160]!r} is_error={o[kind]['is_error']}",
+        for kind in ("command", "skill"):
+            # live session: assert on what the runtime GAVE the model (command expansion / Skill tool result), not on its reply
+            seen = hn.claude_transcript_text(o[kind]["events"])
+            token = f"CRACC-{kind.upper()}-{want}" if want else "CRACC-"
+            good = (token in seen) if want else ("CRACC-" not in seen)
+            r.ok(f"{tag}-claude-{kind}-transcript-{role}", good,
+                 f"claude -p {kind} transcript {'contains ' + token if want else 'has no CRACC token (old version)'} in command expansion / tool output",
+                 f"transcript_has_token={token in seen} chars={len(seen)} is_error={o[kind]['is_error']}",
                  f"user-level {kind} link not resolving through current, or project-level copy shadows it",
-                 ["~/.claude/" + {"agent": "agents", "command": "commands", "skill": "skills"}[kind], "release links.json"])
+                 ["~/.claude/" + {"command": "commands", "skill": "skills"}[kind], "release links.json"])
+        # agent: a headless session exposes no agent text outside the model; the resolved-file probe above is the assertion
         rows = read_obs(o["obs"]["command"]) + read_obs(o["obs"]["agent"]) + read_obs(o["obs"]["skill"])
         cl_rows = [e for e in rows if e.get("runtime") == "claude" and e.get("hook") == "user-prompt-submit.sh"]
         r.ok(f"{tag}-claude-hook-{role}", bool(cl_rows) and all(e.get("ver") == ver for e in cl_rows),
              f"claude hook logic reports ver={ver}", f"{[e.get('ver') for e in cl_rows]}",
              "user-level hook shim not dispatching to current/", ["claude-copilot/.claude/hooks/copilot-hook.sh", "~/.claude/settings.json"])
-        cres = o["codex"]["run"].out.strip().splitlines()[-1:] or [""]
         ctext = o["codex"]["text"]
-        if want:
-            good = f"CRACC-SKILL-{want}" in o["codex"]["run"].out
-        else:
-            good = "CRACC-" not in o["codex"]["run"].out.replace("CRACC-SKILL-", "CRACC-SKILL-") or "CRACC-SKILL-V1" not in o["codex"]["run"].out
-        r.ok(f"{tag}-codex-skill-{role}", good, f"codex exec skill {'observes CRACC-SKILL-' + want if want else 'shows old version'}",
-             f"stdout tail={cres[0][:160]!r}", "~/.codex/skills link or codex skill discovery",
-             ["~/.codex/skills", "release links.json"])
         xrows = [e for e in read_obs(o["obs"]["codex"]) if e.get("hook") == "user-prompt-protocol.sh"]
         r.ok(f"{tag}-codex-hook-{role}", bool(xrows) and all(e.get("ver") == ver for e in xrows),
              f"codex hook logic reports ver={ver}", f"{[e.get('ver') for e in xrows]}",
@@ -792,6 +827,7 @@ def check_c(ctx: Ctx, r: Result):
     touched = [k for k in pre_projects if pre_projects[k] != post_projects[k]]
     r.ok("no-project-touched", not touched, "the flip changes no project file or git status", f"touched={touched}",
          "flip or links step writes into projects", ["pointer.py", "links/apply.py"])
+    resolved_probe(ctx, r, "observe", "V1")
     obs = _observe(ctx, "c", SAMPLE3)
     ctx.state["c_obs"] = True
     _assert_observed(r, "observe", obs, "V1", "v1")
@@ -826,6 +862,7 @@ def check_d(ctx: Ctx, r: Result):
          str(same), "rollback pointer", ["pointer.py"])
     d = ctx.cc("release", "doctor")
     r.ok("doctor-after-rollback", d.rc == 0, "release doctor passes after rollback", (d.out + d.err)[-400:], "doctor", ["doctor.py"])
+    resolved_probe(ctx, r, "observe-old", None)
     obs = _observe(ctx, "d", SAMPLE3)
     _assert_observed(r, "observe-old", obs, None, "v0")
 

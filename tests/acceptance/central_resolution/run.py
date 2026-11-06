@@ -159,12 +159,14 @@ def main() -> int:
         "total_secs": round(time.monotonic() - t0), "selected": selected,
         "summary": {i: results[i]["status"] for i in results if results[i].get("reported", True)},
         "checks": results, "defects": defects,
+        "adjacency": {i: sorted(j for j in ck.REGISTRY if j != i and ck.REGISTRY[i].tags & ck.REGISTRY[j].tags) for i in selected if i in ck.REGISTRY},
         "rerun_after_fix": f"python3 {HERE / 'run.py'} --only {','.join(i for i in rerun if i != 'CR-S')}" if rerun else "",
         "notes": rep.notes,
     }
     out = Path(args.report or sandbox / "report.json")
     out.write_text(json.dumps(report, indent=2, default=str))
     print(f"\nreport: {out}")
+    print("adjacency (checks sharing components with each selected check): " + "; ".join(f"{k} -> {', '.join(v) or '-'}" for k, v in report["adjacency"].items()))
     if defects:
         print(f"\nCONSOLIDATED DEFECT LIST ({len(defects)})")
         for d in defects:

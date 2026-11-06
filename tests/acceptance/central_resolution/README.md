@@ -40,7 +40,8 @@ The replica's `current` is the real current release. CR-G and CR-C/D first flip 
 
 ## Known limits
 
-- Codex has no agent or command surface that a release flip can change (its specialists are plugin skills, frozen by design for trust); Codex observes the skill and hook.
+- Probes are deterministic: agent, command and skill are verified by the resolved file each runtime would load (realpath inside the current release, sha256, token), live Claude sessions are asserted on the command expansion / Skill tool result in the stream-json transcript (never the model's reply), Codex hook trust comes from the app-server `hooks/list` inventory. Codex has no user-level agent or command surface a release flip can change (its specialists are plugin skills, frozen by design for trust); the harness asserts none exists, and observes the skill (file level) and hook (per-hook log).
+- The report carries an `adjacency` map (selected check -> checks sharing a component).
 - `codex exec` runs with `-m gpt-5.6-sol` (override `CR_CODEX_MODEL`) because the configured model is rejected by this account.
 - `claude -p` authenticates through the login keychain; token refresh by the child process can write to the real keychain item. Everything else is read-only.
 - The sentinel cannot tell a harness write from a concurrent real session; inspect the changed item's timestamp.

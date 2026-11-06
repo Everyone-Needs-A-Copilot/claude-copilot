@@ -234,3 +234,63 @@ def codex_hook_trace(rep, cwd: Path, obs: Path | None = None, prompt: str = "Rep
     r = run([CODEX_BIN, "exec", "-m", CODEX_MODEL, "--skip-git-repo-check", prompt],
             env=env, cwd=cwd, timeout=RUNTIME_TIMEOUT)
     return {"run": r, "text": r.out + "\n" + r.err}
+
+
+def codex_hooks_list(rep, cwd: Path, timeout: int = 60) -> dict:
+    """Deterministic Codex hook inventory via the app-server `hooks/list` method (no model involved).
+    Returns {hook key: {"trust": trustStatus, "hash": currentHash, "event": eventName, "command": command}}."""
+    import subprocess as sp
+    p = sp.Popen([CODEX_BIN, "app-server"], stdin=sp.PIPE, stdout=sp.PIPE, stderr=sp.DEVNULL, text=True,
+                 cwd=cwd, env=rep.env())
+
+    def send(o):
+        p.stdin.write(json.dumps(o) + "\n")
+        p.stdin.flush()
+
+    def recv(i):
+        while True:
+            line = p.stdout.readline()
+            if not line:
+                return {}
+            try:
+                m = json.loads(line)
+            except ValueError:
+                continue
+            if m.get("id") == i:
+                return m
+    out: dict = {}
+    try:
+        send({"id": 1, "method": "initialize", "params": {"clientInfo": {"name": "cracc", "version": "1"}, "capabilities": {}}})
+        recv(1)
+        send({"method": "initialized"})
+        send({"id": 2, "method": "hooks/list", "params": {"cwds": [str(cwd)]}})
+        for e in (recv(2).get("result") or {}).get("data", []):
+            for hk in e.get("hooks", []):
+                out[hk["key"]] = {"trust": hk.get("trustStatus"), "hash": hk.get("currentHash"),
+                                  "event": hk.get("eventName"), "command": hk.get("command", "")}
+    finally:
+        p.kill()
+    return out
+
+
+def claude_transcript_text(events: list) -> str:
+    """Everything the model was GIVEN (user messages, slash-command expansions, tool results, hook output) - never its own
+    assistant text - so an assertion on it cannot be satisfied by the model echoing or ignoring a probe."""
+    parts = []
+    for e in events:
+        if e.get("type") == "assistant":
+            continue
+        msg = e.get("message") or {}
+        c = msg.get("content")
+        if isinstance(c, str):
+            parts.append(c)
+        elif isinstance(c, list):
+            for x in c:
+                if x.get("type") == "tool_result":
+                    b = x.get("content")
+                    parts.append(b if isinstance(b, str) else " ".join(str(y.get("text", y)) for y in b or []))
+                elif x.get("type") == "text":
+                    parts.append(x.get("text", ""))
+        if e.get("type") == "system":
+            parts.append(json.dumps(e)[:4000])
+    return "\n".join(parts)
