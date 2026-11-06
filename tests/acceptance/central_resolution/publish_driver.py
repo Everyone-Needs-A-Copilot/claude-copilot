@@ -6,7 +6,7 @@ current release already records) and the extractor (copies the component tree fr
 of `git archive`).  Everything after that is the production code path.  Runs under the release's own cc venv.
 
 usage: publish_driver.py BASELINE_RELEASE_DIR EDITS_JSON
-EDITS_JSON: [{"file": "<component>/<path>", "op": "probe|append|replace", ...}]
+EDITS_JSON: [{"file": "<component>/<path>", "op": "probe|append|replace|create|prepend_body", ...}]
 """
 import json
 import os
@@ -38,6 +38,10 @@ def writable(root: Path) -> None:
 
 def apply_edit(root: Path, e: dict) -> None:
     p = root / e["file"]
+    if e["op"] == "create":  # a file the baseline does not have (probe command: nothing can shadow its name)
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_text(e["text"])
+        return
     t = p.read_text()
     if e["op"] == "probe":
         lines = t.splitlines(keepends=True)

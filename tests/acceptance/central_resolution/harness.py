@@ -194,7 +194,7 @@ def claude_run(rep, cwd: Path, prompt: str, *, obs: Path | None = None, extra: l
             pass
     result = next((e for e in reversed(events) if e.get("type") == "result"), {})
     return {"run": r, "events": events, "result": result.get("result", "") or "", "is_error": result.get("is_error", True),
-            "text": r.out + "\n" + r.err}
+            "text": r.out + "\n" + r.err, "prompt": prompt}
 
 
 def claude_tool_calls(events: list) -> list[dict]:
