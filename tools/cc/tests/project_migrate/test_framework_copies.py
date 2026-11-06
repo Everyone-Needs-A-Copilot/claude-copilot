@@ -168,3 +168,110 @@ def test_lock_listed_file_that_matches_a_newer_release_is_still_a_copy(fx: Fx, t
     kn = build_known(claude_root=tmp_path / "none", codex_root=codex, framework_repos=[fw])
     plan = plan_migration(fx.root, known=kn, allow_missing_codex=True)
     assert "plugins/codex-copilot/scripts/protocol-cycle.py" in {a.path for a in plan.actions if a.kind == "delete"}
+
+
+# -- apply must never fail mid-way on overlapping decisions (PRD-16 release 5 defects) ----------
+
+def _index_with(root: Path, *rels: str):
+    from cc.core.project_migrate.framework_index import FrameworkIndex, blob_id
+
+    idx = FrameworkIndex()
+    for rel in rels:
+        idx.add(blob_id((root / rel).read_bytes()), Path(rel).name, False)
+    return idx
+
+
+def test_file_matched_by_classifier_and_a_specific_rule_is_planned_once(fx: Fx):
+    """.agents/plugins/marketplace.json is both a released blob and a framework-only marketplace."""
+    from tests.project_migrate.conftest import tree_state
+
+    fx.known.framework_index = _index_with(fx.root, ".agents/plugins/marketplace.json")
+    plan = plan_migration(fx.root, known=fx.known)
+    paths = [a.path for a in plan.actions if not a.path.startswith("~") and a.kind != "write"]
+    assert len(paths) == len(set(paths)), [p for p in paths if paths.count(p) > 1]
+    receipt = apply_migration(fx.root, **fx.kw())
+    assert receipt["status"] == "applied"
+    assert not (fx.root / ".agents/plugins/marketplace.json").exists()
+    from cc.core.project_migrate import rollback_migration
+
+    before = tree_state(fx.root)
+    rollback_migration(receipt["backup_dir"])
+    assert (fx.root / ".agents/plugins/marketplace.json").is_file()
+    assert tree_state(fx.root) != before
+
+
+def test_stale_plan_target_is_refused_before_any_write(fx: Fx):
+    from cc.core.project_migrate.model import MigrateError
+    from tests.project_migrate.conftest import tree_state
+
+    plan = plan_migration(fx.root, known=fx.known)
+    plan.actions.append(plan.actions[[a.kind for a in plan.actions].index("delete")])  # duplicate delete
+    before = tree_state(fx.root)
+    try:
+        apply_migration(fx.root, plan=plan, **fx.kw())
+    except MigrateError as exc:
+        assert "nothing was changed" in exc.message
+    else:
+        raise AssertionError("expected refusal")
+    assert tree_state(fx.root) == before
+
+
+def test_receipt_lists_holds_with_reasons(fx: Fx):
+    from cc.core.project_migrate.render import render_receipt
+
+    (fx.root / "scripts/copilot-gate.sh").chmod(0o755)
+    (fx.root / "scripts/copilot-gate.sh").write_bytes(b"#!/bin/bash\necho edited\n")
+    _commit(fx.root, "edit gate")
+    receipt = apply_migration(fx.root, **fx.kw())
+    assert receipt["holds"], "fixture should hold the edited gate"
+    for h in receipt["holds"]:
+        assert h["path"] and h["reason"]
+    text = render_receipt(receipt)
+    assert all(h["path"] in text and h["reason"] in text for h in receipt["holds"])
+
+
+def test_snapshot_release_siblings_without_git_are_indexed(tmp_path: Path):
+    from cc.core.project_migrate.framework_index import discover_repos
+
+    rel = tmp_path / "rel"
+    for n in ("claude-copilot", "codex-copilot", "product-creation-copilot", "unrelated"):
+        (rel / n).mkdir(parents=True)
+    repos, trees = discover_repos([rel / "claude-copilot", rel / "codex-copilot"])
+    names = {t.name for t in trees}
+    assert {"claude-copilot", "codex-copilot", "product-creation-copilot"} <= names
+    assert "unrelated" not in names
+
+
+def test_lock_listed_framework_symlink_is_unlinked_and_replan_is_clean(fx: Fx):
+    """A lock-listed link to a released target must not be held (it turned into an unlink once the lock was gone)."""
+    from cc.core.project_migrate.framework_index import FrameworkIndex, blob_id
+
+    link = fx.root / ".claude/agents/kc.md"
+    link.symlink_to("../../../claude-copilot/.claude/agents/kc.md")
+    lock = json.loads((fx.root / "copilot.lock.json").read_text())
+    lock["components"][0]["files"].append({"checksum": "sha256:0", "ownership": "framework", "path": ".claude/agents/kc.md"})
+    (fx.root / "copilot.lock.json").write_text(json.dumps(lock))
+    idx = FrameworkIndex()
+    idx.add(blob_id(os.readlink(link).encode()), "kc.md", True)
+    fx.known.framework_index = idx
+    # the target must exist for the classifier (a broken link is a pack link)
+    (fx.root.parent / "claude-copilot/.claude/agents").mkdir(parents=True)
+    (fx.root.parent / "claude-copilot/.claude/agents/kc.md").write_text("kc\n")
+    _commit(fx.root, "kc link")
+    apply_migration(fx.root, **fx.kw())
+    assert not link.is_symlink()
+    again = plan_migration(fx.root, known=fx.known)
+    assert [a.path for a in again.actions if a.kind != "write"] == []
+
+
+def test_marker_mode_survives_apply_and_rollback(fx: Fx):
+    from cc.core.project_migrate import rollback_migration
+    from tests.project_migrate.conftest import tree_state
+
+    marker = fx.root / "copilot.project.json"
+    marker.chmod(0o600)
+    before = tree_state(fx.root)
+    receipt = apply_migration(fx.root, **fx.kw())
+    assert (marker.stat().st_mode & 0o777) == 0o600
+    rollback_migration(receipt["backup_dir"])
+    assert tree_state(fx.root) == before

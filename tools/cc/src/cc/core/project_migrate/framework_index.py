@@ -118,12 +118,17 @@ def discover_repos(roots: Iterable[Optional[Path]]) -> tuple[list[Path], list[Pa
         if top is None:
             if Path(root) not in trees:
                 trees.append(Path(root))
-            continue
-        add_repo(top)
+        else:
+            add_repo(top)
+        # Sibling framework repos: git checkouts by history, release snapshots (no .git) by content.
         try:
-            for sib in sorted(top.parent.iterdir()):
-                if _SIBLINGS.match(sib.name) and (sib / ".git").exists():
+            for sib in sorted((top or Path(root)).parent.iterdir()):
+                if not (_SIBLINGS.match(sib.name) and sib.is_dir()):
+                    continue
+                if (sib / ".git").exists():
                     add_repo(sib)
+                elif top is None and sib not in trees:
+                    trees.append(sib)
         except OSError:
             pass
     return repos, trees

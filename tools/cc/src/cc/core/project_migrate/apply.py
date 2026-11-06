@@ -143,6 +143,14 @@ def _preflight(root: Path, plan: MigrationPlan, backup: Path, commit_branch: Opt
                                              "Nothing was changed")
         if _git(root, "rev-parse", "--verify", "--quiet", "HEAD").returncode != 0:
             raise MigrateError("git-branch", "the repository has no commit to branch from; nothing was changed")
+    seen: set[str] = set()
+    for a in plan.actions:
+        if a.kind in (DELETE, UNLINK, EDIT_JSON, EDIT_TEXT):
+            gone = a.kind in (DELETE, UNLINK) and not (root / a.path).is_symlink() and not (root / a.path).is_file()
+            if a.path in seen or gone:
+                raise MigrateError("plan-stale", f"the plan is not applicable ({a.path} is "
+                                   f"{'planned twice' if a.path in seen else 'missing'}); nothing was changed")
+            seen.add(a.path)
     unwritable: list[str] = []
     targets = {a.path for a in plan.actions if not a.path.startswith("~")} | set(_INIT_FILES)
     for rel in sorted(targets):
@@ -247,8 +255,8 @@ def apply_migration(
         if packs:
             marker = read_marker(root)
             marker["activePacks"] = packs
-            atomic_write(root / MARKER_FILENAME,
-                         (json.dumps(marker, indent=2, sort_keys=True) + "\n").encode(), 0o644)
+            atomic_write(root / MARKER_FILENAME, (json.dumps(marker, indent=2, sort_keys=True) + "\n").encode(),
+                         init_entries[MARKER_FILENAME].get("mode", 0o644))
         cfg = Path(codex_config).expanduser() if codex_config else default_codex_config()
         reg = Path(registry).expanduser() if registry else default_registry()
         pack_dirs = _pack_dirs(root, read_marker(root).get("activePacks") or [])
@@ -275,6 +283,8 @@ def apply_migration(
                 rec.entries.append({"path": Path(link).relative_to(root).as_posix(), "kind": "created-link",
                                     "link_after": target, "link_before": before})
         for rel, entry in init_entries.items():
+            if "mode" in entry and (root / rel).is_file() and not (root / rel).is_symlink():
+                os.chmod(root / rel, entry["mode"])  # project init writes through temp files: keep the file's own mode
             after = sha256_file(root / rel)
             if entry.get("absent_before"):
                 if after is None:
@@ -326,7 +336,7 @@ def apply_migration(
     receipt = {
         "id": run_id, "status": "applied", "backup_dir": str(backup), "head_before": head_before,
         "branch": branch, "commit": commit, "init": init, "changed": changed_paths,
-        "counts": plan.counts(), "holds": [h.path for h in plan.holds], "recovery": recovery,
+        "counts": plan.counts(), "holds": [{"path": h.path, "reason": h.reason} for h in plan.holds], "recovery": recovery,
         "note": "Rollback also reverts the Codex trust entry and project registry entry made by this run.",
     }
     rec.write_manifest(receipt)

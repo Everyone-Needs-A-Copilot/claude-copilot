@@ -36,5 +36,9 @@ def render_receipt(receipt: dict[str, Any]) -> str:
         lines.append(f"Committed {receipt['commit']} on branch {receipt['branch']}")
     else:
         lines.append("Changes left uncommitted for review.")
+    holds = receipt.get("holds") or []
+    if holds:
+        lines.append(f"Left exactly as they were ({len(holds)}):")
+        lines += [f"  {h['path']}: {h['reason']}" if isinstance(h, dict) else f"  {h}" for h in holds]
     lines += [f"recover: {r}" for r in receipt["recovery"]]
     return "\n".join(lines)

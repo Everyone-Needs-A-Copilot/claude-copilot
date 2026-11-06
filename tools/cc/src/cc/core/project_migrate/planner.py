@@ -79,6 +79,8 @@ class _Builder:
         self.active_packs: list[dict[str, Any]] = []
 
     def act(self, kind: str, rel: str, reason: str, **detail: Any) -> None:
+        if kind != WRITE and any(a.path == rel and a.kind != WRITE for a in self.plan.actions):
+            return  # first decision wins: one file is never removed or rewritten twice
         self.decided.add(rel)
         self.plan.actions.append(Item(rel, reason, kind, detail))
 
@@ -105,7 +107,10 @@ class _Builder:
                 continue
             if not (path.exists() or path.is_symlink()):
                 continue
-            if path.is_symlink() or not path.is_file():
+            if path.is_symlink() and (verdict := classify(self.root, rel, self.known)) and verdict[0] == "unlink":
+                self.act(UNLINK, rel, "framework symlink, same target as a released framework link",
+                         target=os.readlink(path), copy=True)
+            elif path.is_symlink() or not path.is_file():
                 self.hold(rel, "the lock lists this path but it is not an ordinary file, so it was left alone")
             elif ownership != "framework":
                 self.keep(rel, f"lock marks ownership={ownership}")
