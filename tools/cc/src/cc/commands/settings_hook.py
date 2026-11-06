@@ -12,6 +12,7 @@ the underlying merge/revert contract):
     cc settings-hook add           [--project PATH] [--scope project|local] [--dry-run] [--json]
     cc settings-hook remove        --id MUT_ID       [--project PATH] [--json]
     cc settings-hook rollback      --id MUT_ID       [--project PATH] [--json]
+    cc settings-hook user-add|user-remove [--home PATH] [--dry-run] [--json]
     cc settings-hook list-sources  [--project PATH] [--json]
 """
 
@@ -31,6 +32,8 @@ from cc.core.ecosystem.mutations import (
     RemoveResult,
     RollbackResult,
     apply_settings_hook,
+    apply_user_settings,
+    remove_user_settings,
     list_sources,
     remove_settings_hook,
     rollback_settings_hook,
@@ -221,6 +224,43 @@ def rollback_cmd(
     if result.status in {"conflict", "not-found", "mismatch"}:
         raise typer.Exit(_EXIT_ATTENTION)
     raise typer.Exit(_EXIT_ENVIRONMENT_ERROR)
+
+
+def _user_home(home: Optional[str]) -> Path:
+    return Path(home).expanduser() if home else Path.home()
+
+
+def _user_exit(outcome: Any, output_json: bool, label: str) -> None:
+    payload = {
+        "schema_version": SCHEMA_VERSION,
+        "status": outcome.status,
+        "detail": outcome.detail,
+        "settings": outcome.settings_path,
+        "backup": outcome.backup,
+        "env": list(outcome.env_added),
+    }
+    _emit(payload, output_json=output_json, human=f"settings-hook {label}: {outcome.status} -- {outcome.detail}")
+    raise typer.Exit(_EXIT_ENVIRONMENT_ERROR if outcome.status == "blocked" else _EXIT_OK)
+
+
+@settings_hook_app.command("user-add")
+def user_add_cmd(
+    home: Optional[str] = typer.Option(None, "--home", help="Home directory (defaults to $HOME)."),
+    dry_run: bool = typer.Option(False, "--dry-run", help="Compute without writing."),
+    output_json: bool = typer.Option(False, "--json", help="Output as JSON."),
+) -> None:
+    """Register the framework hook shim once in ~/.claude/settings.json (and
+    the skill-listing budget env). Backs up first; preserves all other keys."""
+    _user_exit(apply_user_settings(_user_home(home), dry_run=dry_run), output_json, "user-add")
+
+
+@settings_hook_app.command("user-remove")
+def user_remove_cmd(
+    home: Optional[str] = typer.Option(None, "--home", help="Home directory (defaults to $HOME)."),
+    output_json: bool = typer.Option(False, "--json", help="Output as JSON."),
+) -> None:
+    """Reverse `user-add`: remove only the entries and env keys it added."""
+    _user_exit(remove_user_settings(_user_home(home)), output_json, "user-remove")
 
 
 @settings_hook_app.command("list-sources")
