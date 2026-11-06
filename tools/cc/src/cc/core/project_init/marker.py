@@ -9,13 +9,29 @@ from __future__ import annotations
 
 import json
 import os
+import shutil
 import tempfile
+import time
 from pathlib import Path
 from typing import Any, Optional
 
 MARKER_FILENAME = "copilot.project.json"
 MARKER_SCHEMA_VERSION = "1.0"
 RUNTIMES = ("claude", "codex")
+
+
+class MarkerCorruptError(Exception):
+    """copilot.project.json exists but is not a valid JSON object."""
+
+
+def _is_corrupt(root: Path) -> bool:
+    try:
+        raw = json.loads((root / MARKER_FILENAME).read_text(encoding="utf-8"))
+    except FileNotFoundError:
+        return False
+    except (OSError, ValueError):
+        return True
+    return not isinstance(raw, dict)
 
 
 def read_marker(project: Path | str) -> dict[str, Any]:
@@ -35,10 +51,22 @@ def build_marker(existing: Optional[dict[str, Any]] = None) -> dict[str, Any]:
     return marker
 
 
-def write_marker(project: Path | str) -> bool:
-    """Write the marker atomically. Returns True when bytes changed."""
+def write_marker(project: Path | str, *, force: bool = False) -> bool:
+    """Write the marker atomically. Returns True when bytes changed.
+
+    A corrupt existing marker is never silently overwritten: raises
+    MarkerCorruptError unless `force`, which first backs it up beside it.
+    """
     root = Path(project)
     target = root / MARKER_FILENAME
+    if _is_corrupt(root):
+        if not force:
+            raise MarkerCorruptError(
+                f"{target} is not valid JSON; refusing to overwrite it. "
+                "Fix it by hand, or re-run with --force to back it up and recreate it."
+            )
+        shutil.copy2(target, root / f"{MARKER_FILENAME}.bak-{time.strftime('%Y%m%d%H%M%S')}-{os.getpid()}")
+        target.unlink()
     payload = (json.dumps(build_marker(read_marker(root)), indent=2, sort_keys=True) + "\n").encode()
     try:
         if target.read_bytes() == payload:

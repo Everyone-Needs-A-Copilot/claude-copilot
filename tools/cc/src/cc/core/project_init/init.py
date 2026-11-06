@@ -10,7 +10,7 @@ from typing import Any, Optional
 
 from cc.core.project_init.codex_trust import ensure_trust
 from cc.core.project_init.gitignore import ensure_ignored
-from cc.core.project_init.marker import MARKER_FILENAME, read_marker, write_marker
+from cc.core.project_init.marker import MARKER_FILENAME, MarkerCorruptError, read_marker, write_marker
 from cc.core.project_init.packs import link_packs
 from cc.core.project_init.registry import register_project
 from cc.core.project_init.sections import ensure_section
@@ -33,6 +33,7 @@ def init_project(
     codex_config: Optional[Path | str] = None,
     packs_root: Optional[Path | str] = None,
     registry: Optional[Path | str] = None,
+    force: bool = False,
 ) -> dict[str, Any]:
     """Initialise `project` for both runtimes. Idempotent."""
     root = Path(project).expanduser()
@@ -43,7 +44,7 @@ def init_project(
     root = root.resolve()
     changed: list[str] = []
     try:
-        if write_marker(root):
+        if write_marker(root, force=force):
             changed.append(MARKER_FILENAME)
         for name in ("CLAUDE.md", "AGENTS.md"):
             if ensure_section(root / name, root.name):
@@ -60,6 +61,8 @@ def init_project(
             changed.append("codex-trust")
         if register_project(root, Path(registry) if registry else None):
             changed.append("registry")
+    except MarkerCorruptError as exc:
+        raise InitError("marker-corrupt", str(exc)) from exc
     except ValueError as exc:
         raise InitError("codex-config-invalid", str(exc)) from exc
     except OSError as exc:

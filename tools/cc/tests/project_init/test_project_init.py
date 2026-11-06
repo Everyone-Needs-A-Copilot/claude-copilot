@@ -168,3 +168,48 @@ def test_missing_pack_is_warning_not_failure(tmp_path, env):
     (repo / MARKER_FILENAME).write_text(json.dumps({"activePacks": [{"name": "nope"}]}))
     report = init_project(repo, **env)
     assert report["warnings"]
+
+
+def test_corrupt_marker_is_refused_not_overwritten(tmp_path, env):
+    repo = tmp_path / "r"
+    repo.mkdir()
+    (repo / MARKER_FILENAME).write_text("{not json")
+    with pytest.raises(InitError) as exc:
+        init_project(repo, **env)
+    assert exc.value.code == "marker-corrupt" and "--force" in exc.value.message
+    assert (repo / MARKER_FILENAME).read_text() == "{not json"
+
+
+def test_force_backs_up_corrupt_marker_and_recreates(tmp_path, env):
+    repo = tmp_path / "r"
+    repo.mkdir()
+    (repo / MARKER_FILENAME).write_text("[1,2]")
+    init_project(repo, force=True, **env)
+    assert json.loads((repo / MARKER_FILENAME).read_text())["runtimes"] == ["claude", "codex"]
+    backups = list(repo.glob(MARKER_FILENAME + ".bak-*"))
+    assert len(backups) == 1 and backups[0].read_text() == "[1,2]"
+
+
+def test_cli_corrupt_marker_errors_then_force_succeeds(tmp_path, env):
+    repo = tmp_path / "r"
+    repo.mkdir()
+    (repo / MARKER_FILENAME).write_text("oops")
+    args = ["init", str(repo), "--json", "--codex-config", str(env["codex_config"])]
+    run = {"env": {"HOME": str(tmp_path / "home")}}
+    bad = CliRunner().invoke(project_app, args, **run)
+    assert bad.exit_code == 1 and json.loads(bad.output)["error"]["code"] == "marker-corrupt"
+    assert CliRunner().invoke(project_app, args + ["--force"], **run).exit_code == 0
+
+
+def test_registry_concurrent_registration_loses_nothing(tmp_path):
+    from concurrent.futures import ThreadPoolExecutor
+    from cc.core.project_init.registry import register_project
+    reg = tmp_path / "h" / "reg.json"
+    dirs = []
+    for i in range(12):
+        d = tmp_path / f"p{i}"
+        d.mkdir()
+        dirs.append(d)
+    with ThreadPoolExecutor(8) as pool:
+        list(pool.map(lambda d: register_project(d, reg), dirs))
+    assert len(json.loads(reg.read_text())["projects"]) == 12
