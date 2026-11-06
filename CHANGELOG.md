@@ -1,5 +1,9 @@
 # Changelog
 
+## [5.34.8] - 2026-11-05
+
+- **A required framework file the project claimed with `owner: project` satisfies its lock requirement.** A project that keeps its own `.claude/commands/protocol.md` (or another required file) marked `owner: project` is not recorded in the lock for that file, by design; project inspection no longer reports the missing record as a required-path failure, so the transaction's post-apply verification passes instead of rolling the update back. The file must exist and still declare `owner: project`. The cc component version is unchanged.
+
 ## [5.34.7] - 2026-11-05
 
 - **Project inspection recognizes real Codex entries and project-extended settings.** The Codex AGENTS.md entry check accepts the plugin path both as `./plugins/codex-copilot` and as the bare `plugins/codex-copilot` that Codex Copilot's own template has written since 2026-10-21, which had left about thirty Codex installs unverifiable. A lock record with `ownership: project` for a file that still declares `owner: project` is a valid record, not an invalid one. A present, readable merged JSON output (`.claude/settings.json`, `.mcp.json`) that the project extended is no longer reported as drift. A sibling such as `plugins/codex-copilot-internal` is still not the plugin. The cc component version is unchanged.

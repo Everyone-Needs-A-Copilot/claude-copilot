@@ -203,6 +203,11 @@ def _managed_output_fingerprint(root: Path, relative: str) -> Optional[str]:
     return None
 
 
+def _claimed_by_project(root: Path, relative: str) -> bool:
+    target, _ = _safe_relative_target(root, relative)
+    return target is not None and declares_project_owner(target)
+
+
 def _is_json_object_file(root: Path, relative: str) -> bool:
     target, _ = _safe_relative_target(root, relative)
     if target is None:
@@ -788,6 +793,11 @@ def _verify_lock_entry(
                 absent_required.append(path)
     else:
         absent_required = [path for path in required if path not in recorded]
+    # A required file the project claimed (`owner: project`) is never recorded
+    # in the lock, by design, and is present: that satisfies the requirement.
+    absent_required = [
+        path for path in absent_required if not _claimed_by_project(root, path)
+    ]
     if (
         component == "claude"
         and ownership_mode == "full"

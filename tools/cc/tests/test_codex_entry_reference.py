@@ -74,3 +74,34 @@ def test_unknown_lock_ownership_is_still_invalid(tmp_path):
     entry = _entry(tmp_path, "someone-else")
     _ok, _evidence, missing, _fingerprint = _verify_lock_entry(tmp_path, "claude", entry)
     assert any(item["id"] == "valid-framework-record" for item in missing)
+
+
+def test_required_path_claimed_by_project_is_satisfied_without_a_lock_record(tmp_path):
+    from cc.core.ecosystem.project_integration import (
+        _CLAUDE_REQUIRED_LOCK_PATHS,
+        _checksum,
+        _verify_lock_entry,
+    )
+
+    files = []
+    for rel in _CLAUDE_REQUIRED_LOCK_PATHS:
+        target = tmp_path / rel
+        target.parent.mkdir(parents=True, exist_ok=True)
+        if rel == ".claude/commands/protocol.md":
+            target.write_text("---\nowner: project\n---\n\n# Mine\n", encoding="utf-8")
+            continue
+        target.write_text("framework\n", encoding="utf-8")
+        files.append({"path": rel, "ownership": "framework", "checksum": _checksum(target)})
+    agent = tmp_path / ".claude/agents/ta.md"
+    agent.parent.mkdir(parents=True, exist_ok=True)
+    agent.write_text("agent\n", encoding="utf-8")
+    files.append({"path": ".claude/agents/ta.md", "ownership": "framework", "checksum": _checksum(agent)})
+    entry = {"component": "claude", "version": "5.34.8", "ownership_mode": "full", "files": files}
+    _ok, _evidence, missing, _fingerprint = _verify_lock_entry(tmp_path, "claude", entry)
+    assert not any(item["id"] == "required-lock-path" for item in missing)
+
+    (tmp_path / ".claude/commands/protocol.md").write_text("# Not claimed\n", encoding="utf-8")
+    _ok, _evidence, missing, _fingerprint = _verify_lock_entry(tmp_path, "claude", entry)
+    assert any(
+        item["id"] == "required-lock-path" and "protocol.md" in item["detail"] for item in missing
+    )
