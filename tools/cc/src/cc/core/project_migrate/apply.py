@@ -12,7 +12,9 @@ from pathlib import Path
 from typing import Any, Optional
 
 from cc.core.project_init import InitError, init_project
+from cc.core.project_init.codex_trust import default_codex_config
 from cc.core.project_init.marker import MARKER_FILENAME, read_marker
+from cc.core.project_init.registry import default_registry
 from cc.core.project_migrate.known import Known
 from cc.core.project_migrate.model import (
     DELETE, EDIT_JSON, EDIT_TEXT, UNLINK, MigrateError, MigrationPlan,
@@ -52,11 +54,59 @@ class _Recorder:
         self.entries.append(entry)
         return entry
 
+    def snapshot_external(self, path: Path) -> dict[str, Any]:
+        """Machine-state file outside the project (Codex config, project registry, lock files)."""
+        entry: dict[str, Any] = {"path": str(path), "kind": "external"}
+        if path.is_file() and not path.is_symlink():
+            slot = f"external/{len(self.entries):04d}/{path.name}"
+            dest = self.backup / slot
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(path, dest)
+            entry["backup"] = slot
+            entry["sha_before"] = sha256_file(path)
+            entry["mode"] = path.stat().st_mode & 0o7777
+        else:
+            entry["absent_before"] = True
+        entry["made_dirs"] = [str(d) for d in _missing_ancestors(path.parent)]
+        self.entries.append(entry)
+        return entry
+
     def write_manifest(self, extra: dict[str, Any]) -> Path:
         manifest = {"project": str(self.root), "entries": self.entries, **extra}
         target = self.backup / MANIFEST
         atomic_write(target, (json.dumps(manifest, indent=2, sort_keys=True) + "\n").encode(), 0o644)
         return target
+
+
+def _missing_ancestors(directory: Path) -> list[Path]:
+    """Directories on the way to `directory` that do not exist yet, shallowest first."""
+    out: list[Path] = []
+    d = directory
+    while not (d.exists() or d.is_symlink()) and d != d.parent:
+        out.append(d)
+        d = d.parent
+    return out[::-1]
+
+
+def _pack_dirs(root: Path, packs: list[dict[str, Any]]) -> list[Path]:
+    """The skills folders project init links pack skills into (derived from activePacks)."""
+    out: list[Path] = []
+    for pack in packs:
+        if isinstance(pack, dict):
+            d = Path(os.path.normpath(root / str(pack.get("activatedBy") or ".") / "skills"))
+            if d not in out and _is_inside(d, root):
+                out.append(d)
+    return out
+
+
+def _link_state(dirs: list[Path]) -> dict[str, str]:
+    state: dict[str, str] = {}
+    for d in dirs:
+        if d.is_dir():
+            for child in d.iterdir():
+                if child.is_symlink():
+                    state[str(child)] = os.readlink(child)
+    return state
 
 
 def _prune_empty(root: Path, rel: str) -> None:
@@ -195,7 +245,31 @@ def apply_migration(
             marker["activePacks"] = packs
             atomic_write(root / MARKER_FILENAME,
                          (json.dumps(marker, indent=2, sort_keys=True) + "\n").encode(), 0o644)
-        init = init_project(root, codex_config=codex_config, packs_root=packs_root, registry=registry)
+        cfg = Path(codex_config).expanduser() if codex_config else default_codex_config()
+        reg = Path(registry).expanduser() if registry else default_registry()
+        pack_dirs = _pack_dirs(root, read_marker(root).get("activePacks") or [])
+        dirs_before = {d: d.is_dir() for d in pack_dirs}
+        made_dirs = [d for pd in pack_dirs for d in _missing_ancestors(pd)]
+        links_before = _link_state(pack_dirs)
+        externals = {p: rec.snapshot_external(p) for p in (
+            cfg, cfg.with_name(cfg.name + ".bak"), cfg.with_name(cfg.name + ".lock"),
+            reg, reg.with_name(reg.name + ".lock"))}
+        init = init_project(root, codex_config=cfg, packs_root=packs_root, registry=reg)
+        for path, entry in externals.items():
+            after = sha256_file(path)
+            if after == entry.get("sha_before") and (after is not None or entry.get("absent_before")) \
+                    and not entry["made_dirs"]:
+                rec.entries.remove(entry)
+            else:
+                entry["sha_after"] = after
+        for d in dict.fromkeys(made_dirs):
+            if d.is_dir():
+                rec.entries.append({"path": d.relative_to(root).as_posix(), "kind": "created-dir"})
+        for link, target in sorted(_link_state(pack_dirs).items()):
+            before = links_before.get(link)
+            if before != target:
+                rec.entries.append({"path": Path(link).relative_to(root).as_posix(), "kind": "created-link",
+                                    "link_after": target, "link_before": before})
         for rel, entry in init_entries.items():
             after = sha256_file(root / rel)
             if entry.get("absent_before"):
@@ -209,7 +283,8 @@ def apply_migration(
             else:
                 entry["sha_after"] = after
 
-        changed_paths = sorted({e["path"] for e in rec.entries})
+        changed_paths = sorted({e["path"] for e in rec.entries
+                                if e["kind"] not in ("external", "created-dir", "created-link")})
         commit = ""
         branch = ""
         if commit_branch and plan.git:
@@ -240,7 +315,7 @@ def apply_migration(
         code = exc.code if isinstance(exc, MigrateError) else "apply-failed"
         raise MigrateError(code, f"{getattr(exc, 'message', exc)}; {tail}") from exc
 
-    recovery = [f"cc project migrate {root} --rollback {backup}"]
+    recovery = [f"cc project migrate {root} --rollback --manifest {backup}"]
     if plan.git and head_before:
         recovery.append(f"git -C {root} restore --source={head_before} --staged --worktree -- "
                         + " ".join(changed_paths[:5]) + (" ..." if len(changed_paths) > 5 else ""))
@@ -248,7 +323,7 @@ def apply_migration(
         "id": run_id, "status": "applied", "backup_dir": str(backup), "head_before": head_before,
         "branch": branch, "commit": commit, "init": init, "changed": changed_paths,
         "counts": plan.counts(), "holds": [h.path for h in plan.holds], "recovery": recovery,
-        "note": "Codex trust entry and project registry are machine state and are not reverted by rollback.",
+        "note": "Rollback also reverts the Codex trust entry and project registry entry made by this run.",
     }
     rec.write_manifest(receipt)
     return receipt

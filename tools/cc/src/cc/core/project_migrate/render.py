@@ -22,8 +22,8 @@ def render_plan(plan: MigrationPlan) -> str:
             lines.append(f"{title} ({len(items)}):")
             lines += [f"  {a.kind:9} {a.path}  [{a.reason}]" for a in items]
     if plan.holds:
-        lines.append(f"HOLD ({len(plan.holds)}): kept, needs a decision:")
-        lines += [f"  {h.path}  [{h.reason}]" for h in plan.holds]
+        lines.append(f"HOLD ({len(plan.holds)}): every item below is left exactly as it is; apply changes none of them:")
+        lines += [f"  {h.path}: {h.reason}" for h in plan.holds]
     lines.append(f"KEEP ({len(plan.keeps)}):")
     lines += [f"  {k.path}  [{k.reason}]" for k in plan.keeps]
     lines += [f"note: {n}" for n in plan.notes]

@@ -1,13 +1,15 @@
 from __future__ import annotations
 
+import hashlib
 import json
+import os
 import subprocess
 from pathlib import Path
 
 import pytest
 
 from cc.core.project_migrate import (
-    MigrateError, apply_migration, plan_migration, render_plan, rollback_migration, scan_projects,
+    Known, MigrateError, apply_migration, find_manifest, plan_migration, render_plan, rollback_migration, scan_projects,
 )
 from tests.project_migrate.conftest import (
     CLAUDE_BLOCK, FW_SECTION, Fx, build_project, make_known, tree_state,
@@ -96,7 +98,7 @@ def test_untagged_shim_lookalike_hook_is_held(fx: Fx):
     (fx.root / ".claude/settings.json").write_text(json.dumps(s))
     subprocess.run(["git", "-C", str(fx.root), "commit", "-qam", "s"], check=True)
     plan = plan_migration(fx.root, known=fx.known)
-    assert any("untagged" in h.reason for h in plan.holds)
+    assert any("no framework tag" in h.reason for h in plan.holds)
     apply_migration(fx.root, plan=plan, **fx.kw())
     assert "Stop" in json.loads((fx.root / ".claude/settings.json").read_text())["hooks"]
 
@@ -121,7 +123,7 @@ def test_dirty_affected_path_is_refused_but_unrelated_dirt_is_fine(fx: Fx):
     (fx.root / "CLAUDE.md").write_text("local edit\n")
     plan = plan_migration(fx.root, known=fx.known)
     assert plan.refused and "CLAUDE.md" in plan.dirty
-    assert any(h.reason.startswith("uncommitted") for h in plan.holds)
+    assert any("uncommitted changes" in h.reason for h in plan.holds)
     before = tree_state(fx.root)
     with pytest.raises(MigrateError) as exc:
         apply_migration(fx.root, **fx.kw())
@@ -401,3 +403,183 @@ def test_commit_failure_restores_branch_and_files(fx: Fx, monkeypatch):
     assert tree_state(fx.root) == before
     assert git(fx.root, "branch", "--show-current").strip() == "main"
     assert "mig" not in git(fx.root, "branch", "--list")
+
+
+# -- rollback is byte-identical, including symlinks and machine state ---------------------
+
+def _pack_root(tmp: Path) -> Path:
+    for skill in ("legal-nda", "cw"):
+        (tmp / "packs" / "writing-legal" / "skills" / skill).mkdir(parents=True)
+    return tmp / "packs"
+
+
+def _pipeline_fx(tmp: Path) -> Fx:
+    root = build_project(tmp / "s", shape="pipeline")
+    # a valid link, a link to a missing file that is NOT a pack link, an unrelated broken pack-shaped link kept in git
+    (root / "valid-link").symlink_to("CLAUDE.md")
+    (root / "weird").symlink_to("/nonexistent/place")
+    (root / "scripts").mkdir(exist_ok=True)
+    (root / "scripts/run.sh").chmod(0o755) if (root / "scripts/run.sh").exists() else None
+    subprocess.run(["git", "-C", str(root), "add", "-A"], check=True)
+    subprocess.run(["git", "-C", str(root), "commit", "-qm", "links"], check=True)
+    return Fx(root=root, known=make_known(), codex_config=tmp / "codex" / "config.toml",
+              registry=tmp / "home" / "registry.json", packs_root=_pack_root(tmp), backup_root=tmp / "b")
+
+
+def test_rollback_restores_pack_symlinks_and_machine_state(tmp_path: Path):
+    f = _pipeline_fx(tmp_path)
+    f.codex_config.parent.mkdir(parents=True)
+    f.codex_config.write_text('model = "x"\n')
+    f.registry.parent.mkdir(parents=True)
+    f.registry.write_text(json.dumps({"schema_version": "1.0", "projects": ["/other"]}))
+    machine_before = {p: p.read_bytes() for p in (f.codex_config, f.registry)}
+    listing_before = sorted(p.name for p in f.codex_config.parent.iterdir()) + sorted(p.name for p in f.registry.parent.iterdir())
+    before = tree_state(f.root)
+    receipt = apply_migration(f.root, **f.kw())
+    after = tree_state(f.root)
+    assert any(v[0] == "link" and k.startswith("plugins/pipeline-copilot/skills/") for k, v in after.items()), \
+        "init relinks the packs at the same paths; the originals must still come back"
+    assert 'trust_level = "trusted"' in f.codex_config.read_text()
+    result = rollback_migration(receipt["backup_dir"])
+    assert result["conflicts"] == []
+    assert tree_state(f.root) == before
+    for name in ("legal-nda", "cw"):
+        link = f.root / "plugins/pipeline-copilot/skills" / name
+        assert os.readlink(link) == f"../../../../codex-copilot/packs/writing-legal/skills/{name}" and not link.exists()
+    assert (f.root / "weird").is_symlink() and os.readlink(f.root / "valid-link") == "CLAUDE.md"
+    assert {p: p.read_bytes() for p in machine_before} == machine_before
+    assert sorted(p.name for p in f.codex_config.parent.iterdir()) + sorted(p.name for p in f.registry.parent.iterdir()) == listing_before
+    assert git(f.root, "status", "--porcelain") == ""
+
+
+def test_rollback_removes_machine_files_and_folders_it_created(tmp_path: Path):
+    f = _pipeline_fx(tmp_path)
+    receipt = apply_migration(f.root, **f.kw())
+    assert f.codex_config.exists() and f.registry.exists()
+    rollback_migration(receipt["backup_dir"])
+    assert not f.codex_config.parent.exists() and not f.registry.parent.exists()
+    assert rollback_migration(receipt["backup_dir"])["conflicts"] == []  # a second run changes nothing
+
+
+def test_rollback_leaves_machine_state_that_changed_since(tmp_path: Path):
+    f = _pipeline_fx(tmp_path)
+    receipt = apply_migration(f.root, **f.kw())
+    f.registry.write_text(json.dumps({"schema_version": "1.0", "projects": ["/someone-else"]}))
+    result = rollback_migration(receipt["backup_dir"])
+    assert any(str(f.registry) in c for c in result["conflicts"])
+    assert "someone-else" in f.registry.read_text()
+
+
+def test_rollback_restores_a_project_file_that_was_a_symlink(fx: Fx):
+    (fx.root / "real-claude.md").write_text((fx.root / "CLAUDE.md").read_text())
+    (fx.root / "CLAUDE.md").unlink()
+    (fx.root / "CLAUDE.md").symlink_to("real-claude.md")
+    subprocess.run(["git", "-C", str(fx.root), "add", "-A"], check=True)
+    subprocess.run(["git", "-C", str(fx.root), "commit", "-qm", "ln"], check=True)
+    before = tree_state(fx.root)
+    receipt = apply_migration(fx.root, **fx.kw())
+    rollback_migration(receipt["backup_dir"])
+    assert tree_state(fx.root) == before
+
+
+# -- the printed rollback command exists ---------------------------------------------------
+
+def test_printed_rollback_hint_is_a_working_command(tmp_path: Path, monkeypatch):
+    from typer.testing import CliRunner
+    from cc.main import app
+
+    f = _pipeline_fx(tmp_path)
+    before = tree_state(f.root)
+    receipt = apply_migration(f.root, **f.kw())
+    hint = receipt["recovery"][0]
+    assert hint.startswith("cc project migrate ") and "--rollback" in hint
+    argv = hint.split()[1:]
+    assert argv == ["project", "migrate", str(f.root), "--rollback", "--manifest", receipt["backup_dir"]]
+    result = CliRunner().invoke(app, argv)
+    assert result.exit_code == 0, result.output
+    assert tree_state(f.root) == before
+
+
+def test_cli_rollback_defaults_to_latest_run_and_accepts_a_run_id(tmp_path: Path, monkeypatch):
+    from typer.testing import CliRunner
+    from cc.main import app
+
+    f = _pipeline_fx(tmp_path)
+    monkeypatch.setenv("CC_MIGRATE_BACKUP_ROOT", str(f.backup_root))
+    before = tree_state(f.root)
+    receipt = apply_migration(f.root, **f.kw())
+    assert find_manifest(f.root) == Path(receipt["backup_dir"])
+    assert find_manifest(f.root, receipt["id"]) == Path(receipt["backup_dir"])
+    out = CliRunner().invoke(app, ["project", "migrate", str(f.root), "--rollback"])
+    assert out.exit_code == 0, out.output
+    assert tree_state(f.root) == before
+    again = CliRunner().invoke(app, ["project", "migrate", str(f.root), "--rollback"])
+    assert again.exit_code == 1 and "no applied migration" in again.output  # nothing left to roll back
+
+
+def test_rollback_flags_are_validated(tmp_path: Path):
+    from typer.testing import CliRunner
+    from cc.main import app
+
+    f = _pipeline_fx(tmp_path)
+    out = CliRunner().invoke(app, ["project", "migrate", str(f.root), "--rollback", "--apply"])
+    assert out.exit_code == 1 and "cannot be combined" in out.output
+    out = CliRunner().invoke(app, ["project", "migrate", str(f.root), "--manifest", "x"])
+    assert out.exit_code == 1 and "only used with --rollback" in out.output
+
+
+# -- AGENTS.md framework sections ----------------------------------------------------------
+
+OLD_LIFECYCLE = "## Work Lifecycle\n\nApply the old\nlifecycle text,\nwrapped differently.\n"
+
+
+def _digest(text: str) -> str:
+    return hashlib.sha256(" ".join(text.split()).encode()).hexdigest()
+
+
+def test_agents_sections_of_an_older_release_are_removed_and_edited_ones_held(fx: Fx):
+    known = Known(file_hashes=fx.known.file_hashes, tree_hashes={}, sections={},
+                  section_hashes={"## Work Lifecycle": {_digest(OLD_LIFECYCLE)}, "## Framework Rules": {_digest("## Framework Rules\n\n- a\n")}})
+    (fx.root / "AGENTS.md").write_text(
+        "# app\n\n## Project Overview\n\nOurs.\n\n## Work Lifecycle\n\nApply the old lifecycle text, wrapped differently.\n\n"
+        "## Framework Rules\n\n- a but edited here\n")
+    subprocess.run(["git", "-C", str(fx.root), "commit", "-qam", "a"], check=True)
+    fx.known = known
+    plan = plan_migration(fx.root, known=known)
+    assert "AGENTS.md: ## Framework Rules" in paths(plan.holds)
+    assert "AGENTS.md: ## Work Lifecycle" not in paths(plan.holds)
+    apply_migration(fx.root, plan=plan, **fx.kw())
+    text = (fx.root / "AGENTS.md").read_text()
+    assert "Apply the old lifecycle" not in text and "but edited here" in text and "Ours." in text
+
+
+def test_bundled_history_knows_older_codex_sections():
+    from cc.core.project_migrate.known import build_known
+
+    known = build_known(claude_root=Path("/nonexistent"), codex_root=Path("/nonexistent-codex"))
+    for key in ("## Codex Copilot", "## Output Contract", "## Framework Rules", "## Work Lifecycle"):
+        assert known.section_hashes.get(key), key
+
+
+def test_codex_framework_block_is_a_known_section_source(tmp_path: Path):
+    from cc.core.project_migrate.known import build_known
+
+    codex = tmp_path / "current" / "codex-copilot"
+    codex.mkdir(parents=True)
+    (tmp_path / "current" / "codex-AGENTS.block.md").write_text("## Framework Rules\n\n- current rule\n")
+    known = build_known(claude_root=tmp_path, codex_root=codex)
+    assert known.sections["## Framework Rules"] == {"## Framework Rules\n\n- current rule"}
+
+
+# -- every held item is listed in plain words ----------------------------------------------
+
+def test_plan_lists_every_hold_with_a_plain_reason(fx: Fx):
+    (fx.root / "weird").symlink_to("/nonexistent/place")
+    (fx.root / "AGENTS.md").write_text("# app\n\n## Work Lifecycle\n\n- Edited by the project.\n")
+    subprocess.run(["git", "-C", str(fx.root), "add", "-A"], check=True)
+    subprocess.run(["git", "-C", str(fx.root), "commit", "-qm", "h"], check=True)
+    plan = plan_migration(fx.root, known=fx.known)
+    text = render_plan(plan)
+    assert plan.counts()["hold"] == len(plan.holds) >= 2
+    for h in plan.holds:
+        assert f"{h.path}: {h.reason}" in text and len(h.reason.split()) >= 6
