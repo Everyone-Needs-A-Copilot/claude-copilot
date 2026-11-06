@@ -100,9 +100,27 @@ def _plugin_hooks(hooks: list) -> list:
     return [h for h in hooks if h.get("pluginId") == PLUGIN_ID]
 
 
-def content_hashes(hooks: list) -> set[str]:
-    """Codex's `currentHash` is `<per-hook sha>/<plugin content sha>`."""
-    return {str(h.get("currentHash", "")).rpartition("/")[2] for h in _plugin_hooks(hooks)}
+def content_hashes(hooks: list) -> dict[str, str]:
+    """Hook key -> Codex content hash.
+
+    `currentHash` is `<per-hook sha>/<plugin content sha>`; Codex may report a different
+    content value per hook, so hashes are compared hook by hook, never as one shared value.
+    """
+    return {str(h.get("key", "")): str(h.get("currentHash", "")).rpartition("/")[2] for h in _plugin_hooks(hooks)}
+
+
+def _short(hash_value: str) -> str:
+    return hash_value.removeprefix("sha256:")[:12]
+
+
+def _hook_name(key: str) -> str:
+    """`codex-copilot@mkt:hooks/hooks.json:pre_tool_use:0:0` -> `pre_tool_use:0:0`."""
+    return key.partition(":hooks/hooks.json:")[2] or key
+
+
+def changed_hooks(live: dict[str, str], candidate: dict[str, str]) -> list[str]:
+    """Hooks whose content hash would change or that the candidate drops."""
+    return sorted(_hook_name(k) for k, v in live.items() if candidate.get(k) != v)
 
 
 def assert_frozen_core(candidate_marketplace: Path, current_receipt: dict | None) -> None:
@@ -155,27 +173,33 @@ def check(release_directory: Path, current_release: Path | None, codex_home: Pat
         assert_frozen_core(candidate, receipt)
     live = _plugin_hooks(lister(codex_bin, codex_home, Path(codex_home)))
     live_hashes = content_hashes(live)
-    stale = sorted({str(h.get("trustStatus")) for h in live if h.get("trustStatus") not in ("trusted", "managed")})
+    stale = sorted((h for h in live if h.get("trustStatus") not in ("trusted", "managed")),
+                   key=lambda h: str(h.get("key")))
     if stale:
-        count = sum(1 for h in live if h.get("trustStatus") not in ("trusted", "managed"))
+        detail = ", ".join(f"{_hook_name(str(h.get('key')))} {h.get('trustStatus')}" for h in stale)
+        trusted = len(live) - len(stale)
         result.warnings.append(
-            f"{count} {PLUGIN} hook trust entr{'y is' if count == 1 else 'ies are'} {'/'.join(stale)} "
-            "in Codex already; owner re-approval in /hooks is needed (the release never writes trust)")
+            f"{len(stale)} of {len(live)} {PLUGIN} hook trust entries are not trusted in Codex already "
+            f"({trusted} trusted): {detail}; owner re-approval in /hooks is needed (the release never writes trust)")
     candidate_hashes = content_hashes(_candidate_hooks(candidate, codex_bin, runner, lister))
     if not candidate_hashes:
         raise TrustGateError("Codex reported no hooks for the candidate plugin; cannot verify its content hash")
-    if len(candidate_hashes) != 1:
-        raise TrustGateError(f"Codex reported several content hashes for the candidate: {sorted(candidate_hashes)}")
-    (result.candidate_hash,) = candidate_hashes
+    result.candidate_hash = _summary(candidate_hashes)
     if not live_hashes:
         result.warnings.append("no live Codex hooks for the plugin; no trust baseline to compare against")
         return result
-    result.live_hash = ",".join(sorted(live_hashes))
-    if candidate_hashes != live_hashes and strict:
+    result.live_hash = _summary(live_hashes)
+    changed = changed_hooks(live_hashes, candidate_hashes)
+    if changed and strict:
         raise TrustGateError(
-            f"{PLUGIN} content hash would change ({result.live_hash[:19]} -> {result.candidate_hash[:19]}); "
+            f"{PLUGIN} content hash would change for {', '.join(changed)} "
+            f"({result.live_hash} -> {result.candidate_hash}); "
             "Codex trust would reset. No changes made. Keep the plugin directory byte-identical "
             "or pass --no-strict-frozen with a declared re-trust")
-    if candidate_hashes != live_hashes:
-        result.warnings.append("plugin content hash changes; Codex trust resets (non-strict)")
+    if changed:
+        result.warnings.append(f"content hash changes for {', '.join(changed)}; Codex trust resets (non-strict)")
     return result
+
+
+def _summary(hashes: dict[str, str]) -> str:
+    return ",".join(sorted({_short(v) for v in hashes.values()}))
