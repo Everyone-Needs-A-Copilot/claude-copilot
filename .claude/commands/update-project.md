@@ -1,23 +1,6 @@
 # Update Project
 
-Update the current project's Claude + Codex Copilot installation through the
-same canonical `cc` transaction used by `/setup-project`. Setup and update are
-different user intentions, not different installers: current disk and lock
-evidence determines whether the transaction performs a clean setup, a bounded
-repair, an idempotent no-op, or a safety hold.
-
-The canonical update repairs `.claude/hooks/copilot-hook.sh` only when ownership evidence permits it, preserves executable mode and hook registration, and refreshes its framework-owned checksum in `copilot.lock.json`. Independent verification must reject a missing, non-executable, unregistered, or unlocked shim; this command must never perform an untracked manual repair.
-
-The former partial `minimal` profile is not a separate update target. Existing
-minimal installations are degraded inputs to this complete transaction; their
-project-authored instructions and memory are preserved while missing reference
-artifacts are added.
-
-Before planning, require the cc-owned prerequisite fact to report both the
-actual Copilot `cc` CLI and `tc` ready. A missing CLI or macOS C compiler named
-`cc` is a person-owned machine-setup prerequisite, not a project mutation.
-
-## 1. Build and inspect the exact update plan
+Releases reach every project through the machine's release pointer; a project is never updated file by file. This command is therefore verify-only on a migrated project.
 
 ```bash
 set -eu
@@ -28,49 +11,12 @@ for CANDIDATE in "$(command -v cc 2>/dev/null || true)" "$HOME/.local/bin/cc"; d
     break
   fi
 done
-if [ -z "$CC_BIN" ] || ! command -v tc >/dev/null 2>&1; then
-  echo "Claude Copilot machine setup is required: the Copilot cc and tc CLIs must both be available. Open ~/.claude/copilot, run /setup, open a fresh shell, then retry." >&2
+if [ -z "$CC_BIN" ]; then
+  echo "Claude Copilot machine setup is required: the Copilot cc CLI must be available. Open ~/.claude/copilot, run /setup, open a fresh shell, then retry." >&2
   exit 3
 fi
-PROJECT_ROOT="$(git rev-parse --show-toplevel)"
-REQUEST_FILE="$(mktemp -t cc-project-request.XXXXXX)"
-trap 'rm -f "$REQUEST_FILE"' EXIT
-chmod 600 "$REQUEST_FILE"
-"$CC_BIN" reconcile request --project "$PROJECT_ROOT" --output "$REQUEST_FILE"
-"$CC_BIN" reconcile plan --request "$REQUEST_FILE" --json
+"$CC_BIN" project init "$(pwd)" --json
+"$CC_BIN" doctor
 ```
 
-Explain the returned plan and any held or unverifiable state in plain language.
-Ask the user to confirm the exact plan. Stop without mutation if they decline
-or if the plan is blocked.
-
-## 2. Apply and verify
-
-Use only the fresh `plan_id` from the confirmed plan.
-
-```bash
-set -eu
-CC_BIN=""
-for CANDIDATE in "$(command -v cc 2>/dev/null || true)" "$HOME/.local/bin/cc"; do
-  if [ -n "$CANDIDATE" ] && [ -x "$CANDIDATE" ] && "$CANDIDATE" --version 2>/dev/null | grep -q '^cc version'; then
-    CC_BIN="$CANDIDATE"
-    break
-  fi
-done
-if [ -z "$CC_BIN" ] || ! command -v tc >/dev/null 2>&1; then
-  echo "Claude Copilot machine setup is required: the Copilot cc and tc CLIs must both be available. Open ~/.claude/copilot, run /setup, open a fresh shell, then retry." >&2
-  exit 3
-fi
-PROJECT_ROOT="$(git rev-parse --show-toplevel)"
-REQUEST_FILE="$(mktemp -t cc-project-request.XXXXXX)"
-trap 'rm -f "$REQUEST_FILE"' EXIT
-chmod 600 "$REQUEST_FILE"
-"$CC_BIN" reconcile request --project "$PROJECT_ROOT" --output "$REQUEST_FILE"
-"$CC_BIN" reconcile apply --request "$REQUEST_FILE" --plan-id "<PLAN_ID>" --json
-"$CC_BIN" reconcile verify --request "$REQUEST_FILE" --json
-```
-
-Report the ledger and independent verification. Success requires verified disk
-state and the generated canonical lock to agree for both selected components.
-Never run a repository-specific setup script, manually refresh a subset, or
-replace project-owned content to make an update appear successful.
+Init is idempotent: on a migrated project it reports `unchanged`. Report both results plainly. A project that still carries legacy framework copies or `copilot.lock.json` is handled by `cc project migrate`, not by this command; name it and stop. Never overwrite, reset, stash or delete the person's work.
