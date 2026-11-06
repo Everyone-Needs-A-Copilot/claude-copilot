@@ -174,3 +174,38 @@ def test_doctor_checker_reports_both_harnesses(tmp_path, monkeypatch):
     [bad] = doctor._skill_distribution_checkers(lock)
     assert bad.severity == "warn" and "Codex" in bad.detail
     assert doctor._skill_distribution_checkers(tmp_path / "none" / "x.json") == []
+
+
+def test_symlink_to_the_canonical_org_skill_is_managed_not_held(tmp_path):
+    """The owner's one-canonical-source rule: ~/.claude/skills/<name> may be a
+    link to the org layer's own checkout, and that is satisfied on both sides."""
+    org = tmp_path / "org"
+    _skill(org, "parallel-execution")
+    claude = tmp_path / ".claude" / "skills"
+    claude.mkdir(parents=True)
+    (claude / "parallel-execution").symlink_to(
+        org / "skills" / "parallel-execution", target_is_directory=True
+    )
+    report = _update(tmp_path, org)
+    assert report["held_for_approval"] == []
+    assert report["result"] != "held"
+    assert (claude / "parallel-execution").is_symlink()
+    (row,) = report["skill_distribution"]
+    assert row["action"] == "linked"
+    codex = tmp_path / ".codex" / "skills" / "parallel-execution"
+    assert codex.resolve() == (org / "skills" / "parallel-execution").resolve()
+
+
+def test_symlink_to_an_unknown_target_is_still_held(tmp_path):
+    org = tmp_path / "org"
+    _skill(org, "parallel-execution")
+    elsewhere = tmp_path / "elsewhere"
+    _skill(elsewhere, "parallel-execution")
+    claude = tmp_path / ".claude" / "skills"
+    claude.mkdir(parents=True)
+    (claude / "parallel-execution").symlink_to(
+        elsewhere / "skills" / "parallel-execution", target_is_directory=True
+    )
+    report = _update(tmp_path, org)
+    assert report["result"] == "held"
+    assert "symlink" in report["held_for_approval"][0]["reason"]

@@ -33,6 +33,7 @@ from cc.core.ecosystem.project_locking import (
 )
 from cc.core.ecosystem.project_sources import resolve_claude_content
 from cc.core.ecosystem.projects import PROJECT_LOCK_FILENAME
+from cc.core.ecosystem.reconciliation_types import OVERLAY_COMPONENTS
 
 INTEGRATION_CONTRACT_ID = "project-integration"
 INTEGRATION_CONTRACT_VERSION = "1"
@@ -470,14 +471,23 @@ def _lock_state(root: Path) -> tuple[str, dict[str, dict[str, Any]], list[Any]]:
             return "ecosystem-collision", {}, ["lock", "ecosystem-collision"]
         return "unreadable", {}, ["lock", "unsupported"]
     entries: dict[str, dict[str, Any]] = {}
+    overlays: list[str] = []
     for entry in raw["components"]:
         if not isinstance(entry, dict):
             return "unreadable", {}, ["lock", "invalid-entry"]
         component = entry.get("component")
+        if component in OVERLAY_COMPONENTS:
+            if component in overlays:
+                return "unreadable", {}, ["lock", "duplicate-or-unknown-component"]
+            overlays.append(component)
+            continue
         if component not in SUPPORTED_COMPONENTS or component in entries:
             return "unreadable", {}, ["lock", "duplicate-or-unknown-component"]
         entries[component] = entry
-    return "verified", entries, ["lock", sorted(entries)]
+    fingerprint: list[Any] = ["lock", sorted(entries)]
+    if overlays:
+        fingerprint.append({"overlays": sorted(overlays)})
+    return "verified", entries, fingerprint
 
 
 def _looks_like_ecosystem_lock(raw: Any) -> bool:

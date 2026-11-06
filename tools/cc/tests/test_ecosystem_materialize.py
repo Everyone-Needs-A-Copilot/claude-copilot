@@ -1311,3 +1311,95 @@ def test_materialize_ecosystem_config_refuses_symlinked_materialize_root(tmp_pat
     assert "protected authoring repository" in op["reason"]
     assert (authoring_repo / "ecosystem.yml").read_text(encoding="utf-8") == "org: personal-authored\n"
     assert not (tmp_path / "codex-target" / "agents").exists()
+
+
+# ---------------------------------------------------------------------------
+# Canonical symlinked skill: one source read by every copilot, never a copy
+# ---------------------------------------------------------------------------
+
+
+def _skill_fixture(tmp_path: Path, *, remote: str):
+    """A pinned layer source (mirror) plus an authoring checkout of the SAME repo
+    holding identical skill bytes, and a materialize root linking to the checkout."""
+    mirror = tmp_path / "mirror" / "claude-organization"
+    (mirror / "skills" / "parallel-execution").mkdir(parents=True)
+    (mirror / "skills" / "parallel-execution" / "SKILL.md").write_text("canonical\n", encoding="utf-8")
+    checkout = tmp_path / "claude-copilot-internal"
+    (checkout / "skills" / "parallel-execution").mkdir(parents=True)
+    (checkout / "skills" / "parallel-execution" / "SKILL.md").write_text("canonical\n", encoding="utf-8")
+    _git_init_with_remote(checkout, remote)
+    root = tmp_path / "claude-root"
+    (root / "skills").mkdir(parents=True)
+    (root / "skills" / "parallel-execution").symlink_to(
+        checkout / "skills" / "parallel-execution", target_is_directory=True
+    )
+    resolved = [
+        {
+            "product": "claude",
+            "dimension": "skills",
+            "item": "parallel-execution",
+            "winning_layer": "claude-organization",
+        }
+    ]
+    return mirror, checkout, root, resolved
+
+
+def _run_skill(mirror, root, resolved, repo="git@github-work:Org/claude-copilot-internal.git"):
+    return materialize(
+        resolved,
+        materialize_roots={"claude": root},
+        layer_source_paths={"claude-organization": mirror},
+        layer_products={"claude-organization": "claude"},
+        layer_repos={"claude-organization": repo},
+        previous_lock={},
+        policy=permissive_policy,
+    )
+
+
+def test_symlink_to_canonical_checkout_is_unchanged_not_held(tmp_path):
+    mirror, checkout, root, resolved = _skill_fixture(
+        tmp_path, remote="https://github.com/Org/claude-copilot-internal"
+    )
+    report = _run_skill(mirror, root, resolved)
+    (op,) = report["ops"]
+    assert op["op"] == "unchanged"
+    assert "canonical checkout" in op["reason"]
+    assert (root / "skills" / "parallel-execution").is_symlink()
+    assert report["lock"]["claude-organization"]["skills"]["parallel-execution"]
+
+
+def test_symlink_to_layers_own_source_path_is_unchanged(tmp_path):
+    mirror, _checkout, root, resolved = _skill_fixture(tmp_path, remote="https://example.invalid/x.git")
+    link = root / "skills" / "parallel-execution"
+    link.unlink()
+    link.symlink_to(mirror / "skills" / "parallel-execution", target_is_directory=True)
+    (op,) = _run_skill(mirror, root, resolved)["ops"]
+    assert op["op"] == "unchanged"
+
+
+def test_symlink_to_other_repository_stays_held(tmp_path):
+    mirror, checkout, root, resolved = _skill_fixture(
+        tmp_path, remote="https://github.com/Org/some-other-repo"
+    )
+    (op,) = _run_skill(mirror, root, resolved)["ops"]
+    assert op["op"] == "held"
+
+
+def test_symlink_with_drifted_content_stays_held(tmp_path):
+    mirror, checkout, root, resolved = _skill_fixture(
+        tmp_path, remote="https://github.com/Org/claude-copilot-internal"
+    )
+    (checkout / "skills" / "parallel-execution" / "SKILL.md").write_text("edited\n", encoding="utf-8")
+    (op,) = _run_skill(mirror, root, resolved)["ops"]
+    assert op["op"] == "held"
+
+
+def test_dangling_symlink_stays_held(tmp_path):
+    mirror, checkout, root, resolved = _skill_fixture(
+        tmp_path, remote="https://github.com/Org/claude-copilot-internal"
+    )
+    link = root / "skills" / "parallel-execution"
+    link.unlink()
+    link.symlink_to(tmp_path / "missing", target_is_directory=True)
+    (op,) = _run_skill(mirror, root, resolved)["ops"]
+    assert op["op"] != "unchanged"

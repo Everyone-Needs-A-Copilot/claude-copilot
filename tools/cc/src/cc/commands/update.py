@@ -353,6 +353,11 @@ def build_update_report(
     # for `verify_git_item()` to verify anything at all (security review
     # blocker 2, 2026-08-10), so an item whose layer has no resolved ref
     # here blocks rather than falling back to any other check.
+    layer_repos = {
+        layer["id"]: str((layer.get("source") or {})["repo"])
+        for layer in effective_layers
+        if (layer.get("source") or {}).get("repo")
+    }
     layer_source_refs = {
         layer["id"]: (layer.get("source") or {}).get("ref")
         for layer in effective_layers
@@ -377,6 +382,7 @@ def build_update_report(
             previous_lock=previous_lock,
             layer_source_paths=layer_source_paths,
             layer_source_refs=layer_source_refs,
+            layer_repos=layer_repos,
             layer_policies={
                 layer["id"]: layer.get("policy", {}) for layer in effective_layers
             },

@@ -19,6 +19,12 @@ from typing import Any, Mapping, NotRequired, TypedDict
 RECONCILIATION_SCHEMA_VERSION = "2.0"
 RECONCILIATION_REQUEST_SCHEMA_VERSION = "1.0"
 SUPPORTED_COMPONENTS = ("claude", "codex")
+# Lock records written by the Codex org-tier plugin installer (codex-copilot
+# scripts/update-project.sh, ORG_LOCK_COMPONENT): the organization plugin
+# overlay (e.g. codex-copilot-internal) installed beside the `codex` component.
+# cc does not assess or repair it, but it is a valid record that every lock
+# reader tolerates and every lock writer preserves verbatim.
+OVERLAY_COMPONENTS = ("codex-org",)
 
 
 class ProjectPresence(StrEnum):
@@ -323,6 +329,7 @@ __all__ = [
     "ReconciliationRequest",
     "RequestValidationError",
     "SUPPORTED_COMPONENTS",
+    "OVERLAY_COMPONENTS",
     "canonical_request_json",
     "parse_reconciliation_request",
 ]

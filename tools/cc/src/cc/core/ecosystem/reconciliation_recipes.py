@@ -42,6 +42,7 @@ from cc.core.ecosystem.project_locking import (
 )
 from cc.core.ecosystem.reconciliation_transaction import fingerprint_recipe_source
 from cc.core.ecosystem.reconciliation_types import (
+    OVERLAY_COMPONENTS,
     SUPPORTED_COMPONENTS,
     ComponentRoute,
     ProjectAssessment,
@@ -2676,6 +2677,8 @@ def _existing_lock_entries(root: Path) -> dict[str, dict[str, Any]]:
     result: dict[str, dict[str, Any]] = {}
     for entry in components:
         component = entry.get("component") if isinstance(entry, Mapping) else None
+        if component in OVERLAY_COMPONENTS:
+            continue
         if component not in SUPPORTED_COMPONENTS or component in result:
             return {}
         result[str(component)] = dict(entry)

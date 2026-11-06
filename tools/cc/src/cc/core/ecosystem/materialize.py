@@ -33,6 +33,7 @@ resolved-set semantics, not a per-layer diff).
 from __future__ import annotations
 
 import hashlib
+import re
 import shutil
 import stat
 import subprocess
@@ -234,6 +235,72 @@ def _first_symlink_escaping_root(path: Path, root: Path) -> Optional[tuple[Path,
             return candidate, target_real
 
     return None
+
+
+def _repo_identity(url: str) -> str:
+    """`owner/name` of a git remote URL, ignoring transport, host alias and .git."""
+    text = url.strip().rstrip("/")
+    if text.endswith(".git"):
+        text = text[:-4]
+    parts = [part for part in re.split(r"[:/]", text) if part]
+    return "/".join(parts[-2:]).lower()
+
+
+def _remote_origin_url(git_root: Path, *, timeout: float = 5.0) -> Optional[str]:
+    try:
+        result = subprocess.run(
+            ["git", "-C", str(git_root), "remote", "get-url", "origin"],
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+            check=False,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return None
+    return result.stdout.strip() or None if result.returncode == 0 else None
+
+
+def canonical_symlink_reason(
+    dest: Path,
+    source_child: Optional[Path],
+    candidate_sha: Optional[str],
+    layer_repo: Optional[str],
+) -> Optional[str]:
+    """Why a symlinked destination is the canonical source itself, else None.
+
+    One canonical source read by every copilot (never a drifting copy) is
+    legitimate: `dest` may be a symlink into the checkout that IS this layer's
+    source. It is satisfied only when it resolves (1) to the very path cc would
+    copy from, or (2) to the same-named item in a git checkout whose `origin`
+    is the layer's own repository AND whose bytes equal the layer's content at
+    its pinned ref. Dangling links, links to unknown places and links whose
+    content has drifted are not satisfied and keep the normal protection.
+    """
+    if source_child is None or candidate_sha is None or not dest.is_symlink():
+        return None
+    try:
+        resolved = dest.resolve(strict=True)
+        source_real = source_child.resolve(strict=True)
+    except (OSError, RuntimeError):
+        return None
+    if resolved.is_dir() != source_real.is_dir():
+        return None
+    if resolved == source_real:
+        return f"symlink to the layer's own source {resolved}"
+    if not layer_repo or resolved.name != source_real.name:
+        return None
+    git_root = _find_git_root(resolved)
+    if git_root is None:
+        return None
+    origin = _remote_origin_url(git_root)
+    if origin is None or _repo_identity(origin) != _repo_identity(layer_repo):
+        return None
+    try:
+        if _content_sha(resolved) != candidate_sha:
+            return None
+    except OSError:
+        return None
+    return f"symlink to the canonical checkout {resolved} (matches the pinned source)"
 
 
 def guard_personal_reason(
@@ -592,6 +659,7 @@ def materialize(
     previous_lock: Optional[Lockfile] = None,
     layer_source_paths: dict[str, Path | str],
     layer_source_refs: Optional[dict[str, str]] = None,
+    layer_repos: Optional[dict[str, str]] = None,
     layer_policies: Optional[dict[str, dict[str, Any]]] = None,
     layer_products: Optional[dict[str, str]] = None,
     policy: Optional[PolicyFn] = None,
@@ -659,6 +727,7 @@ def materialize(
     layer_policies = layer_policies or {}
     layer_products = layer_products or {}
     layer_source_refs = layer_source_refs or {}
+    layer_repos = layer_repos or {}
     previous_lock = previous_lock or {}
     personal_roots = list(personal_roots)
     mirror_roots = list(mirror_roots)
@@ -882,6 +951,30 @@ def materialize(
                     from_sha=prev_sha,
                     to_sha=candidate_sha,
                 )
+            )
+            continue
+
+        canonical_link = canonical_symlink_reason(
+            dest_path, source_child, candidate_sha, layer_repos.get(layer_id)
+        )
+        if canonical_link is not None:
+            ops.append(
+                _op(
+                    product=product,
+                    dimension=dimension,
+                    layer=layer_id,
+                    item=item,
+                    op="unchanged",
+                    path=dest_path,
+                    signed=True,
+                    reason=canonical_link,
+                    from_sha=prev_sha,
+                    to_sha=candidate_sha,
+                    blocked_winner=blocked_winner,
+                )
+            )
+            new_lock.setdefault(layer_id, {}).setdefault(dimension, {})[item] = (
+                candidate_sha or ""
             )
             continue
 

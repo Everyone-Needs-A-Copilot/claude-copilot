@@ -47,6 +47,7 @@ from cc.core.ecosystem.reconciliation_recipes import (
     component_lock_update_required,
 )
 from cc.core.ecosystem.reconciliation_types import (
+    OVERLAY_COMPONENTS,
     SUPPORTED_COMPONENTS,
     ComponentAssessment,
     ComponentRoute,
@@ -491,6 +492,8 @@ def _dirty_paths_are_repeat_safe(
         if not isinstance(entry, Mapping):
             return False
         component = entry.get("component")
+        if component in OVERLAY_COMPONENTS:
+            continue
         if component not in SUPPORTED_COMPONENTS or component in seen_components:
             return False
         seen_components.add(str(component))
