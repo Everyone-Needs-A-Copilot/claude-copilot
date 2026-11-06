@@ -124,16 +124,15 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" 2>/dev/null && pwd)" || SC
 SHIM_MODE="vendored"
 if [[ -n "${CLAUDE_PROJECT_DIR:-}" ]]; then
   PROJECT_DIR="$CLAUDE_PROJECT_DIR"
-  _own="$(cd "$PROJECT_DIR/.claude/hooks" 2>/dev/null && pwd -P)" || _own=""
-  _here="$(cd "$SCRIPT_DIR" 2>/dev/null && pwd -P)" || _here=""
-  if [[ "$_own" != "$_here" ]]; then SHIM_MODE="user"; fi
 else
-  PROJECT_DIR="$(dirname "$(dirname "$SCRIPT_DIR")")"
-  if [[ ! -d "$PROJECT_DIR/.claude/hooks" || "$(basename "$SCRIPT_DIR")" != "hooks" ]]; then
-    SHIM_MODE="user"
-    PROJECT_DIR="$PWD"
-  fi
+  # No harness-provided project dir: fall back to the git toplevel of $PWD
+  # (or $PWD itself) rather than assuming this file is the project's copy.
+  PROJECT_DIR="$(git -C "$PWD" rev-parse --show-toplevel 2>/dev/null || true)"
+  [[ -n "$PROJECT_DIR" ]] || PROJECT_DIR="$PWD"
 fi
+_own="$(cd "$PROJECT_DIR/.claude/hooks" 2>/dev/null && pwd -P)" || _own=""
+_here="$(cd "$SCRIPT_DIR" 2>/dev/null && pwd -P)" || _here=""
+if [[ "$_own" != "$_here" ]]; then SHIM_MODE="user"; fi
 
 # User-level gates (see header): all silent exit 0, evaluated before anything else.
 if [[ "$SHIM_MODE" == "user" ]]; then
