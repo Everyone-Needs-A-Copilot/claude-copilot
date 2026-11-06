@@ -8,6 +8,7 @@ import these names instead of spelling literals.
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
 SCHEMA_VERSION = 1
@@ -83,9 +84,26 @@ def all_component_names() -> tuple[str, ...]:
     return FRAMEWORK_COMPONENTS + overlay_component_names()
 
 
+def home_root(home: Path | str | None = None) -> Path:
+    """The user home every release path hangs off: explicit `home`, else $COPILOT_HOME's parent, else HOME.
+
+    $COPILOT_HOME names the copilot directory itself (as the `copilot` launcher reads it), so it must end
+    in `.copilot`; its parent then plays the home, which keeps `~/.claude`, `~/.codex` and the shims
+    inside the same isolated tree instead of the real one.
+    """
+    if home is not None:
+        return Path(home)
+    env = os.environ.get("COPILOT_HOME")
+    if env:
+        path = Path(env).expanduser()
+        if path.name != COPILOT_DIRNAME:
+            raise ValueError(f"COPILOT_HOME must end in {COPILOT_DIRNAME} (got {env!r}); refusing to guess a home")
+        return path.parent
+    return Path.home()
+
+
 def copilot_home(home: Path | str | None = None) -> Path:
-    base = Path(home) if home is not None else Path.home()
-    return base / COPILOT_DIRNAME
+    return home_root(home) / COPILOT_DIRNAME
 
 
 def current_path(home: Path | str | None = None) -> Path:
@@ -109,4 +127,4 @@ def links_receipt_path(home: Path | str | None = None) -> Path:
 
 
 def bin_dir(home: Path | str | None = None) -> Path:
-    return (Path(home) if home is not None else Path.home()) / BIN_RELATIVE
+    return home_root(home) / BIN_RELATIVE

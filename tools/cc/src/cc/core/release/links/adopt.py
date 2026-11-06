@@ -160,7 +160,7 @@ def _worktrees(repo: Path) -> list[Path]:
 def default_index(home: Path | str | None = None, release_dir: Path | str | None = None,
                   extra_repos: Iterable[Path | str] = ()) -> FrameworkIndex:
     """Index from what the machine records: release sources, older framework trees, lock records."""
-    base = Path(home) if home is not None else Path.home()
+    base = layout.home_root(home)
     copilot = layout.copilot_home(base)
     index = FrameworkIndex()
     repos: list[Path] = [Path(p) for p in extra_repos]
@@ -373,6 +373,42 @@ def classify(plan: LinkPlan, home: Path | str, index: FrameworkIndex) -> Adoptio
                     child.name, str(child), f"category folder shadowing {', '.join(overlap) or 'framework skills'}",
                     f"{len(bad)} file(s) not matching any framework version, e.g. {', '.join(bad[:3])}"))
     _settle_chained(base, out)
+    return out
+
+
+KEPT_DIRS = (".claude/agents", ".claude/commands", ".claude/skills", ".claude/rules", ".codex/skills")
+
+
+def inventory_kept(plan: LinkPlan, home: Path | str, accounted: Iterable[str],
+                   index: FrameworkIndex | None = None) -> list[dict[str, str]]:
+    """Every real entry left in a managed category directory that no link serves and nothing else listed.
+
+    origin: `framework-archive` (an `_archive` folder, shipped with the framework but never served),
+    `tool-managed` (dot-folders such as Codex's `.system`), `framework-copy` (matches a framework version
+    the release no longer serves), else `owner`. Nothing here is ever changed.
+    """
+    base = Path(home)
+    skip = set(accounted) | {e.link for e in plan.entries}
+    out: list[dict[str, str]] = []
+    for rel in KEPT_DIRS:
+        root = base / rel
+        if not root.is_dir() or root.is_symlink():
+            continue
+        for child in sorted(root.iterdir()):
+            link = f"{rel}/{child.name}"
+            if link in skip or child.name == ".DS_Store":
+                continue
+            if child.is_symlink() and str(_lexical_target(child)).startswith(str(layout.copilot_home(base)) + os.sep):
+                continue  # served by a release (receipt-owned or foreign link), not an owner item
+            if child.name == "_archive":
+                origin, reason = "framework-archive", "archive folder; not served by releases"
+            elif child.name.startswith("."):
+                origin, reason = "tool-managed", "managed by its own tool"
+            elif index is not None and not child.is_symlink() and _is_framework_owned(child, index):
+                origin, reason = "framework-copy", "matches a framework version this release does not serve"
+            else:
+                origin, reason = "owner", "not part of any release; left untouched"
+            out.append({"path": link, "origin": origin, "reason": reason})
     return out
 
 

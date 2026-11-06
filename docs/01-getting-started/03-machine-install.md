@@ -34,6 +34,14 @@ cc release publish
 
 This builds an immutable release under `~/.copilot/releases/<release-id>/`, verifies tier signatures, flips `~/.copilot/current` to it, links agents, commands and skills into `~/.claude` and `~/.codex`, refreshes the single Codex marketplace `enac-materialized`, runs `cc doctor --release` and appends `~/.copilot/release-history.jsonl`. If any step fails, `current` is unchanged or rolled back and the command says which step failed.
 
+### Signer fingerprints for pinned tiers
+
+Every tier pinned to a signed tag (foundation, organization and department tiers) is verified against the `policy.allowed_signers` list of its layer in `~/.config/copilot/copilot.layers.yml`. Each entry is the SSH signing-key fingerprint of an allowed signer, in the form `SHA256:<base64>` as printed by `ssh-keygen -lf <public key>`. A pinned tier with an empty or missing list cannot be verified and the build refuses it, so add the fingerprint of every key that signs release tags before running `cc release publish`. Personal tiers are live links to your own checkouts, are not signature-checked, and keep `allowed_signers: []`. Check a tag by hand with `git tag -v <tag>`; the signer it reports must match a listed fingerprint.
+
+### Isolated runs
+
+`COPILOT_HOME` names the copilot directory (it must end in `.copilot`) and applies to every `cc release` command and the `copilot` launcher; its parent plays the home, so `~/.claude`, `~/.codex` and the `~/.local/bin` shims move with it. Use it to rehearse a flip, rollback or publish without touching the real machine. A value that does not end in `.copilot` is refused before any command runs. `--home` overrides it.
+
 ## 4. Trust the Codex hooks
 
 Codex asks for trust once per hook definition, not per release. Open Codex, run `/hooks`, and trust the `codex-copilot@enac-materialized` hooks, including `codex-copilot@enac-materialized:hooks/hooks.json:pre_tool_use:1:0` (the coordinator guard). Hook definitions stay byte-identical across releases, so later releases do not ask again.

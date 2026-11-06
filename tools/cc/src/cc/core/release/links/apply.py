@@ -37,6 +37,9 @@ class ApplyReport:
     agents_sep: str | None = None
     description_chars: dict[str, int] = field(default_factory=dict)
     project_collisions: list[dict[str, str]] = field(default_factory=list)
+    personal_overrides: list[dict[str, str]] = field(default_factory=list)  # personal items that override the release
+    stale_copies: list[dict[str, str]] = field(default_factory=list)  # overlay copies of framework files; release won
+    kept: list[dict[str, str]] = field(default_factory=list)  # real entries no release serves, left untouched
 
     @property
     def ok(self) -> bool:
@@ -247,10 +250,11 @@ def apply_plan(plan: LinkPlan, home: Path | str | None = None, *, dry_run: bool 
     release. Real copies matching a historical framework version are backed up and linked; others are
     kept and listed in `report.customized`. Without it, real copies are skipped as before.
     """
-    base = Path(home) if home is not None else Path.home()
+    base = layout.home_root(home)
     report = ApplyReport(description_chars=dict(plan.description_chars),
                          project_collisions=list(plan.project_collisions))
     result = adoption.AdoptionResult()
+    index: adoption.FrameworkIndex | None = None
     if adopt:
         index = adopt if isinstance(adopt, adoption.FrameworkIndex) else adoption.default_index(
             base, layout.release_dir(plan.release_id, base))
@@ -277,6 +281,16 @@ def apply_plan(plan: LinkPlan, home: Path | str | None = None, *, dry_run: bool 
                 report.adopted.append({"path": item.path,
                                        "backup": _backup_copy(base, item.path, plan.release_id, dry_run)})
         report.customized.extend(c.as_dict() for c in result.customized)
+        report.personal_overrides = list(plan.personal_overrides)
+        report.stale_copies = list(plan.stale_copies)
+        accounted = {*owned, *(a["path"] for a in report.adopted),
+                     *(str(Path(c["path"]).relative_to(base)) for c in report.customized
+                       if Path(c["path"]).is_relative_to(base))}
+        report.kept = sorted(
+            [*adoption.inventory_kept(plan, base, accounted, index),
+             *({"path": os.path.relpath(c["path"], base) if os.path.isabs(c["path"]) else c["path"],
+                "origin": "owner", "reason": f"customized copy; shadows {c['shadows']}"} for c in report.customized)],
+            key=lambda r: r["path"])
         _remove_stale(base, owned, keep, report, dry_run)
         report.claude_md, claude_state = _apply_claude_md(base, receipt, dry_run)
         wrote_block = _apply_agents_md(base, plan, report, dry_run)
@@ -284,6 +298,8 @@ def apply_plan(plan: LinkPlan, home: Path | str | None = None, *, dry_run: bool 
             new_receipt = {
                 "schema": RECEIPT_SCHEMA, "release": plan.release_id, "links": recorded,
                 "claude_md": claude_state,
+                "personal_overrides": report.personal_overrides, "stale_copies": report.stale_copies,
+                "kept": report.kept,
                 "adopted": sorted(
                     [*({k: v for k, v in a.items()} for a in report.adopted),
                      *(row for row in receipt.get("adopted", [])
@@ -298,7 +314,7 @@ def apply_plan(plan: LinkPlan, home: Path | str | None = None, *, dry_run: bool 
 
 def remove_all(home: Path | str | None = None) -> ApplyReport:
     """Undo everything the receipt owns (links, import line, AGENTS block); owner items stay."""
-    base = Path(home) if home is not None else Path.home()
+    base = layout.home_root(home)
     report = ApplyReport()
     receipt_path = layout.links_receipt_path(base)
     receipt = _read_receipt(receipt_path)

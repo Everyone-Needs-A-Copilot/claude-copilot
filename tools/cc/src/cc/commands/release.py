@@ -18,6 +18,17 @@ from cc.core.release.engine import build, layout, pointer, prune, shims
 
 release_app = typer.Typer(help="Release pointer: immutable releases behind ~/.copilot/current.")
 
+
+
+@release_app.callback()
+def _isolation_guard() -> None:
+    """Fail before any command runs when $COPILOT_HOME cannot name a home safely."""
+    try:
+        layout.home_root()
+    except ValueError as exc:
+        _fail(str(exc))
+
+
 HomeOpt = typer.Option(None, "--home", help="Home directory (default: user home).")
 
 

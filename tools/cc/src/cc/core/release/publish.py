@@ -69,13 +69,15 @@ def control_tower_pin(app: Path | str = CONTROL_TOWER_APP, metadata: Path | str 
 
 
 def write_release_files(target: Path, *, command_skill_names: Sequence[str] = (),
-                        project_roots: Sequence[Path | str] = (), home: Path | str | None = None) -> None:
+                        project_roots: Sequence[Path | str] = (), home: Path | str | None = None,
+                        framework_repos: Sequence[Path | str] = ()) -> None:
     """Generated per-release artifacts: the Codex AGENTS block and the link plan."""
     template = target / layout.COMPONENT_CODEX / "templates" / "codex-AGENTS.framework.md"
     if template.is_file():
         text = _AGENTS_COMMENT.sub("", template.read_text(encoding="utf-8"), count=1)
         (target / layout.CODEX_AGENTS_BLOCK_NAME).write_text(text.strip("\n") + "\n", encoding="utf-8")
-    plan = build_plan(target, home, command_skill_names=command_skill_names, project_roots=project_roots)
+    plan = build_plan(target, home, command_skill_names=command_skill_names, project_roots=project_roots,
+                      framework_repos=framework_repos)
     write_plan(plan, target)
 
 
@@ -103,8 +105,8 @@ def make_post_build(home: Path | str | None = None, *, strict_frozen: bool = Tru
             write_source_markers(target, components)
             build.build_cc_venv(target, components)
         marketplace_step(target, components)
-        write_release_files(target, command_skill_names=command_skill_names,
-                            project_roots=project_roots, home=home)
+        write_release_files(target, command_skill_names=command_skill_names, project_roots=project_roots,
+                            home=home, framework_repos=[c.source for c in components if c.tier == "framework"])
     return hook
 
 
@@ -132,8 +134,12 @@ def links_check(home: Path | str | None = None) -> Callable[[Path], list[doctor.
         except (OSError, ValueError) as exc:
             return [doctor.Check("links", False, f"no links receipt: {exc}")]
         ok = receipt.get("release") == root.name
+        overrides = receipt.get("personal_overrides", [])
+        listed = ", ".join(sorted(f"{o['kind']}:{o['name']}" for o in overrides)) or "none"
         return [doctor.Check("links", ok, f"receipt {receipt.get('release')}, current {root.name}; "
-                                          f"{len(receipt.get('links', []))} links")]
+                                          f"{len(receipt.get('links', []))} links; "
+                                          f"{len(receipt.get('kept', []))} kept owner/tool items"),
+                doctor.Check("personal-overrides", True, f"{len(overrides)} personal override(s): {listed}")]
     return check
 
 
@@ -192,6 +198,8 @@ def publish(sources: Sequence[build.ComponentSource], home: Path | str | None = 
         report.links = {"created": len(applied.created), "updated": len(applied.updated),
                         "removed": len(applied.removed), "skipped": len(applied.skipped),
                         "adopted": applied.adopted, "customized": applied.customized,
+                        "personal_overrides": applied.personal_overrides, "stale_copies": applied.stale_copies,
+                        "kept": applied.kept,
                         "errors": applied.errors, "claude_md": applied.claude_md, "agents_md": applied.agents_md}
         if not applied.ok:
             raise RuntimeError("; ".join(applied.errors))

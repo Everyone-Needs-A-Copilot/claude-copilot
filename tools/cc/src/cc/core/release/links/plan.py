@@ -5,6 +5,10 @@ knowledge, with company tiers nearest first as in CC_KNOWLEDGE_REPOS):
   claude overlays (personal, department, organization), framework
   (claude-copilot), product-creation-copilot, knowledge tiers (personal,
   department, organization, foundation).
+An item in a claude overlay tier (personal, department, organization) whose files are all identical
+to some released framework version (the release's own framework trees plus the git history of the
+framework repos) is a stale copy: it never shadows the release, and is listed in `stale_copies`. A
+personal item that really differs still overrides and is listed in `personal_overrides`.
 Link targets always go through `<copilot home>/current/...`, never into a
 release directory or a worktree.
 """
@@ -36,6 +40,9 @@ FRAMEWORK_RULES_IMPORT = (
 PLAN_SCHEMA = 1
 CLAUDE, CODEX = "claude", "codex"
 _SKIP_DIRS = {"_archive", "node_modules"}
+FRAMEWORK_AGENT_FILES = ("manifest.json", "manifest.schema.json")  # framework artifacts beside the agents
+PERSONAL_SOURCES = (f"claude/{layout.TIER_PERSONAL}", f"{layout.KNOWLEDGE_PRODUCT}/{layout.TIER_PERSONAL}")
+_FRAMEWORK_TREES = (layout.COMPONENT_CLAUDE, layout.COMPONENT_CODEX, layout.COMPONENT_PRODUCT_CREATION)
 SAFE_LINK_NAME = re.compile(r"^[A-Za-z0-9_][A-Za-z0-9._-]*$")
 
 
@@ -73,6 +80,8 @@ class LinkPlan:
     description_chars: dict[str, int] = field(default_factory=dict)
     skill_counts: dict[str, int] = field(default_factory=dict)
     project_collisions: list[dict[str, str]] = field(default_factory=list)
+    stale_copies: list[dict[str, str]] = field(default_factory=list)  # overlay copies of framework files; release wins
+    personal_overrides: list[dict[str, str]] = field(default_factory=list)  # personal items that really differ
 
 
 def _iter_skill_dirs(base: Path) -> Iterable[Path]:
@@ -94,13 +103,16 @@ def _skill_info(skill_dir: Path) -> tuple[str, int]:
 
 
 class _Builder:
-    def __init__(self, release_dir: Path, home: Path | str | None, tiers: tuple[str, ...]) -> None:
+    def __init__(self, release_dir: Path, home: Path | str | None, tiers: tuple[str, ...],
+                 framework_repos: Iterable[Path | str] = ()) -> None:
         self.release = release_dir
+        self.framework_repos = [Path(p) for p in framework_repos]
+        self._index: Any = None
         self.current = layout.current_path(home)
         self.tiers = tiers
         self.plan = LinkPlan(release_id=release_dir.name)
         self.taken: dict[tuple[str, str, str], LinkEntry] = {}
-        self.home = Path(home) if home is not None else Path.home()
+        self.home = layout.home_root(home)
 
     def component_root(self, rel: str) -> Path | None:
         root = self.release / rel
@@ -111,6 +123,27 @@ class _Builder:
             return None
         return root
 
+    def framework_index(self) -> Any:
+        if self._index is None:
+            from .adopt import FrameworkIndex  # adopt imports this module
+
+            index = FrameworkIndex()
+            for comp in _FRAMEWORK_TREES:
+                index.add_tree(self.release / comp, f"release:{comp}")
+            for repo in self.framework_repos:
+                if (repo / ".git").exists():
+                    index.add_git_history(repo, f"git:{repo.name}")
+            self._index = index
+        return self._index
+
+    def is_stale_copy(self, path: Path, source: str) -> bool:
+        if not source.startswith("claude/") or source.split(" ")[0] not in (
+                f"claude/{t}" for t in OVERLAY_ORDER):
+            return False
+        from .adopt import _is_framework_owned
+
+        return _is_framework_owned(path, self.framework_index())
+
     def target_for(self, path: Path) -> str:
         return str(self.current / path.relative_to(self.release))
 
@@ -120,6 +153,9 @@ class _Builder:
             self.plan.warnings.append(f"unsafe link name rejected: {name!r} ({source}) -> {link!r}")
             return
         key = (runtime, kind, name)
+        if self.is_stale_copy(path, source.split(" ")[0]):
+            self.plan.stale_copies.append({"runtime": runtime, "kind": kind, "name": name, "source": source.split(" ")[0]})
+            return
         entry = LinkEntry(runtime, kind, name, link, target or self.target_for(path), source, chars, generated)
         winner = self.taken.get(key)
         if winner is not None:
@@ -199,7 +235,8 @@ def _plan_agents(b: _Builder) -> None:
         for item in sorted(base.iterdir()):
             if item.name in _SKIP_DIRS or item.name.startswith("."):
                 continue
-            if item.is_file() and item.suffix == ".md" or item.name == "_shared" and item.is_dir():
+            if (item.is_file() and (item.suffix == ".md" or item.name in FRAMEWORK_AGENT_FILES)
+                    or item.name == "_shared" and item.is_dir()):
                 b.add(CLAUDE, "agent", item.name, f".claude/agents/{item.name}", item, source)
 
 
@@ -244,13 +281,26 @@ def _collisions(plan: LinkPlan, project_roots: Iterable[Path]) -> None:
                         {"project": str(project), "runtime": runtime, "name": name, "tier": source})
 
 
+def _personal_overrides(plan: LinkPlan) -> list[dict[str, str]]:
+    out = []
+    for e in plan.entries:
+        if e.source.split(" ")[0] not in PERSONAL_SOURCES:
+            continue
+        shadows = next((s["shadowed"] for s in plan.shadowed if s["winner"] == e.source
+                        and (s["runtime"], s["kind"], s["name"]) == (e.runtime, e.kind, e.name)), "")
+        out.append({"runtime": e.runtime, "kind": e.kind, "name": e.name, "link": e.link,
+                    "source": e.source, "shadows": shadows})
+    return out
+
+
 def build_plan(release_dir: Path | str, home: Path | str | None = None, *,
+               framework_repos: Iterable[Path | str] = (),
                tiers: tuple[str, ...] = TIER_ORDER,
                command_skill_names: Iterable[str] = (),
                project_roots: Iterable[Path | str] = ()) -> LinkPlan:
     """Derive the link plan for one release directory (read-only)."""
     release = Path(release_dir)
-    b = _Builder(release, home, tuple(tiers))
+    b = _Builder(release, home, tuple(tiers), framework_repos)
     _plan_skills(b)
     _plan_agents(b)
     _plan_commands(b, frozenset(command_skill_names))
@@ -266,6 +316,7 @@ def build_plan(release_dir: Path | str, home: Path | str | None = None, *,
         plan.skill_counts[runtime] = len(skills)
         plan.description_chars[runtime] = sum(e.description_chars for e in skills)
     _collisions(plan, [Path(p) for p in project_roots])
+    plan.personal_overrides = _personal_overrides(plan)
     return plan
 
 
@@ -280,6 +331,8 @@ def plan_to_json(plan: LinkPlan) -> dict[str, Any]:
         "description_chars": plan.description_chars,
         "skill_counts": plan.skill_counts,
         "project_collisions": plan.project_collisions,
+        "stale_copies": plan.stale_copies,
+        "personal_overrides": plan.personal_overrides,
     }
 
 
@@ -295,6 +348,8 @@ def plan_from_json(data: dict[str, Any]) -> LinkPlan:
         description_chars=data.get("description_chars", {}),
         skill_counts=data.get("skill_counts", {}),
         project_collisions=data.get("project_collisions", []),
+        stale_copies=data.get("stale_copies", []),
+        personal_overrides=data.get("personal_overrides", []),
     )
 
 

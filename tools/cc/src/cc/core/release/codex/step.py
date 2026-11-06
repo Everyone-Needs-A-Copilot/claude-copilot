@@ -20,8 +20,13 @@ class ReleaseStepError(RuntimeError):
     """The Codex step failed; the release is a failed release (offer rollback)."""
 
 
-def default_codex_home() -> Path:
-    return Path(os.environ.get("CODEX_HOME") or Path.home() / ".codex")
+def default_codex_home(home: Path | str | None = None) -> Path:
+    """An isolated run (explicit home or $COPILOT_HOME) never inherits the ambient $CODEX_HOME."""
+    from ..engine import layout
+
+    if home is not None or os.environ.get("COPILOT_HOME"):
+        return layout.home_root(home) / ".codex"
+    return Path(os.environ.get("CODEX_HOME") or layout.home_root() / ".codex")
 
 
 def default_runner(argv: Sequence[str], env: dict[str, str]) -> "subprocess.CompletedProcess[str]":
@@ -59,7 +64,7 @@ def run(home: Path | str | None = None, codex_home: Path | str | None = None, *,
         codex_bin: str = "codex", runner: Runner = default_runner,
         prune_trust: bool = False) -> StepResult:
     """Register the marketplace once, refresh the Codex cache, verify it matches the release."""
-    codex_home = Path(codex_home) if codex_home else default_codex_home()
+    codex_home = Path(codex_home) if codex_home else default_codex_home(home)
     root = layout.current_path(home)
     try:
         receipt = marketplace.load_receipt(root.resolve())
@@ -94,7 +99,7 @@ def doctor_checks(codex_home: Path | str | None = None,
                   home: Path | str | None = None) -> Callable[[Path], list[Check]]:
     """An `engine.doctor.run(extra=[...])` hook: cache equals release, one plugin source."""
     def check(root: Path) -> list[Check]:
-        codex = Path(codex_home) if codex_home else default_codex_home()
+        codex = Path(codex_home) if codex_home else default_codex_home(home)
         try:
             receipt = marketplace.load_receipt(root)
         except marketplace.MarketplaceError as exc:

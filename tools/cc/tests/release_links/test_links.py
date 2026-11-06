@@ -65,7 +65,7 @@ def test_all_content_both_runtimes(home, release):
     # codex plugin already serves 'architecture': avoided, with a warning
     assert link_names(plan, "codex", "skill") == {"shared", "found-only", "mine"}
     assert any("architecture" in w for w in plan.warnings)
-    assert link_names(plan, "claude", "agent") == {"me.md", "_shared"}
+    assert link_names(plan, "claude", "agent") == {"me.md", "_shared", "manifest.json"}  # manifest.json: framework artifact, linked since round 4
     assert link_names(plan, "claude", "command") == {"map.md", "protocol.md"}
 
 
