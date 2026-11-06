@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 from dataclasses import dataclass, field
@@ -13,6 +14,7 @@ from cc.core.project_migrate.util import sha256_file
 
 LOCK_FILE = "copilot.lock.json"
 CODEX_LOCK_FILE = ".codex-copilot.json"
+HISTORY_FILE = Path(__file__).with_name("framework_section_history.json")
 
 
 def default_claude_root() -> Path:
@@ -81,6 +83,15 @@ class Known:
     sections: dict[str, set[str]]                    # instruction-file section key -> texts
     codex_resolved: bool = True                      # a codex-copilot root was found
     codex_hook_commands: set[str] = field(default_factory=set)  # commands in the framework's Codex hooks.json
+    section_hashes: dict[str, set[str]] = field(default_factory=dict)  # key -> sha256 of older released texts
+
+
+def _history_hashes() -> dict[str, set[str]]:
+    try:
+        data = json.loads(HISTORY_FILE.read_text(encoding="utf-8"))
+        return {str(k): {str(h) for h in v} for k, v in data.items()}
+    except (OSError, ValueError, AttributeError, TypeError):
+        return {}
 
 
 def build_known(
@@ -118,6 +129,9 @@ def build_known(
     section_sources = [claude / "templates" / "CLAUDE.template.md"]
     if codex is not None:
         section_sources.append(codex / "templates" / "AGENTS.project.template.md")
+        section_sources.append(codex / "templates" / "codex-AGENTS.framework.md")
+        # The framework block installed into ~/.codex/AGENTS.md: the one place framework text lives.
+        section_sources.append(codex.parent / "codex-AGENTS.block.md")
     sections = instructions.known_sections_from_files(section_sources)
     try:  # the historical managed blocks are marker-delimited; the current text is also known
         from cc.core.ecosystem import reconciliation_recipes as rr
@@ -130,7 +144,7 @@ def build_known(
     for k, v in (extra_sections or {}).items():
         sections.setdefault(k, set()).update(v)
     return Known(file_hashes, tree_hashes, sections, codex_resolved=codex is not None,
-                 codex_hook_commands=_codex_hook_commands(codex))
+                 codex_hook_commands=_codex_hook_commands(codex), section_hashes=_history_hashes())
 
 
 def _codex_hook_commands(codex: Optional[Path]) -> set[str]:

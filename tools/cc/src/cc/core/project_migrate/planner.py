@@ -100,12 +100,12 @@ class _Builder:
             checksum, ownership, component = lock.files[rel]
             path = _safe_rel(self.root, rel)
             if path is None:
-                self.hold(rel, "lock path escapes the project")
+                self.hold(rel, "the lock lists a path outside this project, so it was ignored")
                 continue
             if not (path.exists() or path.is_symlink()):
                 continue
             if path.is_symlink() or not path.is_file():
-                self.hold(rel, "lock-listed path is not a regular file")
+                self.hold(rel, "the lock lists this path but it is not an ordinary file, so it was left alone")
             elif ownership != "framework":
                 self.keep(rel, f"lock marks ownership={ownership}")
             elif declares_project_owner(path):
@@ -114,7 +114,7 @@ class _Builder:
                 self.act(DELETE, rel, f"framework copy, bytes match {component} lock",
                          sha=checksum)
             else:
-                self.hold(rel, f"lock-listed but modified since install ({component})")
+                self.hold(rel, f"the framework installed this file ({component}) but it has been edited since, so it was kept")
 
     def bridges(self) -> None:
         for rel, target in _BRIDGE_TARGETS.items():
@@ -169,14 +169,14 @@ class _Builder:
         data = _read_json(path)
         plugins = data.get("plugins") if isinstance(data, dict) else None
         if not isinstance(plugins, list):
-            self.hold(rel, "unreadable marketplace")
+            self.hold(rel, "this plugin list could not be read, so it was left alone")
             return
         paths = [((p.get("source") or {}).get("path") if isinstance(p, dict) else None) for p in plugins]
         framework = [p for p in paths if p in _FRAMEWORK_PLUGIN_PATHS]
         if framework and len(framework) == len(paths) and data.get("name") == "codex-copilot-project":
             self.act(DELETE, rel, "framework-only repo marketplace", sha=sha256_file(path))
         elif framework:
-            self.hold(rel, "marketplace also lists project plugins: edit by hand")
+            self.hold(rel, "this plugin list names project plugins as well as framework ones, so the file was not deleted; remove the framework entries by hand")
         else:
             self.keep(rel, "marketplace lists no framework plugin")
 
@@ -187,7 +187,7 @@ class _Builder:
         text = path.read_text(encoding="utf-8")
         new, removed, ambiguous, empty = strip_framework_hooks(text, self.lock)
         for cmd in ambiguous:
-            self.hold(SETTINGS, f"hook command resembles the framework shim but is untagged: {cmd}")
+            self.hold(SETTINGS, f"a hook that looks like the framework hook but carries no framework tag, so it was left alone: {cmd}")
         if new is None:
             self.keep(SETTINGS, "no framework hook registration" if not ambiguous else "ambiguous hooks held")
             return
@@ -222,9 +222,9 @@ class _Builder:
             try:
                 text = path.read_text(encoding="utf-8")
             except UnicodeError:
-                self.hold(name, "not valid UTF-8")
+                self.hold(name, "this file is not valid text (UTF-8), so it was left alone")
                 continue
-            res = instructions.thin_text(text, self.known.sections)
+            res = instructions.thin_text(text, self.known.sections, self.known.section_hashes)
             for key, why in res.held:
                 self.hold(f"{name}: {key}", why)
             if res.changed:
@@ -264,7 +264,7 @@ class _Builder:
                     if pack not in self.active_packs:
                         self.active_packs.append(pack)
                 else:
-                    self.hold(rel, f"broken symlink to {target}: not a pack link")
+                    self.hold(rel, f"a link whose target no longer exists ({target}); it is not a pack link, so it was left alone")
 
     def collect_active_packs(self) -> None:
         codex_lock = _read_json(self.root / CODEX_LOCK_FILE)
@@ -377,7 +377,7 @@ def plan_migration(
         affected += [".gitignore"] if b.active_packs else []
         plan.dirty = sorted({d for d in dirty if any(overlaps(d, a) for a in affected)})
         for d in plan.dirty:
-            plan.holds.append(Item(d, "uncommitted changes on a path this plan would change", "hold"))
+            plan.holds.append(Item(d, "has uncommitted changes and the migration would change it; commit or stash them, then re-run", "hold"))
     else:
         plan.notes.append("not a Git repository: recovery is the rollback manifest only")
     return plan

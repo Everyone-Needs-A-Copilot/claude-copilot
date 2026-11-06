@@ -15,6 +15,7 @@ edited framework-headed ones are reported as holds.
 
 from __future__ import annotations
 
+import hashlib
 import re
 from dataclasses import dataclass
 from pathlib import Path
@@ -101,6 +102,11 @@ def _norm(text: str) -> str:
     return text.rstrip()
 
 
+def history_digest(text: str) -> str:
+    """Hash of a section ignoring line wrapping and spacing (older releases wrapped differently)."""
+    return hashlib.sha256(" ".join(text.split()).encode()).hexdigest()
+
+
 def known_sections_from_text(text: str) -> dict[str, set[str]]:
     out: dict[str, set[str]] = {}
     for seg in split_segments(text):
@@ -132,11 +138,13 @@ class ThinResult:
     changed: bool
 
 
-def thin_text(text: str, known: dict[str, set[str]]) -> ThinResult:
+def thin_text(text: str, known: dict[str, set[str]],
+              known_hashes: Optional[dict[str, set[str]]] = None) -> ThinResult:
     segments = split_segments(text)
     kept: list[Segment] = []
     removed: list[str] = []
     held: list[tuple[str, str]] = []
+    hashes = known_hashes or {}
     for seg in segments:
         key = seg.key
         if key is None or key == "<!-- copilot:thin -->":
@@ -145,11 +153,17 @@ def thin_text(text: str, known: dict[str, set[str]]) -> ThinResult:
         if seg.managed:
             removed.append(key)
             continue
-        if key in known and _norm(seg.text) in known[key]:
+        body = _norm(seg.text)
+        if key in known and body in known[key]:
             removed.append(key)
             continue
-        if key in known:
-            held.append((key, "framework heading, text differs from every known template section"))
+        if key in hashes and history_digest(body) in hashes[key]:
+            removed.append(key)  # an older released version, unedited
+            continue
+        if key in known or key in hashes:
+            held.append((key, "framework section that was edited in this project: it matches no released "
+                              "version, so it was kept. Delete it by hand if the edits are not needed "
+                              "(framework text now lives only in the central instructions)"))
         kept.append(seg)
     if not removed:
         return ThinResult(text, [], held, False)
