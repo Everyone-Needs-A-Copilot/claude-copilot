@@ -289,7 +289,7 @@ acquire_lock() {
   while ! _budget_try_create_lock "$token"; do
     sleep 0.02
     i=$((i + 1))
-    if [[ $i -ge 10 ]]; then
+    if [[ $i -ge 150 ]]; then
       # Streak bookkeeping is optional. A timeout skips only this rule; it
       # must never terminate the dispatcher before the journey gate.
       echo "[pretool-check] force-delegate budget lock timed out; skipping budget update" >&2

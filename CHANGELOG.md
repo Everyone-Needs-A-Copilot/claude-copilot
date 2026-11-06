@@ -2,7 +2,7 @@
 
 ## [5.34.6] - 2026-11-05
 
-- **Lock readers accept the Codex org-tier overlay, and `cc update` no longer holds a canonical symlinked skill.** The `codex-org` lock entry written by the Codex setup and update scripts is a recognized component that readers tolerate and writers preserve verbatim, which unblocks projects such as convoco and insights-copilot. A skill destination symlinked to its own layer's canonical source (same path, or same-repo checkout with identical bytes at the pinned ref) is treated as managed instead of held, which fixes `parallel-execution`; other symlinks stay protected. The cc component version is unchanged.
+- **Lock readers accept the Codex org-tier overlay, and `cc update` no longer holds a canonical symlinked skill.** The `codex-org` lock entry written by the Codex setup and update scripts is a recognized component that readers tolerate and writers preserve verbatim, which unblocks projects such as convoco and insights-copilot. A skill destination symlinked to its own layer's canonical source (same path, or same-repo checkout with identical bytes at the pinned ref) is treated as managed instead of held, which fixes `parallel-execution`; other symlinks stay protected. The force-delegate budget hook now waits up to about three seconds for its state lock instead of 0.2 seconds, so concurrent same-session calls on a loaded runner no longer drop a recorded target. The cc component version is unchanged.
 
 ## [5.34.5] - 2026-11-05
 
