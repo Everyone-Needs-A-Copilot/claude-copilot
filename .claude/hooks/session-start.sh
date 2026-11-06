@@ -314,9 +314,14 @@ from pathlib import Path
 REQUIRED = ("SessionStart", "PreToolUse", "SubagentStop", "UserPromptSubmit")
 root = Path(sys.argv[1])
 
+# User, project and local settings all register hooks; the user-level shim entries
+# (~/.claude/settings.json) satisfy enforcement for a project that has none of its own.
 live = set()
-for name in ("settings.json", "settings.local.json"):
-    path = root / ".claude" / name
+for path in (
+    Path.home() / ".claude" / "settings.json",
+    root / ".claude" / "settings.json",
+    root / ".claude" / "settings.local.json",
+):
     if not path.is_file():
         continue
     try:
