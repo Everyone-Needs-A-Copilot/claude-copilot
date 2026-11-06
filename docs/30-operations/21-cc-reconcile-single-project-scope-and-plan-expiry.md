@@ -3,6 +3,8 @@
 **Diátaxis mode:** Explanation (findings and fix directions)
 
 **Status:** Open. Workaround used once; no cc source or global config changed.
+
+**Update (2026-11-06, historical):** [Central-resolution ADR-001](../40-initiatives/06-central-resolution/decisions/ADR-001-central-release-pointer.md) retires project reconcile recipes after the fleet migration. `cc project init` and `cc project migrate` do not use reconcile, so fix directions 1 (single-project census) and 6 (non-Git crash) are not applied to reconcile; init carries its own non-Git criterion and runs in seconds. Fix directions 2 to 5 are expected to become moot with the retirement and are re-checked at initiative closeout (PRD-16 parked tasks). Treat the findings below as historical.
 **Date:** 2026-11-06
 **Component:** `tools/cc` (cc 2.18.0, framework 5.34.8, snapshot `claude-copilot-e4578de8f1269d5968356008b0db535cf7ada1f2`): `cc reconcile request | plan | apply | verify`
 
