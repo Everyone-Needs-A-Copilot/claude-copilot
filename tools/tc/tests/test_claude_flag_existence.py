@@ -11,8 +11,9 @@ This test instead parses the CLI's real `--help` output and validates every
 site in this repo that constructs a `claude` command line against it:
 
   - `tc worker`'s dispatch command (tools/tc/src/tc/commands/worker.py)
-  - `/orchestrate start`'s printed `claude --bg ...` dispatch line
-    (.claude/commands/orchestrate.md)
+  - any literal `claude ...` dispatch line in the dispatch command docs
+    (.claude/commands/orchestrate.md, now a redirect to /protocol, and
+    .claude/commands/protocol.md, where parallel execution lives)
 
 There used to be a third site, `.claude/bin/discord-dispatch.sh`. It is gone --
 chat delivery moved to CLI Copilot as `copilot discord dispatch`, so this repo
@@ -47,7 +48,14 @@ from pathlib import Path
 import pytest
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
-ORCHESTRATE_MD = REPO_ROOT / ".claude/commands/orchestrate.md"
+# /orchestrate is now a deprecated redirect (parallel execution lives in
+# /protocol and dispatches through `tc worker`/`tc cycle`), so its old
+# `claude --bg` line is gone. The guard follows the dispatch surface: every
+# literal `claude ...` line in these docs must still use real flags.
+DISPATCH_DOCS = [
+    REPO_ROOT / ".claude/commands/orchestrate.md",
+    REPO_ROOT / ".claude/commands/protocol.md",
+]
 
 pytestmark = pytest.mark.skipif(
     shutil.which("claude") is None,
@@ -143,18 +151,21 @@ class TestTcWorkerDispatchFlagsAreReal:
         assert not missing, f"unknown claude flag(s) {missing}: {cmd}"
 
 
-class TestOrchestrateDispatchFlagsAreReal:
-    def test_claude_bg_line_flags_exist_in_claude_help(self):
+class TestDispatchDocsFlagsAreReal:
+    @pytest.mark.parametrize("doc", DISPATCH_DOCS, ids=lambda p: p.name)
+    def test_claude_lines_flags_exist_in_claude_help(self, doc):
         valid = _valid_claude_flags()
-        text = ORCHESTRATE_MD.read_text(encoding="utf-8")
-        claude_lines = _claude_lines_in_markdown(text)
-        assert claude_lines, (
-            "expected at least one literal `claude ...` dispatch line in "
-            "orchestrate.md's `start` section"
-        )
-        for line in claude_lines:
+        text = doc.read_text(encoding="utf-8")
+        # Zero literal lines is valid (redirect docs dispatch via tc); any
+        # line that is present must use only flags claude --help documents.
+        for line in _claude_lines_in_markdown(text):
             flags = _flag_tokens(line)
             missing = [f for f in flags if f not in valid]
             assert not missing, (
-                f"orchestrate.md uses unknown claude flag(s) {missing}: {line}"
+                f"{doc.name} uses unknown claude flag(s) {missing}: {line}"
             )
+
+    def test_orchestrate_is_a_redirect_not_a_second_dispatcher(self):
+        text = DISPATCH_DOCS[0].read_text(encoding="utf-8")
+        assert "deprecated" in text.lower()
+        assert _claude_lines_in_markdown(text) == []
