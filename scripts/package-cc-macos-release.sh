@@ -157,6 +157,10 @@ git clone --quiet --branch "${SOURCE_REF}" --single-branch \
 cloned_commit="$(git -C "${source_checkout}" rev-parse HEAD)"
 [[ "${cloned_commit}" == "${SOURCE_COMMIT}" ]] ||
     die "cloned source changed during release preparation"
+# A single-tag clone has no origin/main. Fetch that branch explicitly so the
+# unchanged verifier can prove this signed release is integrated into main.
+git -C "${source_checkout}" fetch --quiet origin \
+    refs/heads/main:refs/remotes/origin/main
 "${source_checkout}/scripts/verify-foundation-release.sh" \
     "${source_checkout}" "${SOURCE_REF}" "${SOURCE_COMMIT}"
 

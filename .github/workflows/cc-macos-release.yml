@@ -1,0 +1,135 @@
+name: cc-macos-release
+
+# The publisher explicitly dispatches this after the signed final tag reaches
+# origin through the protected PR workflow. RC tags never start a release build.
+on:
+  workflow_dispatch:
+    inputs:
+      source_ref:
+        description: Exact signed final foundation tag (vMAJOR.MINOR.PATCH)
+        required: true
+        type: string
+      source_commit:
+        description: Full commit SHA covered by that signed tag
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: cc-macos-release-${{ inputs.source_ref }}
+  cancel-in-progress: false
+
+jobs:
+  package:
+    runs-on: macos-14
+    environment: release
+    timeout-minutes: 120
+    env:
+      SOURCE_REF: ${{ inputs.source_ref }}
+      SOURCE_COMMIT: ${{ inputs.source_commit }}
+    steps:
+      - name: Check out release tooling
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          fetch-depth: 0
+
+      - name: Verify the exact integrated release source
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "$SOURCE_REF" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] || {
+            echo 'source_ref must be an exact final vMAJOR.MINOR.PATCH tag' >&2
+            exit 1
+          }
+          [[ "$SOURCE_COMMIT" =~ ^[0-9a-f]{40}$ ]] || {
+            echo 'source_commit must be a full lowercase commit SHA' >&2
+            exit 1
+          }
+          ./scripts/verify-foundation-release.sh "$PWD" "$SOURCE_REF" "$SOURCE_COMMIT"
+
+      - name: Validate release credentials
+        shell: bash
+        env:
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          CT_SIGN_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          CT_NOTARY_KEY_ID: ${{ secrets.APPLE_NOTARY_KEY_ID }}
+          CT_NOTARY_KEY_ISSUER: ${{ secrets.APPLE_NOTARY_KEY_ISSUER }}
+          APPLE_NOTARY_KEY: ${{ secrets.APPLE_NOTARY_KEY }}
+        run: |
+          set -euo pipefail
+          for required in APPLE_CERTIFICATE APPLE_CERTIFICATE_PASSWORD CT_SIGN_IDENTITY \
+            CT_NOTARY_KEY_ID CT_NOTARY_KEY_ISSUER APPLE_NOTARY_KEY; do
+            if [[ -z "${!required:-}" ]]; then
+              echo "Required release secret is not configured: $required" >&2
+              exit 1
+            fi
+          done
+
+      - name: Install the pinned build dependency
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m venv "$RUNNER_TEMP/cc-build-tools"
+          "$RUNNER_TEMP/cc-build-tools/bin/python" -m pip install 'uv==0.12.17'
+          echo "$RUNNER_TEMP/cc-build-tools/bin" >> "$GITHUB_PATH"
+
+      - name: Sign, notarize, and verify the helper
+        shell: bash
+        env:
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          CT_SIGN_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          CT_NOTARY_KEY_ID: ${{ secrets.APPLE_NOTARY_KEY_ID }}
+          CT_NOTARY_KEY_ISSUER: ${{ secrets.APPLE_NOTARY_KEY_ISSUER }}
+          APPLE_NOTARY_KEY: ${{ secrets.APPLE_NOTARY_KEY }}
+        run: |
+          set -euo pipefail
+          umask 077
+          certificate_path="$RUNNER_TEMP/cc-developer-id.p12"
+          keychain_path="$RUNNER_TEMP/cc-signing.keychain-db"
+          keychain_password="$(openssl rand -hex 32)"
+          echo "::add-mask::$keychain_password"
+          printf '%s' "$APPLE_CERTIFICATE" | base64 -D > "$certificate_path"
+          security create-keychain -p "$keychain_password" "$keychain_path"
+          security set-keychain-settings -lut 21600 "$keychain_path"
+          security unlock-keychain -p "$keychain_password" "$keychain_path"
+          security import "$certificate_path" -P "$APPLE_CERTIFICATE_PASSWORD" \
+            -t cert -f pkcs12 -k "$keychain_path" -T /usr/bin/codesign
+          security set-key-partition-list -S apple-tool:,apple:,codesign: \
+            -s -k "$keychain_password" "$keychain_path"
+          security list-keychains -d user -s "$keychain_path"
+          security find-identity -v -p codesigning "$keychain_path" |
+            grep -F -- "$CT_SIGN_IDENTITY" >/dev/null
+          export CT_NOTARY_KEY_PATH="$RUNNER_TEMP/cc-notary-key.p8"
+          printf '%s' "$APPLE_NOTARY_KEY" > "$CT_NOTARY_KEY_PATH"
+          # Validate Apple's response before downloading or freezing a toolchain.
+          xcrun notarytool history --key "$CT_NOTARY_KEY_PATH" \
+            --key-id "$CT_NOTARY_KEY_ID" --issuer "$CT_NOTARY_KEY_ISSUER" \
+            --output-format json >/dev/null
+          ./scripts/package-cc-macos-release.sh \
+            --source-ref "$SOURCE_REF" --source-commit "$SOURCE_COMMIT" \
+            --output-dir "$RUNNER_TEMP/cc-release"
+
+      - name: Preserve the verified helper and provenance
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: cc-macos-${{ inputs.source_ref }}-${{ inputs.source_commit }}
+          if-no-files-found: error
+          path: |
+            ${{ runner.temp }}/cc-release/cc
+            ${{ runner.temp }}/cc-release/cc.sha256
+            ${{ runner.temp }}/cc-release/cc-macos-universal.zip
+            ${{ runner.temp }}/cc-release/release-metadata.json
+            ${{ runner.temp }}/cc-release/notary-result.json
+            ${{ runner.temp }}/cc-release/notary-log.json
+
+      - name: Lock the disposable signing keychain
+        if: always()
+        shell: bash
+        run: |
+          if [[ -f "$RUNNER_TEMP/cc-signing.keychain-db" ]]; then
+            security lock-keychain "$RUNNER_TEMP/cc-signing.keychain-db"
+          fi
