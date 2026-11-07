@@ -42,3 +42,7 @@ Memory entries, `tc` state, project sections of `CLAUDE.md` and `AGENTS.md`, `ow
 ## Plan
 
 Tracked as PRD-16 in Task Copilot. Order: ADR and install guide, P0 Codex coordinator guard, release pointer engine, link generator, hook shim, single Codex marketplace, `cc project init` and `migrate`, first real release, independent QA, pilot on one project with a hard stop for owner review, fleet migration, retirement of copy-model code, closeout.
+
+## Preserved pre-publication reviews
+
+The four review and estimate documents in this directory record the earlier central-resolution candidate, before the final corrective release. Their blockers and predictions are historical evidence, not the current release status. The published machine runtime uses Claude 5.35.4, cc 2.19.4 and Control Tower 0.7.1; PRD-16 remains open for the separately recorded unfinished work. Live task state and QA receipts remain authoritative in tc.
