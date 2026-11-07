@@ -36,6 +36,7 @@ Memory entries, `tc` state, project sections of `CLAUDE.md` and `AGENTS.md`, `ow
 
 ## Guides
 
+- [Independent developer review brief](DEVELOPER-REVIEW.md) (candidate scope, security, efficiency, performance and evidence limits)
 - [One-time machine install](../../01-getting-started/03-machine-install.md) (how-to)
 - [Historical note on reconcile defects](../../30-operations/21-cc-reconcile-single-project-scope-and-plan-expiry.md)
 
