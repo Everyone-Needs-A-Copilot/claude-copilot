@@ -86,6 +86,14 @@ HEADING="$(git show "${COMMIT}:CHANGELOG.md" | grep -m1 -E "^## \[${VERSION//./\
 [ -n "$HEADING" ] || die "CHANGELOG.md has no '## [$VERSION]' entry at $COMMIT"
 TITLE="$(printf '%s' "$HEADING" | sed -E 's/^## \[[^]]*\][^—]*— [^—]*— ?//')"
 
+# A new release must carry accepted source evidence before creating or pushing a tag.
+# Historical already-existing tags remain immutable; this does not rewrite them.
+[[ -n "${TC_STAGE_PACKET:-}" && "${TC_STAGE_PACKET_SHA256:-}" =~ ^[0-9a-f]{64}$ ]] ||
+  die "TC_STAGE_PACKET and approved TC_STAGE_PACKET_SHA256 are required"
+"${TC_STAGE_PYTHON:-python3}" "$SCRIPT_DIR/stage-release-gate.py" \
+  --file "$TC_STAGE_PACKET" --sha256 "$TC_STAGE_PACKET_SHA256" \
+  --root "$REPO" --source-commit "$COMMIT" --phase source-ready
+
 TAG="v${VERSION}"
 CREATED=""
 if git rev-parse -q --verify "refs/tags/${TAG}" >/dev/null; then

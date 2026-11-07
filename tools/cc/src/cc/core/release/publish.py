@@ -193,7 +193,9 @@ def publish(sources: Sequence[build.ComponentSource], home: Path | str | None = 
             codex_runner: codex_step.Runner = codex_step.default_runner, codex_bin: str = "codex",
             control_tower_app: Path | str = CONTROL_TOWER_APP,
             hooks_lister: trust_gate.HooksLister = trust_gate.app_server_hooks,
-            trust_runner: codex_step.Runner | None = None) -> PublishReport:
+            trust_runner: codex_step.Runner | None = None,
+            stage_packet: Path | str | None = None,
+            stage_packet_sha256: str | None = None) -> PublishReport:
     previous = pointer.current_release_id(home)
     hint = "cc release rollback" + (f" --to {previous}" if previous else "")
     try:
@@ -215,6 +217,14 @@ def publish(sources: Sequence[build.ComponentSource], home: Path | str | None = 
                            f"{manifest.release_id} is inert)", step="trust-gate", restored=True,
                            rollback_hint=hint) from exc
     report.trust = gate.to_json()
+    # Bind the complete verified composition before any live pointer mutation.
+    from .stage_gate import require_activation
+    try:
+        require_activation(layout.release_dir(manifest.release_id, home),
+                           packet=stage_packet, packet_sha256=stage_packet_sha256)
+    except Exception as exc:
+        raise PublishError(f"stage-gate failed: {exc}; built release is inert",
+                           step="stage-gate", restored=True, rollback_hint=hint) from exc
     step = "flip"
     config_changed = False
 

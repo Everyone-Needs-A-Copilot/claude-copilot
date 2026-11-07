@@ -85,9 +85,7 @@ STALE_SECONDS=259200  # 72 hours
 # ---------------------------------------------------------------------------
 # Escape hatch
 # ---------------------------------------------------------------------------
-if [[ "${COPILOT_QA_GATE:-}" == "off" ]]; then
-  exit 0
-fi
+# QA cache opt-out is applied after the independent native observation below.
 
 # ---------------------------------------------------------------------------
 # Read hook payload from stdin
@@ -101,6 +99,29 @@ fi
 SESSION_ID="$(printf '%s' "$PAYLOAD" | "$JQ" -r '.session_id // ""' 2>/dev/null || echo "")"
 AGENT_TYPE="$(printf '%s' "$PAYLOAD" | "$JQ" -r '.agent_type // ""' 2>/dev/null || echo "")"
 LAST_MSG="$(printf '%s' "$PAYLOAD" | "$JQ" -r '.last_assistant_message // ""' 2>/dev/null || echo "")"
+
+# Preserve a bounded native lifecycle observation for every actual stop event.
+# No final-message parser may synthesize worker identity, a lease or acceptance.
+# The coordinator reconciles this observation with its recorded native-started ID.
+NATIVE_ID="$(printf '%s' "$PAYLOAD" | "$JQ" -r 'if (.agent_id | type) == "string" and (.agent_id | test("^[A-Za-z0-9._-]{1,256}$")) then .agent_id else "" end' 2>/dev/null)"
+if [[ -n "$NATIVE_ID" ]]; then
+  observation_dir="${STATE_DIR}/native-observations"
+  if mkdir -p "$observation_dir"; then
+    observation="$(mktemp "${observation_dir}/stop.XXXXXXXX")"
+    if [[ -n "$observation" ]]; then
+      chmod 600 "$observation"
+      "$JQ" -cn --arg nativeId "$NATIVE_ID" --arg sessionId "$SESSION_ID" \
+        --arg role "$AGENT_TYPE" --arg observedAt "$(date -u +%FT%TZ)" \
+        '{schemaVersion:1,event:"native-stop-observed",nativeId:$nativeId,sessionId:$sessionId,role:$role,observedAt:$observedAt,assurance:"hook-observed",accepted:false}' > "$observation"
+    fi
+  fi
+else
+  echo "[stage-native] stop payload has no native agent_id; coordinator status reconciliation is required" >&2
+fi
+if [[ "${COPILOT_QA_GATE:-}" == "off" ]]; then
+  exit 0
+fi
+
 
 # ---------------------------------------------------------------------------
 # Design-stage unknowns check (R2 — "restore asking")

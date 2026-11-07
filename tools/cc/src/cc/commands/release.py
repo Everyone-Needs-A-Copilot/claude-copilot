@@ -15,6 +15,7 @@ import typer
 
 from cc.core.release import publish as publisher
 from cc.core.release.engine import build, layout, pointer, prune, shims
+from cc.core.release.stage_gate import require_activation
 
 release_app = typer.Typer(help="Release pointer: immutable releases behind ~/.copilot/current.")
 
@@ -41,6 +42,26 @@ def _fail(message: str) -> None:
     raise typer.Exit(1)
 
 
+@release_app.command("verify-stage")
+def verify_stage_cmd(
+    file: Path = typer.Option(..., "--file"),
+    sha256: str = typer.Option(..., "--sha256"),
+    root: Path = typer.Option(..., "--root"),
+    phase: str = typer.Option(..., "--phase"),
+    source_commit: str = typer.Option(..., "--source-commit"),
+) -> None:
+    """Verify an exported stage packet offline using the bundled shared tc authority."""
+    try:
+        from tc.services.cycle_stages import verify_packet
+        result = verify_packet(file=file, sha256=sha256, root=root, phase=phase,
+                               source_commit=source_commit)
+        if not isinstance(result, dict) or result.get("approved") is not True:
+            raise ValueError("stage service did not approve the candidate")
+    except Exception as exc:
+        _fail(f"stage verification failed: {exc}")
+    _emit(result)
+
+
 @release_app.command("build")
 def build_cmd(
     pins: Path = typer.Option(..., "--pins", help="JSON file of framework component pins."),
@@ -49,6 +70,8 @@ def build_cmd(
     ),
     home: Optional[Path] = HomeOpt,
     flip_after: bool = typer.Option(False, "--flip", help="Flip current to the new release."),
+    stage_packet: Optional[Path] = typer.Option(None, "--stage-packet"),
+    stage_packet_sha256: Optional[str] = typer.Option(None, "--stage-packet-sha256"),
 ) -> None:
     """Build a release from signed tags; current changes only with --flip."""
     import yaml
@@ -62,14 +85,25 @@ def build_cmd(
     except (build.ReleaseBuildError, OSError, ValueError) as exc:
         _fail(f"release build failed: {exc}")
     if flip_after:
+        try:
+            require_activation(layout.release_dir(manifest.release_id, home),
+                               packet=stage_packet, packet_sha256=stage_packet_sha256)
+        except (OSError, ValueError) as exc:
+            _fail(f"activation stage refused: {exc}")
         pointer.flip(manifest.release_id, home, reason="build --flip", on_moved=publisher.relink(home))
     _emit({"release": manifest.release_id, "flipped": flip_after})
 
 
 @release_app.command("flip")
-def flip_cmd(release_id: str, home: Optional[Path] = HomeOpt, reason: str = "") -> None:
+def flip_cmd(
+    release_id: str, home: Optional[Path] = HomeOpt, reason: str = "",
+    stage_packet: Optional[Path] = typer.Option(None, "--stage-packet"),
+    stage_packet_sha256: Optional[str] = typer.Option(None, "--stage-packet-sha256"),
+) -> None:
     """Atomically point current at RELEASE_ID."""
     try:
+        require_activation(layout.release_dir(release_id, home), packet=stage_packet,
+                           packet_sha256=stage_packet_sha256)
         _emit(pointer.flip(release_id, home, reason=reason, on_moved=publisher.relink(home)))
     except Exception as exc:
         _fail(f"flip failed: {exc}")
@@ -149,6 +183,8 @@ def publish_cmd(
     codex_home: Optional[Path] = typer.Option(None, "--codex-home"),
     retrust: list[str] = typer.Option([], "--retrust", help="Plugin whose Codex content trust may reset."),
     no_strict_frozen: bool = typer.Option(False, "--no-strict-frozen", help="Allow plugin directory changes (resets Codex trust)."),
+    stage_packet: Optional[Path] = typer.Option(None, "--stage-packet"),
+    stage_packet_sha256: Optional[str] = typer.Option(None, "--stage-packet-sha256"),
 ) -> None:
     """Build, flip, link, refresh the Codex marketplace, run doctor, record history; restore on failure."""
     import yaml
@@ -159,7 +195,8 @@ def publish_cmd(
             json.loads(pins.read_text(encoding="utf-8")),
         )
         report = publisher.publish(sources, home, codex_home, strict_frozen=not no_strict_frozen,
-                                   retrust=retrust)
+                                   retrust=retrust, stage_packet=stage_packet,
+                                   stage_packet_sha256=stage_packet_sha256)
     except publisher.PublishError as exc:
         typer.echo(f"release publish failed at {exc.step}: {exc}", err=True)
         typer.echo(("previous state restored; " if exc.restored else "RESTORE INCOMPLETE; ")
