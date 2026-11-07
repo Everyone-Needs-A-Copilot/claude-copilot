@@ -1634,8 +1634,23 @@ def resolve_knowledge_skill_sources(
                 raise KnowledgeSkillSourceError(
                     "The effective Knowledge layer lacks immutable source provenance."
                 )
-            verified = verify_git_item_provenance(
-                repo, KNOWLEDGE_SKILLS_SUBPATH, signers, ref=ref
+            from cc.core.ecosystem.knowledge_release_source import (
+                KnowledgeReleaseSourceError,
+                resolve_current_knowledge_release,
+            )
+
+            try:
+                released = resolve_current_knowledge_release(
+                    repo, layer, signers, KNOWLEDGE_SKILLS_SUBPATH
+                )
+            except KnowledgeReleaseSourceError as exc:
+                raise KnowledgeSkillSourceError(str(exc)) from exc
+            verified = (
+                released[0]
+                if released is not None
+                else verify_git_item_provenance(
+                    repo, KNOWLEDGE_SKILLS_SUBPATH, signers, ref=ref
+                )
             )
             if verified is None:
                 raise KnowledgeSkillSourceError(
@@ -1646,11 +1661,17 @@ def resolve_knowledge_skill_sources(
                 raise KnowledgeSkillSourceError(
                     "The effective Knowledge checkout has the wrong repository origin."
                 )
-            if _has_ignored_additions(repository_root, verified.relative_path):
+            if released is None and _has_ignored_additions(
+                repository_root, verified.relative_path
+            ):
                 raise KnowledgeSkillSourceError(
                     "The effective Knowledge skills contain ignored local additions."
                 )
-            snapshot = read_git_tree_snapshot(repository_root, verified.tree)
+            snapshot = (
+                released[1]
+                if released is not None
+                else read_git_tree_snapshot(repository_root, verified.tree)
+            )
             if snapshot is None:
                 raise KnowledgeSkillSourceError(
                     "The signed Knowledge skill tree contains an unsafe Git object."
