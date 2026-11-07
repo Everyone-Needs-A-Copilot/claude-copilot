@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import re
 import shutil
 import stat
 import subprocess
@@ -217,6 +218,24 @@ def claude_tool_calls(events: list) -> list[dict]:
     return calls
 
 
+def _disable_user_prompt_hooks(text: str) -> str:
+    """Set enabled = false in every [hooks.state."...:user_prompt_submit:..."] table (other hook states untouched)."""
+    out, in_ups, seen = [], False, False
+    for line in text.splitlines(keepends=True):
+        st = line.strip()
+        if st.startswith("["):
+            if in_ups and not seen:
+                out.append("enabled = false\n")
+            in_ups = st.startswith("[hooks.state.") and ":user_prompt_submit:" in st
+            seen = False
+        elif in_ups and re.match(r"enabled\s*=", st):
+            line, seen = "enabled = false\n", True
+        out.append(line)
+    if in_ups and not seen:
+        out.append("enabled = false\n")
+    return "".join(out)
+
+
 def codex_run(rep, cwd: Path, prompt: str, *, obs: Path | None = None, without_agents_md: bool = False) -> dict:
     """Headless `codex exec` in the replica: default approval/sandbox from config, never the bypass flag.
     without_agents_md: hide the replica CODEX_HOME/AGENTS.md for this one run only (restored in finally), so the model
@@ -226,14 +245,24 @@ def codex_run(rep, cwd: Path, prompt: str, *, obs: Path | None = None, without_a
     ag = rep.codex_home / "AGENTS.md"
     hidden = ag.with_name("AGENTS.md.cracc-hidden")
     moved = False
+    cfg = rep.codex_home / "config.toml"
+    cfg_orig = None
     if without_agents_md and ag.exists():
         ag.rename(hidden)
         moved = True
+    if without_agents_md and cfg.exists():
+        # The UserPromptSubmit hook injects the coordinator rule as a developer message, which makes the model refuse every
+        # command even with AGENTS.md hidden. Disable only the user_prompt_submit hook state(s) for this run; the
+        # PreToolUse guard (the thing under test) stays enabled.
+        cfg_orig = cfg.read_bytes()
+        cfg.write_text(_disable_user_prompt_hooks(cfg_orig.decode()))
     try:
         r = run(cmd, env=env, cwd=cwd, timeout=RUNTIME_TIMEOUT)
     finally:
         if moved:
             hidden.rename(ag)
+        if cfg_orig is not None:
+            cfg.write_bytes(cfg_orig)
     items = []
     for line in r.out.splitlines():
         try:
