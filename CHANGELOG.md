@@ -1,5 +1,10 @@
 # Changelog
 
+## Unreleased
+
+- Integrate PR #156: keep empty-step process/reference notes out of UI specification text; preserve superseding authorization behavior already present in the current release. Current release versions remain unchanged.
+
+
 ## [5.35.4] - 2026-11-07
 
 - Preserve every authenticated foundation, organization and department row through onboarding, shared refresh and consumer setup. Unknown settings and unverified pins require review; explicit department ranks determine order, and linked Git worktrees are recognized. The central Codex marketplace is verified in place with its complete plugin inventory instead of being rewritten as a foundation-only marketplace.
