@@ -168,11 +168,10 @@ fi
 rm -f "$MATCHER_TOOLS_FILE" "$SCRIPT_TOOLS_FILE" "$PAIRS_FILE" "$FUNC_STARTS_FILE" "$UNREACHABLE_FILE" "$EXTRA_FILE"
 
 # ---------------------------------------------------------------------------
-# 5. Item 1's shim path: `cc settings-hook add` / `_claude_setup()` register
-#    a SEPARATE copy of this same matcher string (mutations.py's
-#    DEFAULT_HOOK_ENTRIES) into every consuming project's own
-#    settings.json, via the vendored copilot-hook.sh shim rather than a
-#    direct pretool-check.sh path. This static check proves invariants 3/4
+# 5. Item 1's shim path: `cc settings-hook user-add` registers a SEPARATE copy of
+#    this same matcher string (mutations.py's _USER_EVENTS) once in the user's
+#    ~/.claude/settings.json (projects no longer carry their own registration), via
+#    the copilot-hook.sh shim rather than a direct pretool-check.sh path. This static check proves invariants 3/4
 #    above ONLY for THIS repo's own settings.json — the whole point of the
 #    shim is that a project's registered matcher is a byte-for-byte COPY of
 #    that string, not independently re-derived. If the two ever drift, a
@@ -187,11 +186,11 @@ if [[ ! -f "$MUTATIONS_FILE" ]]; then
 else
   SHIM_MATCHER="$(grep -A1 '"PreToolUse"' "$MUTATIONS_FILE" | grep -oE '"[A-Za-z|]+"' | sed -n '2p' | tr -d '"')"
   if [[ -z "$SHIM_MATCHER" ]]; then
-    fail "could not extract DEFAULT_HOOK_ENTRIES' PreToolUse matcher from $MUTATIONS_FILE"
+    fail "could not extract _USER_EVENTS' PreToolUse matcher from $MUTATIONS_FILE"
   elif [[ "$SHIM_MATCHER" == "$MATCHER_RAW" ]]; then
-    ok "DEFAULT_HOOK_ENTRIES' PreToolUse matcher (\"$SHIM_MATCHER\") matches this repo's own registered matcher — the shim path inherits the same coverage proven above"
+    ok "_USER_EVENTS' PreToolUse matcher (\"$SHIM_MATCHER\") matches this repo's own registered matcher — the shim path inherits the same coverage proven above"
   else
-    fail "DEFAULT_HOOK_ENTRIES' PreToolUse matcher (\"$SHIM_MATCHER\") in $MUTATIONS_FILE has drifted from this repo's registered matcher (\"$MATCHER_RAW\") in $SETTINGS_FILE — every project registered via the shim would get the DRIFTED matcher, not the one this test just verified"
+    fail "_USER_EVENTS' PreToolUse matcher (\"$SHIM_MATCHER\") in $MUTATIONS_FILE has drifted from this repo's registered matcher (\"$MATCHER_RAW\") in $SETTINGS_FILE — every project registered via the shim would get the DRIFTED matcher, not the one this test just verified"
   fi
 fi
 

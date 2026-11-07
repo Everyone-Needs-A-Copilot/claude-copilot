@@ -40,9 +40,9 @@ def _runtime_observations(project: Path) -> dict:
         directories = [project / "plugins/codex-copilot/hooks", project / ".claude/hooks"]
         if not all(_safe_path(project, path, directory=True) for path in directories):
             raise ValueError("unsafe runtime observation directory")
-        paths = [project / name for name in ("AGENTS.md", "CLAUDE.md", "copilot.lock.json",
+        paths = [project / name for name in ("AGENTS.md", "CLAUDE.md",
                  ".claude/settings.json", ".claude/settings.local.json", ".codex/config.toml",
-                 ".codex-copilot.json", "plugins/codex-copilot/hooks/hooks.json")]
+                 "plugins/codex-copilot/hooks/hooks.json")]
         paths += [path for directory in directories for path in directory.glob("*.sh")]
         if not all(_safe_path(project, path) for path in paths):
             raise ValueError("unsafe runtime observation file")

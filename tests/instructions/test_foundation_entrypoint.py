@@ -1,13 +1,8 @@
 """Discoverable disposable canonical setup and shared verification boundary."""
-import importlib.util
 import json
-import os
 from pathlib import Path
-import shutil
 import subprocess
 import sys
-
-import pytest
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -15,60 +10,24 @@ ROOT = Path(__file__).resolve().parents[2]
 
 def test_entry_guide_names_existing_operations_and_explicit_limits():
     guide = (ROOT / 'docs/30-operations/16-foundation-entrypoint.md').read_text()
-    for term in ('/setup-project', '/protocol', 'cc reconcile plan', 'cc reconcile verify',
+    for term in ('/setup-project', '/protocol', 'cc project init', 'cc doctor', 'is retired',
                  'cc verify plan', 'cc verify run', 'cc verify status', 'tc',
                  'partial profile is retired', 'does **not** invent', 'source-bound QA'):
         assert term in guide
 
 
-def test_canonical_consumer_setup_then_shared_verification(tmp_path, monkeypatch):
-    # Reuse existing safe source/assessment fixtures; production transaction is real.
-    spec = importlib.util.spec_from_file_location(
-        'entrypoint_canonical_fixture', ROOT / 'tools/cc/tests/test_canonical_project_transaction.py')
-    fixture = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(fixture)
-    claude, codex, _ = fixture._reference_sources(tmp_path)
-    native = Path(os.environ.get('CODEX_COPILOT_TEST_ROOT', ROOT.parent / 'codex-copilot'))
-    if not (native / 'plugins/codex-copilot/skills/specialist-agents/references/verification-policy.md').is_file():
-        pytest.skip('current native Codex source unavailable; set CODEX_COPILOT_TEST_ROOT explicitly')
-    # Stage actual reviewed adapters in disposable public-source roots. This does
-    # not use Claude's vendored plugin or claim a signed/global installation.
-    for directory in ('.claude/agents', '.claude/commands', '.claude/skills/cleanup'):
-        shutil.copytree(ROOT / directory, claude / directory, dirs_exist_ok=True)
-    for relative in ('VERSION.json', '.claude/fitness-check.sh', '.claude/hooks/copilot-hook.sh'):
-        shutil.copy2(ROOT / relative, claude / relative)
-    shutil.copytree(native / 'plugins/codex-copilot', codex / 'plugins/codex-copilot', dirs_exist_ok=True)
-    shutil.copy2(native / 'scripts/copilot-gate.sh', codex / 'scripts/copilot-gate.sh')
-    fixture._configure_sources(monkeypatch, claude, codex)
-    # No optional signed-layer manifest in this local native-source fixture;
-    # otherwise a developer's configured mirror can override the staged source.
-    monkeypatch.setattr(fixture.codex_plugin_source, 'resolve_key', lambda _key: None)
-    authority = tmp_path / 'projects'
-    project = fixture._git_project(authority)
+def test_shared_verification_on_a_project_authored_manifest(tmp_path):
+    """Old expectation: the test first ran the plan/apply/verify copy transaction (`cc reconcile`),
+    asserted the framework files, shared verification policy and agents were copied into the project,
+    then ran `cc verify`. New expectation: nothing is copied into a project (central resolution), so
+    the setup half is gone and `cc verify` runs against a plain project with its own authored check."""
+    project = tmp_path / 'projects' / 'fixture'
+    project.mkdir(parents=True)
+    subprocess.run(['git', 'init', '-q'], cwd=project, check=True)
     owner = project / 'owner.txt'
     owner.write_text('project-owned content\n')
-    subprocess.run(['git', 'add', 'owner.txt'], cwd=project, check=True)
-    subprocess.run(['git', '-c', 'commit.gpgsign=false', 'commit', '-qm', 'fixture owner'],
-                   cwd=project, check=True)
-    request = fixture.build_canonical_project_request(project, approved_roots=(authority,))
-    state = tmp_path / 'state'
-    options = dict(machine_builder=lambda: fixture._machine(authority.resolve()),
-                   census_builder=fixture._census(project, authority.resolve()))
-    plan = fixture.build_plan_report(request, **options,
-                                    plan_issuer=lambda **kw: fixture.issue_plan(**kw, root=state))
-    assert plan['result'] == 'action-required'
-    assert fixture.build_apply_report(request, plan['plan_id'], **options,
-                                      state_root=state)['result'] == 'applied'
-    assert fixture.build_verify_report(request, **options)['result'] == 'ready'
-    assert owner.read_text() == 'project-owned content\n'
-    for relative in ('CLAUDE.md', 'AGENTS.md', '.claude/hooks/copilot-hook.sh',
-                     'plugins/codex-copilot/.codex-plugin/plugin.json', 'scripts/copilot-gate.sh'):
-        assert (project / relative).is_file(), relative
-    for role in ('me', 'qa'):
-        assert (project / f'.claude/agents/{role}.md').read_bytes() == (ROOT / f'.claude/agents/{role}.md').read_bytes()
-    policy = 'plugins/codex-copilot/skills/specialist-agents/references/verification-policy.md'
-    assert (project / policy).read_bytes() == (native / policy).read_bytes()
-    assert '### Fixed finish line' in (project / policy).read_text()
+    (project / 'CLAUDE.md').write_text('# project\n')
+    (project / 'AGENTS.md').write_text('# project\n')
 
     # Project-authored check and manifest, never an installer-generated fake test.
     (project / 'check.py').write_text(

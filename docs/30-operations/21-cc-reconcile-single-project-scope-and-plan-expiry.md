@@ -2,7 +2,7 @@
 
 **Diátaxis mode:** Explanation (findings and fix directions)
 
-**Status:** Open. Workaround used once; no cc source or global config changed.
+**Status:** Moot. `cc reconcile` and the project recipe engine it described were removed in the retire-copy-model task (PRD-16 task 211); every `cc reconcile` subcommand now refuses and points at `cc project init` and `cc release`. Kept as a historical record.
 
 **Update (2026-11-06, historical):** [Central-resolution ADR-001](../40-initiatives/06-central-resolution/decisions/ADR-001-central-release-pointer.md) retires project reconcile recipes after the fleet migration. `cc project init` and `cc project migrate` do not use reconcile, so fix directions 1 (single-project census) and 6 (non-Git crash) are not applied to reconcile; init carries its own non-Git criterion and runs in seconds. Fix directions 2 to 5 are expected to become moot with the retirement and are re-checked at initiative closeout (PRD-16 parked tasks). Treat the findings below as historical.
 **Date:** 2026-11-06

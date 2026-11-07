@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # test-shim-e2e.sh — End-to-end proof for item 1 (enforcement travels):
 # a scratch project, vendored ONLY with the shim (no rule scripts, no
-# security-rules.json, nothing else), registered via `cc settings-hook add`
+# security-rules.json, nothing else), registered as the legacy per-project shim (the retired `cc settings-hook add`)
 # against THIS machine's real global install, must actually block a direct
 # Edit under an active /freeze -- the exact case that cannot fire today in
 # any of the 46 projects with materialized agents but no wired hooks.

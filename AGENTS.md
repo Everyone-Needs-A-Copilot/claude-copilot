@@ -28,7 +28,7 @@
 ## Codex Copilot
 
 - Use relevant skills exposed in this session. `$protocol` and specialist names are shorthand, not shell commands or requests to spawn agents. Read only task-relevant skills/references.
-- Start with `$protocol` unless the specialist is obvious; use `$launcher` when routing is unclear. Apply playbooks locally; if unavailable in the session, inspect `plugins/codex-copilot/skills/<name>/SKILL.md`. Report missing capabilities.
+- Start with `$protocol` unless the specialist is obvious; use `$launcher` when routing is unclear. Apply playbooks locally; if unavailable in the session, inspect `~/.copilot/current/codex-copilot/plugins/codex-copilot/skills/<name>/SKILL.md`. Report missing capabilities.
 
 ## Output Contract
 
@@ -50,12 +50,12 @@
 ## Knowledge and Optional Context
 
 - For brand, voice, product, or methodology knowledge, hydrate `cc env`; follow project consumption-contract pointers through comma-separated `CC_KNOWLEDGE_REPOS`, nearest tier first, reading the first matching sub-path. Never use singular `CC_KNOWLEDGE_REPO` for sub-path lookup. Report missing sources; never invent company facts.
-- Before `cc skill select`, read `plugins/codex-copilot/skills/specialist-agents/references/shared-behaviors.md`, section `Optional Context`. Follow its load-once, receipt, and fallback rules; mandatory instructions are never relevance-filtered.
+- Before `cc skill select`, read `~/.copilot/current/codex-copilot/plugins/codex-copilot/skills/specialist-agents/references/shared-behaviors.md`, section `Optional Context`. Follow its load-once, receipt, and fallback rules; mandatory instructions are never relevance-filtered.
 
 ## Task Management
 
 - Track substantial work in `tc` PRDs/tasks and store detailed work products there; create missing records. Use `cc memory` for durable decisions and lessons.
-- Prefer `tc`, then `./.venv-tc/bin/tc`; use `--json` where supported. Read `plugins/codex-copilot/skills/task-copilot/SKILL.md` when managing tasks.
+- Prefer `tc`, then `./.venv-tc/bin/tc`; use `--json` where supported. Read `~/.copilot/current/codex-copilot/plugins/codex-copilot/skills/task-copilot/SKILL.md` when managing tasks.
 - Batch three or more related operations using `tc.api`, or separately `cc.api`, with a verified interpreter. Never mix these APIs in one process.
 - Formal initiatives belong in `docs/40-initiatives/NN-slug/`, indexed in `docs/40-initiatives/README.md`. Start with one maintained `README.md`; create supporting files only when current work needs them. Consolidate completed work into that README while retaining required original evidence separately. Markdown holds durable rationale/evidence; `tc` owns live state. Never create `docs/initiatives/`.
 
@@ -65,7 +65,7 @@
 - `$me` stores implementation evidence; `$qa` verifies it. Read their installed evidence contracts for those tasks.
 - Capture `tc task evidence-identity <id>` before and after checks, preserve the exact `IDENTITY:` line, and rerun affected checks if the tested content changes.
 - Store a task-bound `test` work product with matching `CRITERION:` / `EXPECTED:`, actual observations, inspectable `ARTIFACT:` evidence, untested scope, and one `VERDICT:`. Missing required behavior, bare markers, or stale evidence cannot support approval.
-- Before completion, run `tc task check-qa <id> --json` and the setup-installed `scripts/copilot-gate.sh --task <id>`. Never remove `requiresQa` to bypass QA; installed hooks alone prove neither enforcement nor approval.
+- Before completion, run `tc task check-qa <id> --json` and `scripts/copilot-gate.sh --task <id>` (in this repo, or under `~/.copilot/current/claude-copilot/scripts/`). Never remove `requiresQa` to bypass QA; installed hooks alone prove neither enforcement nor approval.
 
 ## Protocol-native parallel execution
 

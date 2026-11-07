@@ -32,10 +32,8 @@ wrapper exists. Until then, `cc doctor` IS the doctor verb.
 from __future__ import annotations
 
 import fcntl
-import json
 import os
 import socket
-import subprocess
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
@@ -256,261 +254,6 @@ def _run_checks(
                                 detail="Project secrets.env is gitignored.",
                             )
                         )
-
-    return checkers
-
-
-# ---------------------------------------------------------------------------
-# item 1 (enforcement travels): "a project should be able to report whether
-# its enforcement is actually live (not merely registered)". Two DISTINCT
-# checkers, deliberately not folded into one, because "registered" and
-# "live" are different failure modes with different repairs:
-#   - hooks-registered-in-project: static -- does this project's OWN
-#     settings + lock even claim the shim is wired? (a project that never
-#     ran `cc reconcile apply` / `cc settings-hook add` reports this.)
-#   - hooks-enforcement-live: dynamic -- does invoking the vendored shim,
-#     RIGHT NOW, on THIS machine, actually resolve to a global install and
-#     run it? (a project that IS registered but whose machine's global
-#     install went missing/broken reports this -- the exact silent-absence
-#     failure mode item 1 exists to make visible.)
-# Both are silently OMITTED (not "pass", not present at all) for a project
-# that never selected the "claude" component -- matches this file's own
-# established convention (auth entries emit nothing for "never signed in",
-# never a fabricated pass/fail) of "not applicable" being "no entry", not
-# a checker in either direction.
-# ---------------------------------------------------------------------------
-
-
-# The instruction layer, as a project would carry it. Presence of ANY of these
-# means Claude Code is reading this framework's instructions in this project.
-INSTRUCTION_LAYER_MARKERS = (
-    "CLAUDE.md",
-    ".claude/agents",
-    ".claude/commands",
-    ".claude/skills",
-)
-
-
-def _instruction_layer_present(project_path: Path) -> list[str]:
-    """Which instruction-layer markers this project actually carries."""
-    return [m for m in INSTRUCTION_LAYER_MARKERS if (project_path / m).exists()]
-
-
-def _unenforced_instruction_layer_checker(
-    project_path: Path, markers: list[str], reason: str
-) -> Checker:
-    """The one state this whole function exists to stop being silent about.
-
-    A project with the instruction layer and no registered enforcement does not
-    behave like a broken framework. It behaves like vanilla Claude Code that
-    happens to have some markdown in it: agents are available but never
-    mandatory, `protocol-injection.md` never reaches the session, and delegation
-    depends entirely on the operator typing `/protocol`. Everything reports
-    success, because from each individual check's point of view nothing is wrong.
-
-    A benchmark of this framework measured that state for 300+ runs and
-    attributed the result to the framework's design. Registering the four hook
-    events on the identical arm, model and task took delegation from 0 subagents
-    to 3 in a session whose prompt never said `/protocol`, and cut tokens 44% and
-    turns 34%. The framework was not being out-performed; it was not running.
-
-    So this is a `fail`, not a warning, and it is emitted from the branches that
-    previously returned no checkers at all -- an unreadable lock, or a lock with
-    no `claude` component, used to mean "nothing to check here" when it in fact
-    means "the evidence that enforcement is wired is missing."
-    """
-    return Checker(
-        id="instruction-layer-unenforced",
-        severity="fail",
-        product="claude",
-        path=str(project_path / ".claude/settings.json"),
-        detail=(
-            f"This project carries the instruction layer ({', '.join(markers)}) but its "
-            f"enforcement cannot be confirmed: {reason}. Agents and commands are "
-            f"available; none of them is mandatory. Delegation, the protocol injection "
-            f"and the QA gate are all inert, and the session will look and behave like "
-            f"vanilla Claude Code while reporting success."
-        ),
-        repair="cc settings-hook add --scope project, or cc reconcile plan / cc reconcile apply",
-    )
-
-
-def _hook_enforcement_checkers(project_path: Path) -> list[Checker]:
-    markers = _instruction_layer_present(project_path)
-
-    lock_target = project_path / "copilot.lock.json"
-    try:
-        raw = lock_target.read_text(encoding="utf-8")
-        lock_document = json.loads(raw)
-    except (FileNotFoundError, OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
-        if markers:
-            missing = isinstance(exc, FileNotFoundError)
-            return [
-                _unenforced_instruction_layer_checker(
-                    project_path,
-                    markers,
-                    "copilot.lock.json is missing"
-                    if missing
-                    else f"copilot.lock.json could not be read ({type(exc).__name__})",
-                )
-            ]
-        return []
-    if not isinstance(lock_document, dict):
-        if markers:
-            return [
-                _unenforced_instruction_layer_checker(
-                    project_path, markers, "copilot.lock.json is not a JSON object"
-                )
-            ]
-        return []
-    components = lock_document.get("components")
-    claude_entry = next(
-        (
-            item
-            for item in components
-            if isinstance(item, dict) and item.get("component") == "claude"
-        ),
-        None,
-    ) if isinstance(components, list) else None
-    if claude_entry is None:
-        if markers:
-            return [
-                _unenforced_instruction_layer_checker(
-                    project_path,
-                    markers,
-                    "copilot.lock.json records no `claude` component",
-                )
-            ]
-        return []
-
-    shim_target = project_path / ".claude/hooks/copilot-hook.sh"
-    shim_record = next(
-        (
-            f
-            for f in claude_entry.get("files", [])
-            if isinstance(f, dict) and f.get("path") == ".claude/hooks/copilot-hook.sh"
-        ),
-        None,
-    )
-
-    checkers: list[Checker] = []
-
-    # --- Registered: the shim is on disk, executable, and checksum-clean. ---
-    registered_reasons: list[str] = []
-    if shim_record is None:
-        registered_reasons.append("the claude lock does not record the shim")
-    elif not shim_target.is_file() or shim_target.is_symlink():
-        registered_reasons.append(f"{shim_target} is missing")
-    elif not os.access(shim_target, os.X_OK):
-        registered_reasons.append(f"{shim_target} is not executable")
-    else:
-        try:
-            import hashlib
-
-            actual = "sha256:" + hashlib.sha256(shim_target.read_bytes()).hexdigest()
-        except OSError:
-            actual = None
-        if actual is not None and actual != shim_record.get("checksum"):
-            registered_reasons.append(f"{shim_target} does not match its recorded checksum")
-
-    # --- Registered: the project's settings.json actually carries our entries. ---
-    try:
-        from cc.core.ecosystem.mutations import list_sources
-
-        sources = list_sources(project_path)
-        ours = {
-            (row.get("event"), row.get("matcher"))
-            for row in sources.get("hooks", [])
-            if row.get("classification") == "ours"
-        }
-    except Exception:
-        ours = set()
-    if len(ours) < 4:
-        registered_reasons.append(
-            f"only {len(ours)}/4 framework hook entries are registered in .claude/settings.json"
-        )
-
-    if registered_reasons:
-        checkers.append(
-            Checker(
-                id="hooks-registered-in-project",
-                severity="fail",
-                product="claude",
-                path=str(shim_target),
-                detail="Framework hooks are not fully registered in this project: "
-                + "; ".join(registered_reasons) + ".",
-                repair="cc reconcile plan / cc reconcile apply, or cc settings-hook add",
-            )
-        )
-    else:
-        checkers.append(
-            Checker(
-                id="hooks-registered-in-project",
-                severity="pass",
-                product="claude",
-                path=str(shim_target),
-                detail="The shim and its settings.json registration are present and checksum-clean.",
-            )
-        )
-
-    # --- Live: actually invoke the shim and confirm it resolves and
-    #     delegates, rather than trusting presence on disk. A harmless
-    #     SessionStart call with COPILOT_SESSION_START=off exercises full
-    #     resolution (steps 1-3 of the shim) while guaranteeing the
-    #     delegated script itself is a no-op, so this check is read-only.
-    if shim_target.is_file() and os.access(shim_target, os.X_OK):
-        completed = None
-        try:
-            completed = subprocess.run(
-                ["bash", str(shim_target), "session-start"],
-                cwd=str(project_path),
-                env={**os.environ, "COPILOT_SESSION_START": "off"},
-                input="",
-                capture_output=True,
-                text=True,
-                timeout=5,
-            )
-            unreachable = "enforcement is unavailable" in completed.stderr
-            live = completed.returncode == 0 and not unreachable
-        except (OSError, subprocess.TimeoutExpired):
-            live = False
-        if live:
-            checkers.append(
-                Checker(
-                    id="hooks-enforcement-live",
-                    severity="pass",
-                    product="claude",
-                    path=str(shim_target),
-                    detail="The vendored shim resolved a global framework install and delegated successfully.",
-                )
-            )
-        else:
-            detail = (
-                completed.stderr.strip().splitlines()[-1]
-                if completed is not None and completed.stderr.strip()
-                else "the shim did not resolve a usable global install"
-            )
-            checkers.append(
-                Checker(
-                    id="hooks-enforcement-live",
-                    severity="fail",
-                    product="claude",
-                    path=str(shim_target),
-                    detail=f"Hook enforcement is registered but not live: {detail}",
-                    repair="cc doctor for the global install, or reinstall/refresh ~/.claude/copilot",
-                )
-            )
-    else:
-        checkers.append(
-            Checker(
-                id="hooks-enforcement-live",
-                severity="fail",
-                product="claude",
-                path=str(shim_target),
-                detail="Hook enforcement cannot be live: the shim is missing or not executable.",
-                repair="cc reconcile plan / cc reconcile apply",
-            )
-        )
 
     return checkers
 
@@ -874,7 +617,6 @@ def build_doctor_report(
     _auth_root: Any = _UNSET,
     _keychain_get_secret: Any = _UNSET,
     _lock_probe_path: Any = _UNSET,
-    _project_path: Any = _UNSET,
 ) -> dict:
     """
     Build the WS-A `doctor --json` contract object.
@@ -895,12 +637,6 @@ def build_doctor_report(
         resolved_cfg=_resolved_cfg,
     )
     checkers = checkers + _skill_distribution_checkers(_lockfile_path)
-
-    project_path = _project_path if _project_path is not _UNSET else Path.cwd()
-    try:
-        checkers = checkers + _hook_enforcement_checkers(project_path)
-    except Exception:  # pragma: no cover - defensive: doctor must never crash
-        pass
 
     component_checkers, any_remote_offline = _build_component_checkers(
         _layers=_layers,

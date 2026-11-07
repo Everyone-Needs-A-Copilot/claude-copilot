@@ -2,7 +2,7 @@
 # fitness-check.sh — Claude Copilot Framework Fitness Functions
 #
 # Validates that a project's agents and commands are healthy after setup or update.
-# Runs 11 fitness functions (FF1–FF11) and reports pass/fail per check.
+# Runs the framework fitness functions (FF1–FF12) and reports pass/fail per check.
 #
 # Usage:
 #   bash .claude/fitness-check.sh [--agents-dir DIR] [--commands-dir DIR] [--copilot-path PATH]
@@ -86,93 +86,30 @@ fi
 COPILOT_PATH="${COPILOT_PATH_FLAG:-${CC_COPILOT_PATH:-${HOME}/.claude/copilot}}"
 
 # ---------------------------------------------------------------------------
-# Framework repo vs consumer project. The same script ships into every
-# installed project, and several checks below are only meaningful in one of
-# the two: the context-budget baseline (FF9) and the agent git history (FF12)
-# live in the framework repo, never in a consumer. The framework repo is the
-# directory whose VERSION.json declares `framework` and that carries tools/cc;
-# an installed project has neither. CC_FITNESS_MODE=framework|consumer
-# overrides detection (tests, unusual layouts).
+# Framework repo only. Central resolution serves every project from the release
+# pointer, so no project carries a copy of the framework to validate: this script
+# checks the framework repo's own agents, commands and baselines. The old
+# CC_FITNESS_MODE=consumer (copies in an installed project, verified against
+# `copilot.lock.json`) is retired.
 # ---------------------------------------------------------------------------
-if [ -n "${CC_FITNESS_MODE:-}" ]; then
-  FITNESS_MODE="$CC_FITNESS_MODE"
-elif [ -f "${_SCRIPT_DIR}/tools/cc/pyproject.toml" ] && \
-     python3 -c "import json,sys; sys.exit(0 if 'framework' in json.load(open(sys.argv[1])) else 1)" \
-       "${_SCRIPT_DIR}/VERSION.json" 2>/dev/null; then
-  FITNESS_MODE="framework"
-else
-  FITNESS_MODE="consumer"
+FITNESS_MODE="framework"
+if [ "${CC_FITNESS_MODE:-framework}" != "framework" ]; then
+  echo "CC_FITNESS_MODE=${CC_FITNESS_MODE} is retired: projects carry no framework copies; this script validates the framework repo only (see cc doctor for the machine)." >&2
+  exit 1
 fi
-case "$FITNESS_MODE" in
-  framework|consumer) echo "Fitness mode: $FITNESS_MODE" >&2 ;;
-  *) echo "Unknown CC_FITNESS_MODE: $FITNESS_MODE (expected framework|consumer)" >&2; exit 1 ;;
-esac
-
-# ---------------------------------------------------------------------------
-# Customized-preserve installs. A project that keeps its own agent tree is
-# installed in `customized-preserve` ownership mode (copilot.lock.json): the
-# framework adds only its commands, hook shim and this script, and the
-# framework agents (cco ... uxd, _shared/) are deployed once at user level
-# (~/.claude/agents), which Claude Code loads in every project. Requiring those
-# files inside the project would demand exactly the copies the preservation
-# install is built not to make, so in this mode the framework roster resolves
-# against the project first and the user-level deployment second. Project-owned
-# agents are the project's: they are not held to the framework's agent contract
-# (model key, Runtime Precedence / Output Contract blocks). Every other
-# install keeps the strict project-only behaviour.
-# ---------------------------------------------------------------------------
-PRESERVE_MODE=0
-USER_AGENTS_DIR=""
-if [ "$FITNESS_MODE" = "consumer" ] && [ -f "${_SCRIPT_DIR}/copilot.lock.json" ] && \
-   python3 -c "
-import json, sys
-lock = json.load(open(sys.argv[1]))
-claude = [c for c in lock.get('components', []) if c.get('component') == 'claude']
-sys.exit(0 if claude and claude[0].get('ownership_mode') == 'customized-preserve' else 1)
-" "${_SCRIPT_DIR}/copilot.lock.json" 2>/dev/null; then
-  PRESERVE_MODE=1
-  USER_AGENTS_DIR="${CC_USER_AGENTS_DIR:-${CLAUDE_CONFIG_DIR:-${HOME}/.claude}/agents}"
-  echo "Install ownership: customized-preserve (framework agents load from ${USER_AGENTS_DIR})" >&2
-fi
+echo "Fitness mode: $FITNESS_MODE" >&2
 
 # agent_path NAME -- the file a session loads for agent NAME.
-agent_path() {
-  if [ -f "${AGENTS_DIR}/$1.md" ] || [ "$PRESERVE_MODE" -ne 1 ]; then
-    echo "${AGENTS_DIR}/$1.md"
-  elif [ -f "${USER_AGENTS_DIR}/$1.md" ]; then
-    echo "${USER_AGENTS_DIR}/$1.md"
-  else
-    echo "${AGENTS_DIR}/$1.md"
-  fi
-}
+agent_path() { echo "${AGENTS_DIR}/$1.md"; }
 
 # shared_path NAME -- the canonical _shared/NAME block source.
-shared_path() {
-  if [ -f "${AGENTS_DIR}/_shared/$1" ] || [ "$PRESERVE_MODE" -ne 1 ]; then
-    echo "${AGENTS_DIR}/_shared/$1"
-  elif [ -f "${USER_AGENTS_DIR}/_shared/$1" ]; then
-    echo "${USER_AGENTS_DIR}/_shared/$1"
-  else
-    echo "${AGENTS_DIR}/_shared/$1"
-  fi
-}
+shared_path() { echo "${AGENTS_DIR}/_shared/$1"; }
 
-# block_agent_files -- the agent files that must carry the canonical blocks
-# (FF8, FF10): every agent in the framework repo or a standard install. A
-# customized-preserve project carries none of the framework agents and its own
-# agents are the project's, so only a roster agent the project itself carries
-# is held to the blocks; the deployed framework agents are the machine's, and
-# their drift from the framework is reconciled and reported by FF12.
+# block_agent_files -- the agent files that must carry the canonical blocks (FF8, FF10).
 block_agent_files() {
-  if [ "$PRESERVE_MODE" -eq 1 ]; then
-    for agent in $ROSTER; do
-      [ -f "${AGENTS_DIR}/${agent}.md" ] && ! is_project_agent "$agent" && echo "${AGENTS_DIR}/${agent}.md"
-    done
-  else
-    for f in "${AGENTS_DIR}"/*.md; do
-      [ -f "$f" ] && ! is_project_agent "$(basename "$f" .md)" && echo "$f"
-    done
-  fi
+  for f in "${AGENTS_DIR}"/*.md; do
+    [ -f "$f" ] && echo "$f"
+  done
   return 0
 }
 
@@ -202,42 +139,9 @@ else
   RETIRED="design"
 fi
 
-# Project-owned agents. In an installed project, an agent that declares
-# `owner: project` (the documented way to keep a project's own agent, even
-# under a framework name) or that is not in the framework roster at all is the
-# project's own. It is not held to the framework's agent contract: the
-# frontmatter schema (FF7), the specialist sections (FF4), and the Runtime
-# Precedence / Output Contract blocks (FF8, FF10). Those exist so framework
-# agents stay byte-aligned with the framework; a project's tutor or studio agent
-# has no framework counterpart to align with. FF11 (dead skill references) still
-# applies to every agent, because a dead reference fails at runtime whoever
-# owns the file. The framework repo itself has no project agents.
+# The framework repo has no project-owned agents (an installed project's own agents are no
+# longer in scope: projects carry no framework copies).
 PROJECT_AGENTS=""
-if [ "$FITNESS_MODE" = "consumer" ]; then
-  # Agents the lock records as framework files (e.g. the setup-only kc, which
-  # is not in the build roster) are framework agents whatever their name.
-  LOCKED_AGENTS=$(python3 -c "
-import json, sys
-try:
-    lock = json.load(open(sys.argv[1]))
-except Exception:
-    sys.exit(0)
-for c in lock.get('components', []):
-    if c.get('component') == 'claude':
-        for f in c.get('files', []):
-            p = str(f.get('path', ''))
-            if p.startswith('.claude/agents/') and p.count('/') == 2 and p.endswith('.md'):
-                print(p.rsplit('/', 1)[1][:-3])
-" "${_SCRIPT_DIR}/copilot.lock.json" 2>/dev/null | tr '\n' ' ')
-  for f in "${AGENTS_DIR}"/*.md; do
-    [ -f "$f" ] || continue
-    n=$(basename "$f" .md)
-    if grep -q '^owner: project' "$f" 2>/dev/null || \
-       { [[ " $ROSTER " != *" $n "* ]] && [[ " $LOCKED_AGENTS " != *" $n "* ]]; }; then
-      PROJECT_AGENTS="$PROJECT_AGENTS $n"
-    fi
-  done
-fi
 is_project_agent() { [[ " $PROJECT_AGENTS " == *" $1 "* ]]; }
 
 # ---------------------------------------------------------------------------
@@ -285,7 +189,7 @@ for agent in $ROSTER; do
   if [ -f "$(agent_path "$agent")" ]; then
     pass "${agent}.md present"
   else
-    fail "${agent}.md MISSING (in VERSION.json roster but not in ${AGENTS_DIR}/$([ "$PRESERVE_MODE" -eq 1 ] && echo " or ${USER_AGENTS_DIR}/"))"
+    fail "${agent}.md MISSING (in VERSION.json roster but not in ${AGENTS_DIR}/)"
   fi
 done
 
@@ -346,7 +250,7 @@ section "FF5: No Orphan Agent-to-Agent Routes"
 # Include on-disk agent basenames so project-owned custom agents (e.g. critic,
 # structural-editor, line-editor) are treated as known without needing to be in
 # the framework roster or allowlist.
-ON_DISK_AGENTS=$(for f in "${AGENTS_DIR}"/*.md $([ "$PRESERVE_MODE" -eq 1 ] && echo "${USER_AGENTS_DIR}"/*.md); do [ -f "$f" ] && basename "$f" .md; done 2>/dev/null | tr '\n' ' ')
+ON_DISK_AGENTS=$(for f in "${AGENTS_DIR}"/*.md; do [ -f "$f" ] && basename "$f" .md; done 2>/dev/null | tr '\n' ' ')
 KNOWN_AGENTS="$ROSTER $ON_DISK_AGENTS $ALLOWLIST"
 
 for agent_file in "${AGENTS_DIR}"/*.md; do
@@ -418,16 +322,13 @@ while IFS= read -r ff7_line; do
     "FAIL "*) fail "${ff7_line#FAIL }" ;;
     *) fail "FF7 checker produced unparseable output: $ff7_line" ;;
   esac
-done < <(python3 - "$AGENTS_DIR" "$ROSTER" "$PRESERVE_MODE" "$USER_AGENTS_DIR" "$PROJECT_AGENTS" <<'PYEOF'
+done < <(python3 - "$AGENTS_DIR" "$ROSTER" <<'PYEOF'
 import re
 import sys
 from pathlib import Path
 
 agents_dir = Path(sys.argv[1])
 roster = set(sys.argv[2].split()) if len(sys.argv) > 2 else set()
-preserve = len(sys.argv) > 3 and sys.argv[3] == "1"
-user_dir = Path(sys.argv[4]) if preserve and len(sys.argv) > 4 and sys.argv[4] else None
-project_agents = set(sys.argv[5].split()) if len(sys.argv) > 5 else set()
 
 KNOWN_TOP = {"name", "description", "tools", "model", "iteration"}
 REQUIRED_TOP = ("name", "description", "tools", "model")
@@ -474,29 +375,8 @@ if not agents_dir.is_dir():
     sys.exit(0)
 
 agent_files = {md.name: md for md in agents_dir.glob("*.md")}
-if user_dir is not None and user_dir.is_dir():
-    # A customized-preserve install loads the framework roster from the
-    # user-level deployment; a project file of the same name shadows it.
-    for md in user_dir.glob("*.md"):
-        if md.stem in roster:
-            agent_files.setdefault(md.name, md)
-
 for _, md in sorted(agent_files.items()):
     name = md.stem
-    if name in project_agents and md.parent == agents_dir:
-        # The project's own agent: no framework schema or iteration contract,
-        # but a `model` it declares must still be one Claude Code accepts.
-        own = md.read_text(encoding="utf-8")
-        own_end = own.find("\n---", 3) if own.startswith("---") else -1
-        own_model = None
-        for line in (own[3:own_end].splitlines() if own_end != -1 else []):
-            if line.startswith("model:"):
-                own_model = line.split(":", 1)[1].strip()
-        if own_model is not None and own_model not in ("sonnet", "opus"):
-            fail(f"{md.name}: model '{own_model}' not one of sonnet|opus")
-        else:
-            ok(f"{md.name}: project-owned agent -- framework frontmatter contract not applied")
-        continue
     text = md.read_text(encoding="utf-8")
 
     if not text.startswith("---"):
@@ -536,13 +416,7 @@ for _, md in sorted(agent_files.items()):
             f"{md.name}: unexpected top-level frontmatter key '{k}' "
             f"(check indentation -- likely belongs nested under 'iteration:')"
         )
-    # A customized-preserve project's own agents are not held to the framework
-    # roster's `model` requirement (Claude Code treats it as optional); a
-    # `model` they do declare is still validated below.
-    required_top = [
-        k for k in REQUIRED_TOP
-        if not (preserve and k == "model" and name not in roster)
-    ]
+    required_top = list(REQUIRED_TOP)
     missing_required = [k for k in required_top if k not in top_keys]
     for k in missing_required:
         fail(f"{md.name}: missing required frontmatter key '{k}'")
@@ -633,10 +507,6 @@ PYEOF
 #      the anti-drift mechanism for the block until agent generation lands.
 # ---------------------------------------------------------------------------
 section "FF8: Runtime Precedence Block (present, unique, byte-identical, anchored)"
-if [ "$PRESERVE_MODE" -eq 1 ]; then
-  echo "  [REPORT] customized-preserve install: only framework agents carried by the project are checked here; deployed framework agents are reconciled by FF12"
-fi
-
 PRECEDENCE_SRC=$(shared_path precedence.md)
 if [ ! -f "$PRECEDENCE_SRC" ]; then
   fail "canonical precedence block missing at ${PRECEDENCE_SRC}"
@@ -714,14 +584,6 @@ fi
 # ---------------------------------------------------------------------------
 section "FF9: Context Budget (bytes + token estimate vs committed baseline)"
 
-if [ "$FITNESS_MODE" = "consumer" ]; then
-  # The baseline is a framework-development budget: it pins the byte size of
-  # the framework's own corpus so a framework change cannot silently grow
-  # what every session loads. A consumer project receives that corpus already
-  # budgeted (the framework's own FF9 ran before release) and has no baseline
-  # of its own to compare against -- so absence here is expected, not a defect.
-  echo "  [SKIP] consumer project -- the context budget is enforced against the framework's committed baseline before release, not per install"
-else
 FF9_BUDGET_DIR="$(dirname "$AGENTS_DIR")"
 FF9_CLAUDE_MD="CLAUDE.md"
 FF9_SESSION_INJECTION="${FF9_BUDGET_DIR}/hooks/protocol-injection.md"
@@ -1086,7 +948,6 @@ evaluate_absolute("Always-loaded total", always_loaded_total, ALWAYS_CEILING)
 evaluate_absolute("Agent corpus total", corpus_total, CORPUS_CEILING)
 PYEOF
 )
-fi
 
 # ---------------------------------------------------------------------------
 # FF10: Output Contract block -- present exactly once, byte-identical to the
@@ -1101,10 +962,6 @@ fi
 #      checked here.
 # ---------------------------------------------------------------------------
 section "FF10: Output Contract Block (present, unique, byte-identical, anchored)"
-if [ "$PRESERVE_MODE" -eq 1 ]; then
-  echo "  [REPORT] customized-preserve install: only framework agents carried by the project are checked here; deployed framework agents are reconciled by FF12"
-fi
-
 CONTRACT_SRC=$(shared_path output-contract.md)
 if [ ! -f "$CONTRACT_SRC" ]; then
   fail "canonical output-contract block missing at ${CONTRACT_SRC}"
@@ -1359,61 +1216,11 @@ PYEOF
 # ---------------------------------------------------------------------------
 section "FF12: Deployment Reconciliation (repo vs the corpus sessions load)"
 
-# WHICH TWO DIRECTORIES, BY MODE.
-#   framework  repo = this checkout's agents ($AGENTS_DIR); deployed = the machine
-#              corpus (~/.claude/agents); history = this checkout's git.
-#   consumer   repo = the framework source ($COPILOT_PATH/.claude/agents); deployed =
-#              THIS project's agents ($AGENTS_DIR), because project-scope agents
-#              shadow ~/.claude/agents for every session opened here; history = the
-#              framework's git, not the project's. Running the framework-mode
-#              comparison from a consumer compared the project against a stale
-#              machine corpus and searched the PROJECT's git for agent history,
-#              so every installed agent "matched no committed version" (16 false
-#              failures in a clean install, 2026-10-06). A consumer may also
-#              define its own agents; those are reported, not failed. And the
-#              lock's release_tag must name a tag the framework actually has.
-if [ "$FITNESS_MODE" = "consumer" ]; then
-  FF12_REPO_AGENTS="${COPILOT_PATH}/.claude/agents"
-  DEPLOYED_AGENTS_DIR="${CC_DEPLOYED_AGENTS_DIR:-$AGENTS_DIR}"
-  FF12_OVERLAY_DIR=""
-  if [ "$PRESERVE_MODE" -eq 1 ]; then
-    # Framework agents load from the user-level deployment; the project's own
-    # agents (overlay) shadow it and are reported as project-defined.
-    DEPLOYED_AGENTS_DIR="${CC_DEPLOYED_AGENTS_DIR:-$USER_AGENTS_DIR}"
-    FF12_OVERLAY_DIR="$AGENTS_DIR"
-  fi
-  FF12_HISTORY_ROOT="$COPILOT_PATH"
-else
-  FF12_REPO_AGENTS="$AGENTS_DIR"
-  DEPLOYED_AGENTS_DIR="${CC_DEPLOYED_AGENTS_DIR:-${HOME}/.claude/agents}"
-  FF12_OVERLAY_DIR=""
-  FF12_HISTORY_ROOT="."
-fi
-
-if [ "$FITNESS_MODE" = "consumer" ]; then
-  FF12_LOCK="${_SCRIPT_DIR}/copilot.lock.json"
-  FF12_TAG="$(python3 -c "
-import json, sys
-try:
-    lock = json.load(open(sys.argv[1]))
-except Exception:
-    sys.exit(0)
-for c in lock.get('components', []):
-    if c.get('component') == 'claude':
-        print(c.get('release_tag') or '')
-" "$FF12_LOCK" 2>/dev/null)"
-  if [ ! -f "$FF12_LOCK" ]; then
-    echo "  [SKIP] no copilot.lock.json at ${FF12_LOCK} -- no recorded release to verify"
-  elif [ -z "$FF12_TAG" ]; then
-    fail "copilot.lock.json records no Claude Copilot release_tag -- the install cannot be traced to a release"
-  elif ! git -C "$COPILOT_PATH" rev-parse --git-dir >/dev/null 2>&1; then
-    echo "  [SKIP] ${COPILOT_PATH} is not a git checkout -- cannot verify release tag ${FF12_TAG}"
-  elif git -C "$COPILOT_PATH" rev-parse -q --verify "refs/tags/${FF12_TAG}^{commit}" >/dev/null 2>&1; then
-    pass "copilot.lock.json release_tag ${FF12_TAG} is a tag in the framework repo"
-  else
-    fail "copilot.lock.json is locked to ${FF12_TAG}, which the framework repo at ${COPILOT_PATH} has not tagged (fetch tags, or the release was never tagged)"
-  fi
-fi
+# WHICH TWO DIRECTORIES: repo = this checkout's agents ($AGENTS_DIR); deployed = the machine
+# corpus (~/.claude/agents); history = this checkout's git.
+FF12_REPO_AGENTS="$AGENTS_DIR"
+DEPLOYED_AGENTS_DIR="${CC_DEPLOYED_AGENTS_DIR:-${HOME}/.claude/agents}"
+FF12_HISTORY_ROOT="."
 
 if [ ! -d "$FF12_REPO_AGENTS" ]; then
   echo "  [SKIP] no framework agent source at ${FF12_REPO_AGENTS} -- nothing to reconcile against."
@@ -1423,8 +1230,7 @@ elif [ ! -d "$DEPLOYED_AGENTS_DIR" ]; then
 elif [ "$(cd "$DEPLOYED_AGENTS_DIR" 2>/dev/null && pwd -P)" = "$(cd "$FF12_REPO_AGENTS" 2>/dev/null && pwd -P)" ]; then
   pass "deployed agents resolve to the same directory as the repo (${DEPLOYED_AGENTS_DIR}) -- no drift is possible"
 else
-  FF12_OUT=$(AGENTS_DIR="$FF12_REPO_AGENTS" DEPLOYED="$DEPLOYED_AGENTS_DIR" OVERLAY="$FF12_OVERLAY_DIR" \
-    HISTORY_ROOT="$FF12_HISTORY_ROOT" MODE="$FITNESS_MODE" PROJECT_AGENTS="$PROJECT_AGENTS" \
+  FF12_OUT=$(AGENTS_DIR="$FF12_REPO_AGENTS" DEPLOYED="$DEPLOYED_AGENTS_DIR"     HISTORY_ROOT="$FF12_HISTORY_ROOT" \
     CEILING="$(python3 -c "
 import json,sys
 from pathlib import Path
@@ -1444,14 +1250,9 @@ repo = Path(os.environ["AGENTS_DIR"])
 dep = Path(os.environ["DEPLOYED"])
 ceiling = int(os.environ.get("CEILING") or 0)
 history_root = os.environ.get("HISTORY_ROOT") or "."
-consumer = os.environ.get("MODE") == "consumer"
-project_agents = set(os.environ.get("PROJECT_AGENTS", "").split())
 
 repo_files = {p.name: p for p in repo.glob("*.md")}
 dep_files = {p.name: p for p in dep.glob("*.md")}
-overlay = os.environ.get("OVERLAY")
-if overlay:
-    dep_files.update({p.name: p for p in Path(overlay).glob("*.md")})
 lines = []
 
 
@@ -1550,11 +1351,6 @@ identical = 0
 base_total = 0
 
 for name in sorted(set(repo_files) & set(dep_files)):
-    if name[:-3] in project_agents:
-        # The project's own agent under a framework name (owner: project):
-        # not a deployment of the framework file, so nothing to reconcile.
-        lines.append(f"REPORT|{name} is project-owned (owner: project); the framework's {name} is not deployed here by design")
-        continue
     r, d = read(repo_files[name]), read(dep_files[name])
     if r is None or d is None:
         divergent.append((name, "could not be read"))
@@ -1580,15 +1376,9 @@ for name in missing:
     lines.append(f"FAIL|{name} is defined in the repo and absent from the deployment -- "
                  f"a session cannot route to it")
 for name in extra:
-    if consumer:
-        # A consumer project may define its own agents; the framework does not
-        # own them, so their presence is stated, not failed, and their bytes
-        # are outside the ceiling that governs the framework's base corpus.
-        lines.append(f"REPORT|{name} is a project-defined agent (not in the framework roster)")
-    else:
-        base_total += dep_files[name].stat().st_size
-        lines.append(f"FAIL|{name} is deployed and not defined in this repo -- sessions load an "
-                     f"agent nothing here validates")
+    base_total += dep_files[name].stat().st_size
+    lines.append(f"FAIL|{name} is deployed and not defined in this repo -- sessions load an "
+                 f"agent nothing here validates")
 for name, why in divergent:
     lines.append(
         f"FAIL|{name}: the deployed base {why}. Every budget and contract check above "
@@ -1624,8 +1414,8 @@ if composed:
 if behind:
     lines.append(
         f"REPORT|{len(behind)} agent file(s) are newer in this repo than in the deployment. "
-        f"Sessions run the committed older content until the next `cc reconcile apply` or "
-        f"reinstall -- so any change made here is not yet in effect."
+        f"Sessions run the committed older content until the next `cc release publish` "
+        f"flip -- so any change made here is not yet in effect."
     )
     for name, delta in sorted(behind.items()):
         # `delta` is repo minus deployed and can be negative when the newer repo
@@ -1635,7 +1425,7 @@ if behind:
         lines.append(f"REPORT|  {name}: repo version is {abs(delta):,} B {direction}, "
                      f"and not yet deployed")
 
-if identical and not divergent and not missing and (consumer or not extra):
+if identical and not divergent and not missing and not extra:
     lines.append(f"PASS|{identical} agent base(s) byte-identical between repo and deployment")
 
 archive = dep / "_archive"
