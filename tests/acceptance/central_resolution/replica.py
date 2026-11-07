@@ -2,7 +2,7 @@
 
 The sandbox is a complete fake HOME plus fake workspace roots:
 
-    <sandbox>/home/{.claude,.codex,.copilot,.config/...,.local/bin,.gitconfig,.claude.json}
+    <sandbox>/<fake-home>/{.claude,.codex,.copilot,.config/...,.local/bin,.gitconfig,.claude.json}
     <sandbox>/Sites/{CSE,COPILOT}/<project>        (git clone --local + dirty/untracked/ignored-config files)
 
 Every absolute path or link that points at real *state* (the home state dirs and the cloned project
@@ -21,7 +21,20 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 REAL_HOME = Path(os.path.realpath(os.path.expanduser("~")))
-SITES = Path("/Volumes/Dev/Sites")
+
+
+def _sites_root() -> Path:
+    """The workspace root holding the CSE/ and COPILOT/ roots: CR_SITES_ROOT, else the nearest ancestor of this file that holds both."""
+    env = os.environ.get("CR_SITES_ROOT")
+    if env:
+        return Path(env)
+    for parent in Path(__file__).resolve().parents:
+        if (parent / "CSE").is_dir() and (parent / "COPILOT").is_dir():
+            return parent
+    return Path.home() / "Sites"
+
+
+SITES = _sites_root()
 
 # Home entries that are STATE and therefore replicated (everything else under the real home is a tool).
 HOME_STATE = [".copilot", ".claude", ".codex", ".local/bin", ".config/copilot", ".config/dev-environment",
@@ -189,7 +202,7 @@ def _rewrite_tree(rep: Replica, root: Path) -> int:
 
 
 def _discover_support_repos(src_roots: list[Path], known: set[str]) -> set[tuple[str, str]]:
-    """Absolute symlink targets into /Volumes/Dev/Sites/<root>/<repo> found in copied home state."""
+    """Absolute symlink targets into <sites>/<root>/<repo> found in copied home state."""
     found = set()
     for base in src_roots:
         if not base.exists():
@@ -337,7 +350,7 @@ def build(root: Path) -> Replica:
     layers = home / ".config" / "copilot" / "copilot.layers.yml"
     if layers.is_file():
         import re
-        for m in re.finditer(r"/Volumes/Dev/Sites/(CSE|COPILOT)/([A-Za-z0-9._-]+)", layers.read_text()):
+        for m in re.finditer(re.escape(str(SITES)) + r"/(CSE|COPILOT)/([A-Za-z0-9._-]+)", layers.read_text()):
             if m.group(2) not in wanted:
                 support.add((m.group(1), m.group(2)))
     support |= {("CSE", "claude-copilot")}

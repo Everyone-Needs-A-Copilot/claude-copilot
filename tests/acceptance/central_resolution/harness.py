@@ -119,6 +119,28 @@ def tree_digest(root: Path, names: list[str]) -> str:
 
 
 # ----------------------------------------------------------------------------- sentinel
+def tracked_tree_digest(repo: Path, names: list[str]) -> str:
+    """Digest of the framework files of a git project: tracked plus untracked-but-not-ignored files under `names`.
+
+    Gitignored runtime state (for example .claude/hooks/state/session-turns.json, which any live Claude session in the
+    project rewrites) is not a framework file and is excluded; a changed, added, removed or re-linked framework file still
+    changes the digest.  Deleted tracked files are recorded as missing so a deletion is caught too.
+    """
+    h = hashlib.sha256()
+    listed = run(["git", "-C", repo, "ls-files", "-z", "--cached", "--others", "--exclude-standard", "--", *names],
+                 env=_git_env()).out
+    for rel in sorted(set(x for x in listed.split("\0") if x)):
+        p = os.path.join(repo, rel)
+        try:
+            st = os.lstat(p)
+        except OSError:
+            h.update(f"missing:{rel}\n".encode())
+            continue
+        tgt = os.readlink(p) if stat.S_ISLNK(st.st_mode) else ""
+        h.update(f"{rel}|{st.st_mode}|{st.st_size}|{st.st_mtime_ns}|{tgt}\n".encode())
+    return h.hexdigest()
+
+
 FRAMEWORK_TOP = [".claude", ".codex", ".agents", ".claude-plugin", ".mcp.json", ".codex-copilot.json",
                  "copilot.lock.json", "copilot.project.json", "CLAUDE.md", "AGENTS.md", "SOUL.md",
                  "settings.local.json", "mcp.json", "plugins"]
@@ -153,7 +175,7 @@ def sentinel_snapshot(extra_repos: list[str]) -> dict:
         st = run(["git", "-C", path, "status", "--porcelain", "-z", "--untracked-files=all"], env=env).out
         head = run(["git", "-C", path, "rev-parse", "HEAD"], env=env).out.strip()
         s[f"project {name}: git status+HEAD"] = hashlib.sha256((head + "\0" + st).encode()).hexdigest()
-        s[f"project {name}: framework files"] = tree_digest(path, FRAMEWORK_TOP)
+        s[f"project {name}: framework files"] = tracked_tree_digest(path, FRAMEWORK_TOP)
     for repo in extra_repos:
         path = rp.SITES / repo
         env = _git_env()
