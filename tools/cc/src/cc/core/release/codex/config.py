@@ -153,13 +153,15 @@ def apply(codex_home: Path | str, home: Path | str | None, *, source: str,
             stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%fZ")
             backup = str(path.with_name(f"config.toml.bak-release-{stamp}"))
             shutil.copy2(path, backup)
-        _atomic_write(path, after)
         receipt = receipt_path(home)
         receipt.parent.mkdir(parents=True, exist_ok=True)
         _atomic_write(receipt, (json.dumps({
             "config": str(path), "backup": backup, "beforeSha256": _sha(before),
             "afterSha256": _sha(after), "removed": removed,
         }, indent=2) + "\n").encode())
+        # Persist recovery authority before mutating config; receipt failure must
+        # not leave an untracked configuration write behind.
+        _atomic_write(path, after)
         return ConfigResult(True, backup, _sha(before), _sha(after), removed)
 
 

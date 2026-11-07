@@ -93,22 +93,34 @@ class FrameworkIndex:
         return bool(self.files or self.links)
 
     def add_git_history(self, repo: Path) -> None:
-        proc = subprocess.run(
-            ["git", "-C", str(repo), "log", "--all", "--format=", "--raw", "--no-abbrev", "--no-renames", "-z"],
-            capture_output=True, check=False)
-        if proc.returncode != 0:
+        # A branch, or an intermediate commit beneath a tag, is not a release.
+        # Trust the existing fixed framework signer policy, never repository-local
+        # allowedSignersFile settings, and enumerate the authenticated tag's tree.
+        from cc.core.ecosystem.policy import FOUNDATION_SSH_SIGNING_KEYS, verify_git_tree_release
+
+        refs = subprocess.run(
+            ["git", "-C", str(repo), "for-each-ref", "--format=%(refname)", "refs/tags"],
+            capture_output=True, text=True, check=False)
+        if refs.returncode != 0:
             return
-        parts = proc.stdout.decode("utf-8", "surrogateescape").split("\0")
-        for i in range(0, len(parts) - 1, 2):
-            meta = parts[i].lstrip("\n").split()
-            if len(meta) < 5 or not meta[0].startswith(":"):
+        seen: set[str] = set()
+        for ref in refs.stdout.splitlines():
+            proof = verify_git_tree_release(repo, ".", tuple(FOUNDATION_SSH_SIGNING_KEYS), ref=ref)
+            if proof is None or proof.tree in seen:
                 continue
-            mode, sha = meta[1], meta[3]
-            if mode in ("160000", "000000"):
+            seen.add(proof.tree)
+            tree = subprocess.run(
+                ["git", "-C", str(repo), "ls-tree", "-r", "-z", proof.tree],
+                capture_output=True, check=False)
+            if tree.returncode != 0:
                 continue
-            rel = parts[i + 1]
-            if framework_source(repo, rel):
-                self.add(sha, rel.rsplit("/", 1)[-1], mode == "120000")
+            for row in tree.stdout.decode("utf-8", "surrogateescape").split("\0"):
+                if not row:
+                    continue
+                meta, rel = row.split("\t", 1)
+                mode, kind, sha = meta.split()
+                if kind == "blob" and framework_source(repo, rel):
+                    self.add(sha, rel.rsplit("/", 1)[-1], mode == "120000")
 
     def add_tree(self, root: Path) -> None:
         for dp, dns, fns in os.walk(root):

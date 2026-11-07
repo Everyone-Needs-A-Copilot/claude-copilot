@@ -62,7 +62,8 @@ class StepResult:
 
 def run(home: Path | str | None = None, codex_home: Path | str | None = None, *,
         codex_bin: str = "codex", runner: Runner = default_runner,
-        prune_trust: bool = False) -> StepResult:
+        prune_trust: bool = False,
+        on_config: Callable[[config.ConfigResult], None] | None = None) -> StepResult:
     """Register the marketplace once, refresh the Codex cache, verify it matches the release."""
     codex_home = Path(codex_home) if codex_home else default_codex_home(home)
     root = layout.current_path(home)
@@ -76,6 +77,8 @@ def run(home: Path | str | None = None, codex_home: Path | str | None = None, *,
                               plugins=names, prune_trust=prune_trust)
     except config.ConfigError as exc:
         raise ReleaseStepError(str(exc)) from exc
+    if on_config is not None:
+        on_config(result)
     env = {**os.environ, "CODEX_HOME": str(codex_home)}
     name = marketplace.MARKETPLACE_NAME
     upgrade = runner([codex_bin, "plugin", "marketplace", "upgrade", name], env)

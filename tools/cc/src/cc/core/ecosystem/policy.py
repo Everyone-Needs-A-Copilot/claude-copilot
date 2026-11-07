@@ -518,6 +518,8 @@ def verify_git_tree_release(
     except (OSError, ValueError):
         return None
     repo_relative = (source_relative / relative).as_posix()
+    if repo_relative == ".":
+        repo_relative = ""  # Git addresses the root tree as <commit>:, not <commit>:.
 
     try:
         with tempfile.TemporaryDirectory(prefix="cc-allowed-signers-") as temp_root:
