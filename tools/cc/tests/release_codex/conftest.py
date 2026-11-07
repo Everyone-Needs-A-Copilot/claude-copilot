@@ -15,7 +15,7 @@ from cc.core.release.codex import marketplace
 from cc.core.release.engine import build, layout, pointer
 
 FAKE_CODEX = '''#!{python}
-import os, shutil, sys, tomllib
+import os, shutil, sys, tempfile, tomllib
 from pathlib import Path
 home = Path(os.environ["CODEX_HOME"])
 args = sys.argv[1:]
@@ -26,9 +26,14 @@ def install(mp, name):
     version = __import__("json").loads((src / ".codex-plugin/plugin.json").read_text())["version"]
     dest = home / "plugins/cache" / mp / name / version
     if dest.exists():
-        for d, _, _f in os.walk(dest):
-            os.chmod(d, 0o700)
-        shutil.rmtree(dest, onexc=lambda f, p, e: (os.chmod(p, 0o600), f(p)))
+        if os.environ.get("COPILOT_TEST_RETAIN_SCRATCH") == "1":
+            preserved = Path(tempfile.mkdtemp(prefix="codex-cache-retained-", dir=home.parent))
+            shutil.move(str(dest), str(preserved / "cache"))
+            (preserved / "origin.txt").write_text(str(dest))
+        else:
+            for d, _, _f in os.walk(dest):
+                os.chmod(d, 0o700)
+            shutil.rmtree(dest, onexc=lambda f, p, e: (os.chmod(p, 0o600), f(p)))
     shutil.copytree(src.resolve(), dest, symlinks=False)
 with open(home / "calls.log", "a") as log:
     log.write(" ".join(args) + "\\n")

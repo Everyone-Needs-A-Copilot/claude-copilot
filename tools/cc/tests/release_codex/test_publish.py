@@ -34,13 +34,16 @@ def sources(tmp_path, ct_app):
             live.mkdir(exist_ok=True)
             out.append(build.ComponentSource(name, "personal", layout.KIND_LIVE, ref="main", source=str(live)))
         else:
-            out.append(build.ComponentSource(name, "x", layout.KIND_SIGNED, version="v1", ref="v1",
+            out.append(build.ComponentSource(name, "x", layout.KIND_SIGNED, version="1.0.0" if name == layout.COMPONENT_CLAUDE else "v1", ref="v1",
                                              source="unused", allowed_signers=("SHA256:test",)))
     return out
 
 
 def _extractor(src, _tag, destination: Path):
     destination.mkdir(parents=True)
+    if src.name == layout.COMPONENT_CLAUDE:
+        # Proper legacy metadata; the real activation gate stays enabled.
+        (destination / "VERSION.json").write_text(json.dumps({"framework": src.version}))
     for entry in default_layout().get(src.name, []):
         write_plugin(destination, *entry)
     if src.name == layout.COMPONENT_CODEX:
