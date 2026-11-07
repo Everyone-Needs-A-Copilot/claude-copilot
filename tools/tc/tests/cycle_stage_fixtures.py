@@ -92,7 +92,7 @@ class StageWorld:
         self.accept()
 
 
-def make_world(tmp_path, *, count=5, configure=None, cycle="stage-example"):
+def make_world(tmp_path, *, count=5, configure=None, cycle="stage-example", register_policy=True):
     root = tmp_path / "project"
     root.mkdir()
     (root / "src").mkdir()
@@ -135,5 +135,29 @@ def make_world(tmp_path, *, count=5, configure=None, cycle="stage-example"):
                        for i in range(1, count + 1)]}
     if configure:
         configure(plan, root, db)
+    if register_policy:
+        register_fixture_limits(plan, root, db)
     cycles.create_cycle(plan=plan, db_path=db)
     return StageWorld(root, db, plan)
+
+
+def register_fixture_limits(plan, root, db):
+    """Real default execution authority for every managed stream, including non-QA tasks."""
+    from tc.db.connection import get_db
+    from tc.services import execution
+    for identity in [plan["task"], *(spec["task"] for spec in plan["streams"])]:
+        task = api.get_task(task_id=identity, db_path=db)
+        metadata = task.get("metadata") or {}
+        if isinstance(metadata, str):
+            metadata = json.loads(metadata)
+        if not metadata.get("acceptanceContract") and not metadata.get("requiresQa"):
+            api.update_task(task_id=identity, metadata={"acceptanceContract": {
+                "schemaVersion": 2, "criteria": [{"id": "BEHAVIOR", "expected": "Declared item is correct."}],
+                "sources": ["src/shared.py"]}}, db_path=db)
+        with get_db(db) as conn:
+            exists = execution.has_limits(task_id=identity, conn=conn)
+        if not exists:
+            execution.register_limits(task_id=identity, root=root, timeout_seconds=30, db_path=db)
+    for spec in plan["streams"]:
+        execution.bind_scope(root_task_id=plan["task"], task_id=spec["task"],
+                             criterion_map={"BEHAVIOR": "BEHAVIOR"}, db_path=db)

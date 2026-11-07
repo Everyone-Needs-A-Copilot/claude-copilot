@@ -266,7 +266,7 @@ def test_ordered_stages_can_reuse_path_but_unordered_writers_refuse(tmp_path):
 
 def test_cross_cycle_writers_cannot_evade_ownership_with_different_worktree_cwd(tmp_path):
     from tc import api
-    from tests.cycle_stage_fixtures import StageWorld
+    from tests.cycle_stage_fixtures import StageWorld, register_fixture_limits
     def writer(plan, root, db):
         wt = root.parent / "first-writer"
         git(root, "worktree", "add", "-b", "first-writer", str(wt))
@@ -282,6 +282,7 @@ def test_cross_cycle_writers_cannot_evade_ownership_with_different_worktree_cwd(
     wt = first.root.parent / "second-writer"
     git(first.root, "worktree", "add", "-b", "second-writer", str(wt))
     second_plan["streams"][0].update(worktree=str(wt), branch="second-writer")
+    register_fixture_limits(second_plan, first.root, first.db)
     cycles.create_cycle(plan=second_plan, db_path=first.db)
     second = StageWorld(first.root, first.db, second_plan)
     # Give each evidence writer a distinct sequence namespace.
@@ -397,3 +398,116 @@ def test_clock_regression_is_disclosed_not_negative_or_fabricated_elapsed(tmp_pa
     audit = cycle_stages.audit_cycle(cycle=w.cycle, db_path=w.db)
     assert audit["elapsedSeconds"] is None or audit["elapsedSeconds"] >= 0
     assert any("clock" in item.lower() for item in audit["unknown"])
+
+
+@pytest.mark.parametrize("drift", ["held", "source", "inventory"])
+def test_permit_revalidates_authority_after_claim_before_actual_dispatch(tmp_path, drift):
+    from pathlib import Path
+    w = make_world(tmp_path, count=1)
+    inventory = w.artifact("independent inventory")
+    w.advance("inventory-frozen", actor="planner", reviewer="reviewer", artifact=inventory)
+    cycles.claim_stream(cycle=w.cycle, stream="q1", agent="worker", cwd=w.root, db_path=w.db)
+    if drift == "held":
+        w.advance("held", stage="qa", reason="Observed release blocker")
+    elif drift == "source":
+        (w.root / "src/item1.py").write_text("VALUE = 'changed after claim'\n")
+    else:
+        Path(inventory).write_text("altered inventory approval\n")
+    with pytest.raises(REFUSAL):
+        cycles.verify_dispatch(cycle=w.cycle, stream="q1", role="qa", cwd=w.root, db_path=w.db)
+    assert not w.status()["streams"]["q1"]["claim"].get("dispatchAuthorized")
+
+
+def test_non_qa_managed_task_cannot_omit_execution_limits(tmp_path):
+    w = None
+    with pytest.raises(REFUSAL):
+        w = make_world(tmp_path, count=1, register_policy=False)
+        w.freeze()
+        w.start("q1")
+    if w is not None:
+        assert not w.status()["running"]
+
+
+def test_same_runtime_cycles_share_observed_native_capacity(tmp_path):
+    from tc import api
+    from tests.cycle_stage_fixtures import StageWorld, register_fixture_limits
+    first = make_world(tmp_path, count=3)
+    first.freeze()
+    for stream in ("q1", "q2", "q3"):
+        first.start(stream)
+    plan = copy.deepcopy(first.plan)
+    plan["id"] = "other-runtime-client"
+    plan["task"] = api.create_task(title="Other root", db_path=first.db)["id"]
+    plan["streams"] = [plan["streams"][0]]
+    plan["checks"] = [plan["checks"][0]]
+    plan["streams"][0]["task"] = api.create_task(title="Other shard", parent=plan["task"], db_path=first.db)["id"]
+    register_fixture_limits(plan, first.root, first.db)
+    cycles.create_cycle(plan=plan, db_path=first.db)
+    second = StageWorld(first.root, first.db, plan, sequence=1000)
+    second.freeze()
+    with pytest.raises(REFUSAL):
+        second.start("q1")
+    first.result("q1", "C1")
+    first.stop("q1")
+    assert second.start("q1")["token"], "A stopped scope must refill the shared pool."
+
+
+def test_reviewed_additive_inventory_keeps_old_pass_and_requires_new_case(tmp_path):
+    from tc import api
+    from tests.cycle_stage_fixtures import register_fixture_limits
+    w = make_world(tmp_path, count=1)
+    w.freeze()
+    w.run_all()
+    prior = copy.deepcopy(w.status()["checkResults"]["C1"])
+    plan = copy.deepcopy(w.plan)
+    child = api.create_task(title="Discovered adjacent scope", parent=plan["task"], db_path=w.db)["id"]
+    plan["streams"].append({**plan["streams"][0], "id": "q2", "task": child})
+    plan["checks"].append({**plan["checks"][0], "id": "C2", "stream": "q2", "consumer": "adjacent"})
+    register_fixture_limits(plan, w.root, w.db)
+    w.advance("inventory-revised", actor="planner", reviewer="independent", plan=plan)
+    current = w.status()
+    assert current["generation"] == 2
+    assert current["checkResults"]["C1"] == prior
+    assert "C2" not in current["checkResults"]
+    assert not cycle_stages.check_cycle(cycle=w.cycle, phase="source-ready", db_path=w.db)["approved"]
+
+
+@pytest.mark.parametrize("mutation", ["remove-check", "edit-path", "raise-capacity"])
+def test_inventory_revision_cannot_erase_or_weaken_existing_reviewed_contract(tmp_path, mutation):
+    w = make_world(tmp_path, count=1)
+    w.freeze()
+    plan = copy.deepcopy(w.plan)
+    if mutation == "remove-check":
+        plan["checks"] = []
+    elif mutation == "edit-path":
+        plan["checks"][0]["paths"] = ["src/shared.py"]
+    else:
+        plan["capacity"] = 4
+        plan["runtimeCapability"]["workers"] = 4
+    with pytest.raises(REFUSAL):
+        w.advance("inventory-revised", actor="planner", reviewer="independent", plan=plan)
+    assert w.status()["generation"] == 1
+
+
+def test_integrated_stopped_writer_receipt_survives_unrelated_candidate_generation(tmp_path):
+    def configure(plan, root, db):
+        wt = root.parent / "writer"
+        git(root, "worktree", "add", "-b", "writer", str(wt))
+        plan["streams"][0].update(kind="code", role="me", readOnly=False,
+                                  paths=["src/item1.py"], worktree=str(wt), branch="writer")
+    w = make_world(tmp_path, count=1, configure=configure)
+    w.freeze()
+    claim = w.start("q1")
+    w.result("q1", "C1")
+    cycles.record_event(cycle=w.cycle, stream="q1", event="built",
+                        receipt={"leaseToken": claim["token"], "artifact": w.artifact()}, db_path=w.db)
+    cycles.record_event(cycle=w.cycle, stream="q1", event="integrated",
+                        receipt={"commit": git(w.root, "rev-parse", "HEAD"), "artifact": w.artifact()}, db_path=w.db)
+    w.stop("q1")
+    prior = copy.deepcopy(w.status()["streams"]["q1"]["events"]["integrated"])
+    w.advance("candidate-integrated")
+    assert w.status()["streams"]["q1"]["events"]["integrated"] == prior
+    assert "q1" not in w.status()["ready"]
+    w.collect()
+    w.accept()
+    assert cycle_stages.check_cycle(cycle=w.cycle, phase="source-ready", db_path=w.db)["approved"]

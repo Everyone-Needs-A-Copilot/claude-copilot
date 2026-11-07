@@ -196,8 +196,39 @@ def test_managed_qa_cannot_omit_governing_execution_authority(tmp_path, missing)
         if missing != "child-policy":
             execution.register_limits(task_id=child, root=root, timeout_seconds=30, db_path=db)
         # No bind call: it is invalid without both policies, and mandatory otherwise.
-    w = make_world(tmp_path, count=1, configure=configure)
-    w.freeze()
+    w = None
     with pytest.raises(REFUSAL):
+        w = make_world(tmp_path, count=1, configure=configure, register_policy=False)
+        w.freeze()
         w.start("q1")
-    assert not w.status()["running"]
+    if w is not None:
+        assert not w.status()["running"]
+
+
+def test_actual_offline_script_uses_its_verified_source_not_ambient_tc(tmp_path):
+    import os
+    import subprocess
+    import sys
+    from pathlib import Path
+    import tc
+    w = accepted(tmp_path)
+    packet = tmp_path / "packet.json"
+    exported = cycle_stages.export_packet(cycle=w.cycle, phase="source-ready", output=packet, db_path=w.db)
+    candidate = Path(tc.__file__).resolve().parents[4]
+    script = candidate / "scripts/stage-release-gate.py"
+    assert script.is_file(), "The actual supported release verifier must accompany the candidate."
+    shadow = tmp_path / "ambient"
+    (shadow / "tc/services").mkdir(parents=True)
+    (shadow / "tc/__init__.py").write_text("")
+    (shadow / "tc/services/__init__.py").write_text("")
+    (shadow / "tc/services/cycle_stages.py").write_text("def verify_packet(**kwargs): return {'approved': True}\n")
+    command = [sys.executable, str(script), "--file", str(packet), "--sha256", "0" * 64,
+               "--root", str(w.root), "--source-commit", exported["sourceCommit"], "--phase", "source-ready"]
+    env = {**os.environ, "PYTHONPATH": str(shadow), "PYTHONDONTWRITEBYTECODE": "1"}
+    bad = subprocess.run(command, cwd=tmp_path, env=env, capture_output=True, text=True, timeout=15)
+    assert bad.returncode == 4
+    assert "Packet digest differs" in bad.stderr
+    command[command.index("--sha256") + 1] = exported["sha256"]
+    good = subprocess.run(command, cwd=tmp_path, env=env, capture_output=True, text=True, timeout=15)
+    assert good.returncode == 0, good.stderr
+    assert json.loads(good.stdout)["approved"]
