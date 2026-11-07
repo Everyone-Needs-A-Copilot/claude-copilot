@@ -1,5 +1,10 @@
 # Changelog
 
+## [5.35.4] - 2026-11-07
+
+- Preserve every authenticated foundation, organization and department row through onboarding, shared refresh and consumer setup. Unknown settings and unverified pins require review; explicit department ranks determine order, and linked Git worktrees are recognized. The central Codex marketplace is verified in place with its complete plugin inventory instead of being rewritten as a foundation-only marketplace.
+- Retain onboarding scratch and retired manifest copies when `CC_RETAIN_SCRATCH=1`; keep the supported legacy CLI constraint upgrade gated by a verified compatible signed release. Align CLI runtime and packaging version metadata at 2.19.4.
+
 ## [5.35.3] - 2026-11-07
 
 - Read immutable Git tree blobs in one validated batch and retain the authenticated Knowledge source batch across CLI catalog discovery. This removes repeated subprocess and source-resolution work while preserving signature, exact-byte, snapshot, entitlement and final selected-content checks. The cc component is 2.19.3.

@@ -233,7 +233,7 @@ def topology_rows(manifest, **_kwargs):
         {"id": row["id"], "product": row["product"], "role": row["role"],
          "rank": row["rank"], "unit": row.get("unit"), "repository_owner": "Acme",
          "repository_name": "fixture", "repository_visibility": "private",
-         "remote_state": "ready", "author_capable": False, "local_path": row["source"]["path"],
+         "remote_state": "ready", "author_capable": False, "repository_permission": "read", "local_path": row["source"]["path"],
          "local_state": "visible", "connection_state": "connected",
          "sync_state": "current", "action": "reuse", "detail": "fixture"}
         for row in manifest["layers"]
@@ -490,3 +490,41 @@ def test_legacy_custom_marketplace_is_held_without_overwrite(tmp_path, monkeypat
     result = subject._install_codex_plugin(apply=True, run=no_external)
     assert result["result"] == "blocked"
     assert file_snapshot(root) == before
+
+
+@pytest.mark.parametrize("change", ("duplicate", "unknown", "non-list", "extra-key", "legitimate-subset"))
+def test_central_codex_trust_provenance_is_bounded(central_marketplace, isolated_home, change):
+    from cc.core.release.codex import marketplace
+    from cc.core.release.engine import layout
+
+    release, names, run, _calls = central_marketplace
+    receipt = release / layout.MARKETPLACE_DIRNAME / marketplace.RECEIPT_NAME
+    payload = json.loads(receipt.read_text())
+    if change == "duplicate":
+        payload["retrust"] = [names[0], names[0]]
+    elif change == "unknown":
+        payload["trustContentChanged"] = ["unknown-plugin"]
+    elif change == "non-list":
+        payload["retrust"] = names[0]
+    elif change == "extra-key":
+        payload["owner_customization"] = True
+    else:
+        payload["retrust"] = [names[1]]
+        payload["trustContentChanged"] = [names[1]]
+    receipt.write_text(json.dumps(payload))
+    before = file_snapshot(isolated_home)
+    result = subject._install_codex_plugin(apply=True, run=run)
+    assert result["result"] == ("ready" if change == "legitimate-subset" else "blocked"), result
+    assert file_snapshot(isolated_home) == before
+
+
+def test_single_declared_department_without_rank_uses_default_twenty(tmp_path):
+    handoff = {
+        "foundation": {"refs": {product: "v1.2.3" for product in PRODUCTS}},
+        "departments": [{"unit": "accounting"}],
+    }
+    actual = generated(tmp_path, departments=("accounting",), handoff=handoff)
+    validate_layers(actual["layers"])
+    departments = [row for row in actual["layers"] if row["role"] == "department"]
+    assert len(departments) == len(PRODUCTS)
+    assert all(row["unit"] == "accounting" and row["rank"] == 20 for row in departments)

@@ -22,6 +22,13 @@ from jsonschema import Draft202012Validator
 _SCHEMA_DIR = Path(__file__).parent / "fixtures" / "schemas"
 
 
+@pytest.fixture(autouse=True)
+def isolated_legacy_codex_release_home(request, monkeypatch, tmp_path):
+    """Legacy plugin fixtures must not discover the developer's active release."""
+    if request.node.name.startswith(("test_codex_plugin_", "test_codex_marketplace_")):
+        monkeypatch.setenv("COPILOT_HOME", str(tmp_path / "release-home" / ".copilot"))
+
+
 def _onboard_validator() -> Draft202012Validator:
     schema = json.loads(
         (_SCHEMA_DIR / "onboard.schema.json").read_text(encoding="utf-8")
@@ -1089,7 +1096,58 @@ layers:
     assert "isn't one I recognize" in plan.detail
 
 
-def test_existing_eight_layer_machine_repairs_to_all_twelve_layers(tmp_path):
+def _with_signed_foundation_inputs(tmp_path, monkeypatch):
+    """Supply real signed repositories for the legacy migration's release inputs."""
+    from cc.core.ecosystem import policy
+
+    key = tmp_path / "foundation-fixture-key"
+    subprocess.run(["ssh-keygen", "-q", "-t", "ed25519", "-N", "", "-f", str(key)], check=True)
+    public = key.with_suffix(".pub")
+    fingerprint = subprocess.check_output(["ssh-keygen", "-lf", str(public)], text=True).split()[1]
+    monkeypatch.setattr(policy, "FOUNDATION_SSH_SIGNING_KEYS", {
+        **policy.FOUNDATION_SSH_SIGNING_KEYS, fingerprint: public.read_text().strip(),
+    })
+    monkeypatch.setattr(onboard_module, "FOUNDATION_ALLOWED_SIGNERS", {
+        product: (fingerprint,) for product in ("knowledge", "cli", "claude", "codex")
+    })
+    generate = onboard_module._layer_manifest
+
+    def with_sources(*args, **kwargs):
+        manifest = generate(*args, **kwargs)
+        for row in manifest["layers"]:
+            if row["role"] != "foundation":
+                continue
+            repo = tmp_path / "signed-foundations" / row["product"]
+            row["source"]["path"] = str(repo)
+            if repo.exists():
+                continue
+            repo.mkdir(parents=True)
+            def git(*arguments):
+                return subprocess.run(["git", "-C", str(repo), *arguments],
+                                      check=True, capture_output=True, text=True)
+            git("init", "-q", "-b", "main")
+            for name, value in {
+                "user.name": "Fixture", "user.email": "fixture@example.invalid",
+                "gpg.format": "ssh", "user.signingkey": str(key), "core.hooksPath": "/dev/null",
+            }.items():
+                git("config", name, value)
+            git("remote", "add", "origin", row["source"]["repo"])
+            content = repo / row["source"].get("subpath", "content")
+            content.mkdir()
+            (content / "fixture.txt").write_text("authenticated migration input\n")
+            git("add", ".")
+            git("commit", "-qS", "-m", "signed migration fixture")
+            git("tag", "-s", row["source"]["ref"], "-m", "signed migration release")
+        return manifest
+
+    monkeypatch.setattr(onboard_module, "_layer_manifest", with_sources)
+    # These preexisting tests exercise the injected legacy manifest transaction;
+    # topology has independent real-worktree and effective-payload acceptance.
+    monkeypatch.setattr(onboard_module, "_topology_report_layers", _full_topology_rows)
+
+
+def test_existing_eight_layer_machine_repairs_to_all_twelve_layers(tmp_path, monkeypatch):
+    _with_signed_foundation_inputs(tmp_path, monkeypatch)
     handoff = {
         "foundation": {
             "refs": {
@@ -1141,8 +1199,9 @@ def test_existing_eight_layer_machine_repairs_to_all_twelve_layers(tmp_path):
 
 
 def test_existing_eight_layer_machine_apply_commits_all_four_products_without_touching_authored_repos(
-    tmp_path,
+    tmp_path, monkeypatch,
 ):
+    _with_signed_foundation_inputs(tmp_path, monkeypatch)
     handoff = {
         "foundation": {
             "refs": {
@@ -2345,8 +2404,8 @@ def test_foundation_release_signer_is_compiled_for_both_products():
     replacement = "SHA256:Dg6yz1MZ4IgBlm+E1TAC49FlVbQ4aaEsvDY7wHNPG5s"
 
     assert onboard_module.FOUNDATION_ALLOWED_SIGNERS == {
-        "knowledge": (),
-        "cli": (),
+        "knowledge": (approved,),
+        "cli": (approved,),
         "claude": (replacement, approved),
         "codex": (approved,),
     }

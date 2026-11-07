@@ -13,6 +13,7 @@ import shutil
 import socket
 import subprocess
 import tempfile
+from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable, Sequence
@@ -70,8 +71,8 @@ _COMPONENT_LABELS: dict[str, str] = {
 # Release engineering populates these tuples only after the corresponding
 # public foundation starts publishing commits/tags signed by the real keys.
 FOUNDATION_ALLOWED_SIGNERS: dict[str, tuple[str, ...]] = {
-    "knowledge": (),
-    "cli": (),
+    "knowledge": ("SHA256:FIfppOkzwXZUAamELQzYoSUQXiEAmTYiVewHe1ACMZo",),
+    "cli": ("SHA256:FIfppOkzwXZUAamELQzYoSUQXiEAmTYiVewHe1ACMZo",),
     "claude": (
         "SHA256:Dg6yz1MZ4IgBlm+E1TAC49FlVbQ4aaEsvDY7wHNPG5s",
         "SHA256:FIfppOkzwXZUAamELQzYoSUQXiEAmTYiVewHe1ACMZo",
@@ -818,7 +819,12 @@ def _classify_repository_history(
     before ever comparing SHAs, mirroring how `_apply_visible_topology`'s
     `repair` branch already fetches before its `--ff-only` merge.
     """
-    if not (local / ".git").is_dir():
+    git_entry = local / ".git"
+    valid_worktree = False
+    if git_entry.is_file() and not git_entry.is_symlink():
+        top = _git_output(local, "rev-parse", "--show-toplevel", run=run)
+        valid_worktree = top.returncode == 0 and Path(top.stdout.strip()).resolve() == local.resolve()
+    if not git_entry.is_dir() and not valid_worktree:
         return HistoryClassification(
             "unreadable",
             "unreadable",
@@ -1370,6 +1376,24 @@ def build_shared_repository_refresh_report(
         department_units=departments,
         repository_root=visible_root,
     )
+    adoption = _manifest_adoption_plan(
+        manifest,
+        Path.home() / ".config" / "copilot" / "copilot.layers.yml",
+        configured_path=resolve_key("layers.manifest"),
+        legacy_paths=(Path.home() / ".copilot" / "copilot.layers.yml",
+                      Path.home() / ".copilot-cli" / "copilot.layers.yml"),
+        allowed_root=Path.home(),
+    )
+    if adoption.action == "review" or adoption.payload is None:
+        return {
+            "schema_version": SCHEMA_VERSION, "result": "blocked", "org": resolved_org,
+            "mode": "download-only", "completed_actions": [], "layers": [],
+            "summary": {"checked": 0, "updated": 0, "current": 0, "held": 1},
+            "holds": [{"code": "layer-manifest-review-required", "detail": adoption.detail}],
+        }
+    manifest = {**adoption.payload, "layers": [
+        row for row in adoption.payload["layers"] if row["product"] in normalized
+    ]}
     rows = [
         row
         for row in _topology_report_layers(manifest, run=run)
@@ -1614,6 +1638,25 @@ def _layer_manifest(
     repository_root: Path | None = None,
 ) -> dict[str, Any]:
     refs = (handoff.get("foundation") or {}).get("refs") or {}
+    declared_ranks = {
+        row.get("unit"): row.get("rank")
+        for row in handoff.get("departments", [])
+        if isinstance(row, dict) and row.get("unit") in department_units
+    }
+    department_ranks = {
+        unit: (declared_ranks.get(unit) if declared_ranks.get(unit) is not None
+               else 20 if len(department_units) == 1 else None)
+        for unit in department_units
+    }
+    if len(set(department_units)) != len(department_units) or any(
+        type(rank) is not int or not 10 < rank < 30
+        for rank in department_ranks.values()
+    ) or len(set(department_ranks.values())) != len(department_ranks):
+        raise RuntimeError(
+            "Departments require explicit distinct ranks between personal and organization "
+            "layers (for example 20 and 21). Review the organization handoff; membership "
+            "does not choose their precedence."
+        )
     layers: list[dict[str, Any]] = []
     for product in products:
         requested = refs.get(product) or LEGACY_FOUNDATION_REFS.get(product)
@@ -1644,12 +1687,12 @@ def _layer_manifest(
                 (
                     f"{product}-department-{unit}",
                     "department",
-                    20,
+                    department_ranks[unit],
                     f"git@github-work:{org}/{product}-copilot-{unit}.git",
                     "main",
                     "work",
                 )
-                for unit in department_units
+                for unit in sorted(department_units, key=department_ranks.__getitem__)
             ],
             (
                 organization_id,
@@ -1780,7 +1823,7 @@ def _managed_product_is_compatible(
             "department": "department",
         }.get(value, value)
     desired_by_key = {
-        (layer.get("product"), canonical_role(layer.get("role"))): layer
+        (layer.get("product"), canonical_role(layer.get("role")), layer.get("unit")): layer
         for layer in desired
     }
     allowed_keys = {
@@ -1800,7 +1843,7 @@ def _managed_product_is_compatible(
         {"anon"},
     )
     for layer in existing:
-        key = (layer.get("product"), canonical_role(layer.get("role")))
+        key = (layer.get("product"), canonical_role(layer.get("role")), layer.get("unit"))
         expected = desired_by_key.get(key)
         if expected is None:
             return False
@@ -1826,15 +1869,23 @@ def _managed_product_is_compatible(
             return False
         actual_source = layer.get("source") or {}
         expected_source = expected.get("source") or {}
+        if set(actual_source) - {"repo", "ref", "path", "subpath"}:
+            return False
+        actual_policy = layer.get("policy") or {}
+        if set(actual_policy) - {"allowed_signers"}:
+            return False
+        if actual_policy.get("allowed_signers", []) != (expected.get("policy") or {}).get("allowed_signers", []):
+            return False
+        if actual_source.get("path") is not None:
+            if expected_source.get("path") is None or Path(actual_source["path"]).expanduser().absolute() != Path(expected_source["path"]).expanduser().absolute():
+                return False
         if _repository_identity(actual_source.get("repo")) != _repository_identity(
             expected_source.get("repo")
         ):
             return False
         if actual_source.get("subpath") != expected_source.get("subpath"):
             return False
-        if expected["role"] != "foundation" and actual_source.get(
-            "ref"
-        ) != expected_source.get("ref"):
+        if actual_source.get("ref") != expected_source.get("ref"):
             return False
         actual_auth, expected_auth = layer.get("auth"), expected.get("auth")
         foundation_transport_upgrade = (
@@ -1848,6 +1899,23 @@ def _managed_product_is_compatible(
         if layer.get("activation", "always") != "always":
             return False
     return True
+
+
+def _active_release_root() -> Path | None:
+    """Recognize only the bounded, frozen central release selected by current."""
+    from cc.core.release.engine import layout, schema
+
+    current = layout.current_path()
+    if not current.exists() and not current.is_symlink():
+        return None
+    root = current.resolve(strict=True)
+    receipt = root / layout.MANIFEST_NAME
+    if (not current.is_symlink() or root.parent != layout.releases_dir().resolve()
+            or not root.is_dir() or root.stat().st_mode & 0o222
+            or receipt.is_symlink() or not receipt.is_file() or receipt.stat().st_mode & 0o222):
+        raise ValueError("The selected central release is not a bounded immutable release.")
+    schema.load(root)
+    return root
 
 
 def _manifest_adoption_plan(
@@ -1867,6 +1935,18 @@ def _manifest_adoption_plan(
 
     source = next((path for path in dict.fromkeys(candidates) if path.is_file()), None)
     if source is None:
+        if destination.absolute() == Path.home() / ".config" / "copilot" / "copilot.layers.yml":
+            try:
+                active = _active_release_root()
+            except (OSError, ValueError):
+                active = destination  # invalid central state must not create guessed defaults
+            if active is not None:
+                return ManifestAdoption(
+                    "unfamiliar", "review",
+                    "A central release is already selected but its layer manifest is missing. "
+                    "Restore the verified manifest before setup; new defaults may not match that release.",
+                    None, destination, None,
+                )
         return ManifestAdoption(
             "missing",
             "create",
@@ -1911,22 +1991,34 @@ def _manifest_adoption_plan(
         )
 
     desired_layers = copy.deepcopy(desired["layers"])
-    # Central releases pin organization/department layers to signed tags.
+    # Central releases pin every shared tier to signed tags.
     # Authenticate those existing pins before comparing with the onboarding
     # defaults, and retain the entire compatible row rather than replacing its
     # ref or signer policy with the legacy `main` default.
-    from cc.core.release.engine.build import ComponentSource, ReleaseBuildError, default_verifier
+    from cc.core.release.engine.build import (
+        ComponentSource,
+        ReleaseBuildError,
+        default_verifier,
+    )
 
     pinned_rows: dict[str, dict[str, Any]] = {}
+    unverified_pins: set[str] = set()
+    desired_products = {layer["product"] for layer in desired_layers}
     for layer in existing["layers"]:
-        if layer.get("role") not in {"organization", "org", "department", "dept"}:
+        if layer.get("product") not in desired_products:
+            continue
+        if layer.get("role") not in {"foundation", "organization", "org", "department", "dept"}:
             continue
         layer_source = layer.get("source") or {}
         ref = layer_source.get("ref", "")
         signers = (layer.get("policy") or {}).get("allowed_signers", [])
-        if not isinstance(ref, str) or not re.fullmatch(r"(?:refs/tags/)?v\d+\.\d+\.\d+(?:-[\w.-]+)?", ref) or not signers:
+        if not isinstance(ref, str) or not re.fullmatch(r"(?:refs/tags/)?v\d+\.\d+\.\d+(?:-[\w.-]+)?", ref):
             continue
-        expected = next((row for row in desired_layers if row.get("id") == layer.get("id")), None)
+        unverified_pins.add(layer["id"])
+        if not signers:
+            continue
+        role = {"org": "organization", "dept": "department"}.get(layer.get("role"), layer.get("role"))
+        expected = next((row for row in desired_layers if (row.get("product"), row.get("role"), row.get("unit")) == (layer.get("product"), role, layer.get("unit"))), None)
         if expected is None or _repository_identity(layer_source.get("repo")) != _repository_identity(expected["source"].get("repo")):
             continue
         repo_path = layer_source.get("path")
@@ -1940,7 +2032,9 @@ def _manifest_adoption_plan(
         except (ReleaseBuildError, OSError, ValueError):
             continue
         expected["source"]["ref"] = ref
-        pinned_rows[layer["id"]] = layer
+        expected["policy"] = copy.deepcopy(layer.get("policy") or {})
+        pinned_rows[expected["id"]] = layer
+        unverified_pins.remove(layer["id"])
     desired_products = {layer["product"] for layer in desired_layers}
     retained = [
         raw_layer
@@ -1952,9 +2046,47 @@ def _manifest_adoption_plan(
     existing_managed = [
         layer for layer in existing["layers"] if layer["product"] in desired_products
     ]
-    if existing_managed and not _managed_product_is_compatible(
+    # The retired CLI manifest used ^0.3.0. Upgrade that one recognized
+    # generated constraint only after authenticating the desired compatible
+    # release; arbitrary foundation refs still require review.
+    for index, layer in enumerate(existing_managed):
+        source_row = layer.get("source") or {}
+        if (layer.get("product") != "cli" or layer.get("role") != "foundation"
+                or layer.get("id") not in {"foundation", "cli-foundation"}
+                or source_row.get("ref") != "^0.3.0"):
+            continue
+        expected = next((row for row in desired_layers
+                         if row.get("product") == "cli" and row.get("role") == "foundation"), None)
+        if expected is None:
+            continue
+        desired_source = expected["source"]
+        match = _SEMVER.fullmatch(desired_source.get("ref", ""))
+        if (match is None or tuple(map(int, match.groups()))[:2] != (0, 3)
+                or _repository_identity(source_row.get("repo")) != "everyone-needs-a-copilot/cli-copilot"
+                or _repository_identity(source_row.get("repo")) != _repository_identity(desired_source.get("repo"))):
+            continue
+        expected_policy = expected.get("policy") or {}
+        if layer.get("policy") not in (None, {}, {"allowed_signers": []}, expected_policy):
+            continue
+        repo_path = desired_source.get("path")
+        if not isinstance(repo_path, str) or not Path(repo_path).is_dir():
+            continue
+        origin = subprocess.run(["git", "-C", repo_path, "remote", "get-url", "origin"], capture_output=True, text=True, check=False)
+        if origin.returncode or _repository_identity(origin.stdout.strip()) != _repository_identity(desired_source.get("repo")):
+            continue
+        try:
+            default_verifier(ComponentSource(name=expected["id"], tier="foundation", kind="signed-tag",
+                                             ref=desired_source["ref"], source=repo_path,
+                                             allowed_signers=tuple(expected_policy.get("allowed_signers", []))))
+        except (ReleaseBuildError, OSError, ValueError):
+            continue
+        compatible = copy.deepcopy(layer)
+        compatible["source"]["ref"] = desired_source["ref"]
+        compatible["policy"] = copy.deepcopy(expected_policy)
+        existing_managed[index] = compatible
+    if unverified_pins or (existing_managed and not _managed_product_is_compatible(
         existing_managed, desired_layers
-    ):
+    )):
         return ManifestAdoption(
             "conflict",
             "review",
@@ -2035,6 +2167,25 @@ def _backup_path(path: Path) -> Path:
     return root / path.name
 
 
+def _retire_manifest(path: Path) -> None:
+    """Retain exact manifest bytes when the operator requests release evidence."""
+    assert_write_is_isolated(path)
+    if os.environ.get("CC_RETAIN_SCRATCH") == "1":
+        archive = Path(tempfile.mkdtemp(prefix=f".{path.name}.retained-", dir=path.parent))
+        path.rename(archive / path.name)
+    else:
+        path.unlink()
+
+
+@contextmanager
+def _manifest_candidate_directory():
+    if os.environ.get("CC_RETAIN_SCRATCH") == "1":
+        yield tempfile.mkdtemp(prefix="cc-manifest-candidate-")
+    else:
+        with tempfile.TemporaryDirectory(prefix="cc-manifest-candidate-") as directory:
+            yield directory
+
+
 def _apply_manifest_adoption(plan: ManifestAdoption) -> Path | None:
     """Apply a reviewed manifest plan with a content-addressed rollback copy."""
     if plan.action == "review" or plan.payload is None:
@@ -2060,7 +2211,7 @@ def _apply_manifest_adoption(plan: ManifestAdoption) -> Path | None:
         # concurrent actor changed it, preserve it and leave duplicate
         # recognized manifests rather than risking authored work.
         if backup is not None and plan.source.read_bytes() == backup.read_bytes():
-            plan.source.unlink()
+            _retire_manifest(plan.source)
     return backup
 
 
@@ -2088,7 +2239,7 @@ def _rollback_manifest_adoption(plan: ManifestAdoption, backup: Path | None) -> 
         if not plan.destination.is_file() or plan.destination.read_bytes() != expected:
             return False
         if plan.source is None:
-            plan.destination.unlink()
+            _retire_manifest(plan.destination)
             return True
         if backup is None or not backup.is_file():
             return False
@@ -2100,7 +2251,7 @@ def _rollback_manifest_adoption(plan: ManifestAdoption, backup: Path | None) -> 
             return False
         if not plan.source.exists():
             _atomic_bytes(plan.source, prior)
-        plan.destination.unlink()
+        _retire_manifest(plan.destination)
         return True
     except OSError:
         return False
@@ -2221,7 +2372,7 @@ def _validate_manifest_candidate(
             candidate = plan.source
         return probe(candidate, plan.source)
 
-    with tempfile.TemporaryDirectory(prefix="cc-manifest-candidate-") as temp_root:
+    with _manifest_candidate_directory() as temp_root:
         candidate = Path(temp_root) / "copilot.layers.yml"
         candidate.write_text(
             yaml.safe_dump(plan.payload, sort_keys=False), encoding="utf-8"
@@ -2455,7 +2606,104 @@ def _codex_marketplace_failure(result: subprocess.CompletedProcess[str]) -> str:
     return "Codex rejected the verified local marketplace."
 
 
+def _central_codex_plugin_report(*, run: Run) -> dict[str, Any] | None:
+    """Inspect the complete selected marketplace; onboarding never rewrites it."""
+    from cc.core.release.codex import marketplace as market
+    from cc.core.release.codex import step
+    from cc.core.release.engine import layout, schema
+
+    try:
+        release = _active_release_root()
+        if release is None:
+            return None
+        root = release / layout.MARKETPLACE_DIRNAME
+        if root.is_symlink() or not root.is_dir():
+            raise ValueError("The central marketplace is missing or linked.")
+        selected = schema.load(release)
+        plugins: dict[str, dict[str, Any]] = {}
+        shadowed = []
+        for component, tier in market.PLUGIN_ROOTS:
+            entry = selected.component(component)
+            component_root = release / component
+            expected_kind = layout.KIND_LIVE if tier == layout.TIER_PERSONAL else layout.KIND_SIGNED
+            if entry.path != component or entry.kind != expected_kind or not component_root.is_dir():
+                raise ValueError("The selected Codex component identity is invalid.")
+            if expected_kind == layout.KIND_SIGNED and component_root.resolve() != component_root:
+                raise ValueError("A signed Codex component is linked outside its snapshot.")
+            source_root = release / component / "plugins"
+            if not source_root.is_dir():
+                continue
+            for source in sorted(p for p in source_root.iterdir() if (p / market.PLUGIN_MANIFEST).is_file()):
+                name, version = market._read_plugin(source)
+                if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]*", name):
+                    raise ValueError("The central plugin name is invalid.")
+                if name in plugins:
+                    shadowed.append({"name": name, "tier": tier, "component": component,
+                                     "version": version, "winner": plugins[name]["tier"]})
+                    continue
+                target = root / "plugins" / name
+                if source.is_symlink() or target.is_symlink() or not target.is_dir() or market._symlinks(source) or market._symlinks(target):
+                    raise ValueError("The central plugin contains an unsafe linked path.")
+                digest = market.tree_digest(source)
+                if market.tree_digest(target) != digest:
+                    raise ValueError("The central plugin differs from its selected source.")
+                plugins[name] = {"name": name, "version": version, "tier": tier,
+                                 "component": component, "digest": digest,
+                                 "hooksSha256": market._file_sha(target / market.HOOKS_RELATIVE)}
+        if layout.COMPONENT_CODEX not in plugins:
+            raise ValueError("The selected release has no foundation plugin.")
+        receipt = market.load_receipt(release)
+        expected_receipt = {"schema": 1, "marketplace": market.MARKETPLACE_NAME,
+                            "release": release.name, "plugins": list(plugins.values()), "shadowed": shadowed}
+        provenance_fields = {"retrust", "trustContentChanged"}
+        if set(receipt) != set(expected_receipt) | provenance_fields:
+            raise ValueError("The central marketplace receipt has missing or unknown provenance fields.")
+        for field in provenance_fields:
+            values = receipt[field]
+            if (not isinstance(values, list) or any(not isinstance(value, str) for value in values)
+                    or len(values) != len(set(values)) or not set(values) <= set(plugins)):
+                raise ValueError("The central marketplace trust provenance is malformed.")
+        if {key: receipt[key] for key in expected_receipt} != expected_receipt:
+            raise ValueError("The central marketplace receipt does not describe the complete selected inventory.")
+        expected_document = {
+            "name": market.MARKETPLACE_NAME,
+            "interface": {"displayName": "Copilot Control Tower"},
+            "plugins": [{"name": name, "source": {"source": "local", "path": f"./plugins/{name}"},
+                         "policy": {"installation": "INSTALLED_BY_DEFAULT", "authentication": "ON_INSTALL"},
+                         "category": "Productivity"} for name in plugins],
+        }
+        if json.loads((root / market.MANIFEST_RELATIVE).read_text()) != expected_document:
+            raise ValueError("The central marketplace document is missing, changed or customized.")
+        checks = step.doctor_checks()(release)
+        if any(not check.ok for check in checks):
+            raise ValueError("; ".join(check.detail for check in checks if not check.ok))
+        listed = run(("codex", "plugin", "marketplace", "list", "--json"))
+        if listed.returncode or not any(
+            item.get("name") == market.MARKETPLACE_NAME
+            and isinstance(item.get("root"), str)
+            and Path(item["root"]).expanduser().resolve() == root
+            for item in json.loads(listed.stdout)["marketplaces"]
+        ):
+            raise ValueError("Codex has not registered the selected central marketplace.")
+        listed = run(("codex", "plugin", "list", "--json"))
+        if listed.returncode:
+            raise ValueError("Codex could not inspect the selected plugins.")
+        installed = json.loads(listed.stdout)["installed"]
+        if not all(any(item.get("pluginId") == f"{name}@{market.MARKETPLACE_NAME}"
+                       and item.get("installed") is True and item.get("enabled") is True
+                       for item in installed) for name in plugins):
+            raise ValueError("Not every selected central plugin is installed and enabled.")
+        if _active_release_root() != release:
+            raise ValueError("The selected central release changed during inspection.")
+        return {"result": "ready", "source": "central-release", "plugins": list(plugins)}
+    except (OSError, ValueError, KeyError, TypeError, market.MarketplaceError) as exc:
+        return {"result": "blocked", "detail": f"The central Codex release needs repair with cc release publish: {exc}"}
+
+
 def _install_codex_plugin(*, apply: bool, run: Run) -> dict[str, Any]:
+    central = _central_codex_plugin_report(run=run)
+    if central is not None:
+        return central
     root = Path(str(resolve_key("paths.codex_materialize_root"))).expanduser()
     plugin = root / "plugins" / "codex-copilot"
     marketplace = root / ".agents" / "plugins" / "marketplace.json"
@@ -2526,14 +2774,22 @@ def _install_codex_plugin(*, apply: bool, run: Run) -> dict[str, Any]:
             }
         ],
     }
-    marketplace.parent.mkdir(parents=True, exist_ok=True)
-    with tempfile.NamedTemporaryFile(
-        "w", dir=marketplace.parent, delete=False, encoding="utf-8"
-    ) as handle:
-        json.dump(payload, handle, indent=2)
-        handle.write("\n")
-        temp = Path(handle.name)
-    os.replace(temp, marketplace)
+    if marketplace.exists():
+        try:
+            existing = json.loads(marketplace.read_text())
+        except (OSError, ValueError):
+            existing = None
+        if marketplace.is_symlink() or existing != payload:
+            return {"result": "blocked", "detail": "The existing Codex marketplace has additional or customized content. Preserve it and review the release configuration."}
+    else:
+        marketplace.parent.mkdir(parents=True, exist_ok=True)
+        with tempfile.NamedTemporaryFile(
+            "w", dir=marketplace.parent, delete=False, encoding="utf-8"
+        ) as handle:
+            json.dump(payload, handle, indent=2)
+            handle.write("\n")
+            temp = Path(handle.name)
+        os.replace(temp, marketplace)
     added = run(("codex", "plugin", "marketplace", "add", str(root), "--json"))
     if added.returncode != 0:
         return {
@@ -3069,16 +3325,6 @@ def build_ecosystem_onboard_report(
         department_units=department_units,
         repository_root=visible_root,
     )
-    topology_layers = _topology_report_layers(manifest, run=run)
-    if legacy_injected_mode:
-        for row in topology_layers:
-            row.update(
-                local_state="legacy-test-mode",
-                connection_state="planned",
-                sync_state="not-checked",
-                action="reuse",
-                detail="Visible repository placement was not requested by this injected transaction.",
-            )
     repository_stage = {
             "stage": "repository-location",
             "result": "ready" if visible_root is not None or legacy_injected_mode else "changes-required",
@@ -3113,6 +3359,21 @@ def build_ecosystem_onboard_report(
         legacy_paths=legacy_manifests,
         allowed_root=None if manifest_path else Path.home(),
     )
+    # All downstream discovery and writes consume the same reviewed candidate.
+    # A held adoption must not fetch or refresh the generated default refs.
+    if adoption.payload is not None:
+        manifest = adoption.payload
+    topology_layers = (
+        _topology_report_layers(manifest, run=run)
+        if adoption.action != "review" else None
+    )
+    if legacy_injected_mode:
+        for row in topology_layers or []:
+            row.update(
+                local_state="legacy-test-mode", connection_state="planned",
+                sync_state="not-checked", action="reuse",
+                detail="Visible repository placement was not requested by this injected transaction.",
+            )
     inventory.append(adoption.as_item())
     # `github-work` is what the layer manifest above just wired every org
     # repo through; `github-personal` is what it wired every personal repo
