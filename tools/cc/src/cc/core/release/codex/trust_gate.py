@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import json
 import os
+import select
 import shutil
 import subprocess
 import tempfile
@@ -53,33 +54,46 @@ def app_server_hooks(codex_bin: str, codex_home: Path, cwd: Path, *, wait: float
     env = {**os.environ, "CODEX_HOME": str(codex_home)}
     try:
         proc = subprocess.Popen([codex_bin, "app-server"], stdin=subprocess.PIPE, stdout=subprocess.PIPE,
-                                stderr=subprocess.DEVNULL, env=env, text=True, cwd=str(cwd))
+                                stderr=subprocess.DEVNULL, env=env, cwd=str(cwd))
     except OSError as exc:
         raise TrustGateError(f"cannot start `{codex_bin} app-server`: {exc}") from exc
 
+    deadline = time.monotonic() + timeout
+    pending = bytearray()
+
     def send(message: dict) -> None:
-        proc.stdin.write(json.dumps(message) + "\n")
+        proc.stdin.write((json.dumps(message) + "\n").encode("utf-8"))
         proc.stdin.flush()
 
     def read(request_id: int) -> dict:
-        deadline = time.monotonic() + timeout
+        # Read bytes only after readiness: readline() can block even when a
+        # partial JSON line is available. Keep buffered complete lines across
+        # requests and share one deadline across the entire exchange.
         while time.monotonic() < deadline:
-            line = proc.stdout.readline()
-            if not line:
-                break
-            try:
-                message = json.loads(line)
-            except ValueError:
+            if b"\n" in pending:
+                line, _, rest = pending.partition(b"\n")
+                pending[:] = rest
+                try:
+                    message = json.loads(line)
+                except ValueError:
+                    continue
+                if isinstance(message, dict) and message.get("id") == request_id:
+                    return message
                 continue
-            if message.get("id") == request_id:
-                return message
-        raise TrustGateError("codex app-server did not answer hooks/list")
+            remaining = deadline - time.monotonic()
+            if remaining <= 0 or not select.select([proc.stdout], [], [], remaining)[0]:
+                break
+            chunk = os.read(proc.stdout.fileno(), 65536)
+            if not chunk:
+                break
+            pending.extend(chunk)
+        raise TrustGateError("codex app-server did not answer hooks/list before timeout")
 
     try:
         send({"id": 1, "method": "initialize", "params": {"clientInfo": {"name": "cc-release", "version": "1"}}})
         read(1)
         send({"method": "initialized"})
-        time.sleep(wait)
+        time.sleep(max(0, min(wait, deadline - time.monotonic())))
         send({"id": 2, "method": "hooks/list", "params": {"cwds": [str(cwd)]}})
         reply = read(2)
         if "error" in reply:
@@ -94,6 +108,9 @@ def app_server_hooks(codex_bin: str, codex_home: Path, cwd: Path, *, wait: float
             proc.wait(timeout=5)
         except subprocess.TimeoutExpired:
             proc.kill()
+            proc.wait()
+        proc.stdin.close()
+        proc.stdout.close()
 
 
 def _plugin_hooks(hooks: list) -> list:
