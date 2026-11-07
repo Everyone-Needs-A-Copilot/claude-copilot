@@ -127,10 +127,6 @@ git -C "${REPO_ROOT}" diff --quiet HEAD -- \
     tools/cc/scripts/cc_frozen_entry.py ||
     die "release packaging files must be committed before building"
 
-if [[ -n "${CT_NOTARY_KEYCHAIN_PROFILE:-}" ]]; then
-    echo "cc release: checking notarization profile before the build"
-    run_notarytool history --output-format json --no-progress >/dev/null
-fi
 remote_commit="$(
     git ls-remote --exit-code "${remote_url}" \
         "refs/tags/${SOURCE_REF}^{}" "refs/tags/${SOURCE_REF}" \
@@ -152,7 +148,7 @@ cleanup() {
 trap cleanup EXIT
 
 source_checkout="${scratch}/source"
-git clone --quiet --branch "${SOURCE_REF}" --single-branch \
+git -c core.hooksPath=/dev/null clone --quiet --no-checkout --branch "${SOURCE_REF}" --single-branch \
     "${remote_url}" "${source_checkout}"
 cloned_commit="$(git -C "${source_checkout}" rev-parse HEAD)"
 [[ "${cloned_commit}" == "${SOURCE_COMMIT}" ]] ||
@@ -161,8 +157,16 @@ cloned_commit="$(git -C "${source_checkout}" rev-parse HEAD)"
 # unchanged verifier can prove this signed release is integrated into main.
 git -C "${source_checkout}" fetch --quiet origin \
     refs/heads/main:refs/remotes/origin/main
-"${source_checkout}/scripts/verify-foundation-release.sh" \
+# Candidate files are data until caller-trusted code and signer roots authorize
+# their Git objects. Never run a verifier supplied by the candidate itself.
+"${SCRIPT_DIR}/verify-foundation-release.sh" \
     "${source_checkout}" "${SOURCE_REF}" "${SOURCE_COMMIT}"
+git -c core.hooksPath=/dev/null -C "${source_checkout}" checkout --quiet --detach "${SOURCE_COMMIT}"
+
+if [[ -n "${CT_NOTARY_KEYCHAIN_PROFILE:-}" ]]; then
+    echo "cc release: checking notarization profile before the build"
+    run_notarytool history --output-format json --no-progress >/dev/null
+fi
 
 python_package="${scratch}/${PYTHON_PACKAGE}"
 echo "cc release: fetching pinned Python ${PYTHON_VERSION} universal2 toolchain"

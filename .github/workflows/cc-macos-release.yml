@@ -23,6 +23,9 @@ concurrency:
 
 jobs:
   package:
+    # Verify the release environment's protected-main deployment policy and
+    # environment-only Apple secrets before dispatch; no repository fallback.
+    if: ${{ github.ref == 'refs/heads/main' && github.ref_protected }}
     runs-on: macos-14
     environment: release
     timeout-minutes: 120
@@ -30,15 +33,29 @@ jobs:
       SOURCE_REF: ${{ inputs.source_ref }}
       SOURCE_COMMIT: ${{ inputs.source_commit }}
     steps:
+      - name: Require protected main workflow authority
+        shell: bash
+        env:
+          RELEASE_WORKFLOW_REF: ${{ github.ref }}
+          RELEASE_WORKFLOW_PROTECTED: ${{ github.ref_protected }}
+        run: |
+          set -euo pipefail
+          [[ "$RELEASE_WORKFLOW_REF" == 'refs/heads/main' && "$RELEASE_WORKFLOW_PROTECTED" == 'true' ]] || {
+            echo 'Release tooling must run from protected main.' >&2
+            exit 1
+          }
+
       - name: Check out release tooling
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
+          ref: ${{ github.workflow_sha }}
           fetch-depth: 0
 
       - name: Verify the exact integrated release source
         shell: bash
         run: |
           set -euo pipefail
+          unset FOUNDATION_RELEASE_PUBLIC_KEY FOUNDATION_RELEASE_PRINCIPAL
           [[ "$SOURCE_REF" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] || {
             echo 'source_ref must be an exact final vMAJOR.MINOR.PATCH tag' >&2
             exit 1
@@ -87,6 +104,7 @@ jobs:
           APPLE_NOTARY_KEY: ${{ secrets.APPLE_NOTARY_KEY }}
         run: |
           set -euo pipefail
+          unset FOUNDATION_RELEASE_PUBLIC_KEY FOUNDATION_RELEASE_PRINCIPAL
           umask 077
           certificate_path="$RUNNER_TEMP/cc-developer-id.p12"
           keychain_path="$RUNNER_TEMP/cc-signing.keychain-db"

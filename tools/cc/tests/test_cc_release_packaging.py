@@ -19,9 +19,9 @@ def _git(repo: Path, *args: str) -> str:
     return subprocess.check_output(["git", "-C", str(repo), *args], text=True).strip()
 
 
-@pytest.mark.parametrize("integrated", [True, False])
+@pytest.mark.parametrize("integrated,tampered", [(True, False), (False, False), (True, True)])
 def test_packager_verifies_real_tag_main_ancestry_before_building(
-    tmp_path: Path, integrated: bool
+    tmp_path: Path, integrated: bool, tampered: bool
 ) -> None:
     """Exercise the actual packager through source verification, without Apple or downloads."""
     origin = tmp_path / "origin"
@@ -42,9 +42,20 @@ def test_packager_verifies_real_tag_main_ancestry_before_building(
     _git(origin, "commit", "-qS", "-m", "signed base")
     if not integrated:
         _git(origin, "switch", "-qc", "unmerged")
-    _git(origin, "commit", "-qS", "--allow-empty", "-m", "signed release")
+    if tampered:
+        (origin / "scripts/verify-foundation-release.sh").write_text(
+            '#!/bin/sh\necho CANDIDATE_VERIFIER_BYPASS >&2\nexit 0\n'
+        )
+        (origin / "candidate-signers").write_text("candidate-controlled trust data\n")
+        _git(origin, "add", ".")
+        _git(origin, "-c", "commit.gpgsign=false", "commit", "-q", "-m", "unsigned candidate replaces verifier and roots")
+    else:
+        _git(origin, "commit", "-qS", "--allow-empty", "-m", "signed release")
     commit = _git(origin, "rev-parse", "HEAD")
-    _git(origin, "tag", "-s", "v1.2.3", "-m", "signed final fixture")
+    if tampered:
+        _git(origin, "-c", "tag.gpgsign=false", "tag", "-a", "v1.2.3", "-m", "unsigned final fixture")
+    else:
+        _git(origin, "tag", "-s", "v1.2.3", "-m", "signed final fixture")
     _git(origin, "switch", "-q", "main")
     if integrated:
         _git(origin, "commit", "-qS", "--allow-empty", "-m", "later main commit")
@@ -94,7 +105,12 @@ def test_packager_verifies_real_tag_main_ancestry_before_building(
         env=env, capture_output=True, text=True, check=False,
     )
     output = result.stdout + result.stderr
-    if integrated:
+    if tampered:
+        assert result.returncode != 0, output
+        assert "CANDIDATE_VERIFIER_BYPASS" not in output, output
+        assert "REACHED_VERIFIED_SOURCE" not in output, output
+        assert "valid foundation release signature" in output, output
+    elif integrated:
         assert result.returncode == 91, output
         assert "foundation release signatures: verified" in output
         assert "ancestor of origin/main" in output
