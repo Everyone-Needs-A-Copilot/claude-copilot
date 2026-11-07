@@ -1,5 +1,5 @@
 #!/bin/bash
-# Codex UserPromptSubmit hook: emit one short routing nudge only when needed.
+# Codex UserPromptSubmit hook: always inject the coordinator rule, plus a routing nudge when needed.
 # Reads only the stable .prompt field and fails open on every parse error.
 
 JQ="$(command -v jq 2>/dev/null || true)"
@@ -20,8 +20,11 @@ elif printf '%s' "$PROMPT" | grep -qiE 'architecture|refactor|backend|(^|[^[:aln
   MSG='Route through $ta before responding; saying you will invoke it is not invocation.'
 fi
 
-[ -n "$MSG" ] || exit 0
-MSG="$MSG Approved useful independent work follows the protocol ready queue by default; preserve native capacity, ownership and one convergence owner."
+COORD='Coordinator rule (2026-11-05): you are a coordinator. Never read project content, edit files or run work commands yourself; split the request into independent streams and dispatch agents via spawn_agent now. Read-only work needs no approval wait; approval gates only writes, outward actions and spending. Allowed: tc, cc status/list/progress/skill, git status/log/branch/worktree list, synthesis, notes. No size exceptions.'
+if [ "${COPILOT_COORDINATOR:-}" = "off" ]; then
+  COORD='Coordinator rule is OFF for this session (COPILOT_COORDINATOR=off).'
+fi
+MSG="$COORD ${MSG:+$MSG }Preserve native capacity, exclusive ownership and one convergence owner."
 
 $JQ -cn --arg context "$MSG" \
   '{hookSpecificOutput:{hookEventName:"UserPromptSubmit",additionalContext:$context}}'

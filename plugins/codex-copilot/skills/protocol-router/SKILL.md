@@ -22,9 +22,9 @@ Use this skill to classify the request and choose the right specialist flow befo
 
 ## Codex rule
 
-Apply the immediate blocking lens locally. After scope approval, dispatch useful independent scopes by default through the protocol parallel-execution contract, after deciding:
+Dispatch the immediate blocking stage to one or more same-role agents on disjoint partitions; the main session is a coordinator. Dispatch read-only scopes immediately and, after scope approval for writes, dispatch useful independent scopes by default through the protocol parallel-execution contract, after deciding:
 
-1. what the immediate local step is
+1. which agents take the immediate blocking stage (several same-role agents when it divides)
 2. which work can safely run in parallel
 
 ## Standard flow

@@ -18,6 +18,9 @@
 
 ## Request matrix
 
+Each arrow is a stage boundary, and each hop may fan out to several same-role agents on disjoint partitions with one synthesis owner per stage (see the protocol `parallel-execution` reference); a single agent per hop needs a recorded indivisibility reason.
+
+
 | Request | Primary route | Optional additions |
 |---------|---------------|-------------------|
 | fix failing tests | `qa -> me -> qa` | `ta` if architecture is implicated |

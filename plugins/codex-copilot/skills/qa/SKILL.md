@@ -192,3 +192,7 @@ checkpoint cannot pass on metadata or a bare approval. A verified, in-scope hold
 can satisfy delivery checkpoint evidence while cleanup remains pending; it does
 not establish a cleanup or product-quality success. Preserve frozen scope and
 cumulative history for existing work.
+
+## Parallel Partitions
+
+When verification is split (2026-11-05, see the protocol `parallel-execution` reference), a QA agent acting as convergence owner proposes the partitions to the coordinator (by acceptance criterion, user journey, surface, test file or shard, and browser/viewport), merges per-partition evidence recorded against the same integrated source identity into one verdict, and runs the cross-partition seam checks. A partition worker stays inside its assigned partition, records evidence against the stated source identity, and issues no overall verdict. Running a full suite as a single agent is a coupled exception that needs a recorded reason.

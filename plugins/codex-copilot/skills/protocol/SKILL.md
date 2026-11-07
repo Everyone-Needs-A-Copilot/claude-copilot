@@ -20,8 +20,8 @@ It should behave like the Claude Copilot `/protocol` command in intent:
 
 In Codex, that means:
 
-- apply the immediate blocking specialist lens locally
-- dispatch useful independent work through native `spawn_agent` within the approved plan by default
+- dispatch the specialist lens to an agent; the main session is a coordinator and never applies it itself
+- from the first turn, split the request into independent streams and dispatch them through native `spawn_agent`; read-only work needs no approval wait, approval gates apply only before writes, outward actions and spending
 - use `tc` as the durable record for substantial work
 
 ## Repository Decision Instruments
@@ -51,7 +51,7 @@ Keep these instruments separate:
 
 ## Required behavior
 
-0. set the verification tier first, using the Verification Tiers table in `../specialist-agents/references/verification-policy.md` (T1 copy, T2 structural, T3 foundational; `tc task tier <id> T1|T2|T3 --reason "<text>"`; from the diff, upward only, owner-only downgrades, untiered is T3); T1 is not substantial work and skips the done block, T2 and T3 add a sixth `Tier:` line. Before substantial work, post the five-line done block (Done means / Proven by / Not in scope / Assumptions / First example) and wait for one word; register it with `tc task contract <id> --from-done-block <file>` (see `references/checkpoints.md`)
+0. coordinator rule first (`$parallel-execution`): dispatch read-only streams immediately, before any tier or done block; the done block and tier gate writes, outward actions and spending, never dispatch itself, and T1 gets no exemption from dispatch. Then set the verification tier, using the Verification Tiers table in `../specialist-agents/references/verification-policy.md` (T1 copy, T2 structural, T3 foundational; `tc task tier <id> T1|T2|T3 --reason "<text>"`; from the diff, upward only, owner-only downgrades, untiered is T3); T1 is not substantial work and skips the done block, T2 and T3 add a sixth `Tier:` line. Before substantial work, post the five-line done block (Done means / Proven by / Not in scope / Assumptions / First example) and wait for one word; register it with `tc task contract <id> --from-done-block <file>` (see `references/checkpoints.md`)
 1. check repository decision instruments when they apply
 2. classify the task
 3. state the workflow
@@ -62,7 +62,7 @@ Keep these instruments separate:
 8. use `docs/40-initiatives/NN-slug/` for formal multi-phase initiative knowledge while keeping live execution state in `tc`
 9. perform the next appropriate specialist step
 10. do not jump straight to implementation when earlier specialist work is warranted
-11. apply `references/parallel-execution.md`: validate the ready-work graph, dispatch within measured capacity, converge current evidence and prepare verified resource disposition
+11. (runs from the first turn, not after approval, for read-only work) apply `references/parallel-execution.md`: validate the ready-work graph, dispatch within measured capacity, converge current evidence and prepare verified resource disposition
 
 For experience work that does not materially change screens, components, or interface states, `$uid` may be skipped only when the checkpoint states why.
 
@@ -120,9 +120,9 @@ Design-flow checkpoints (`sd`, `uxd`, `uids`, and PRD or design approval) requir
 
 Each checkpoint follows `references/checkpoints.md`: outcome first, recommendation first, options only for irreversible, outward or budget-affecting choices, and no evidence inventory. Include soul, architecture, QA, or next-step context only when it changes the decision.
 
-## Main-session pattern
+## Coordinator pattern
 
-Use these native skills directly:
+The main session never applies these skills itself; it briefs dispatched agents to load them:
 
 - `$sd`
 - `$uxd`

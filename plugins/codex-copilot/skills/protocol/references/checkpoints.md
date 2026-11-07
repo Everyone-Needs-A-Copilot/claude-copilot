@@ -45,7 +45,7 @@ First example: [the one populated instance built first]
 
 The confirmed block becomes the task contract: `tc task contract <id> --from-done-block <file>`. When the work builds a collection, workflow family, integration or asset family, build one populated first example with real content (one journey; one narrative section; one item through the real path; one record plus one exception; one device and an observed action), show it, apply the correction, then expand.
 
-Plan or done-block approval authorizes useful independent local fan-out. Dispatch a continuous ready queue within actual native slots, resource permits and budget; complete owned agents promptly and converge current scoped QA plus seam checks. No separate spawn/worktree checkpoint is added.
+Plan or done-block approval authorizes useful independent fan-out through dispatched agents. Dispatch a continuous ready queue within actual native slots, resource permits and budget; complete owned agents promptly and converge current per-partition QA (split by criterion, journey, surface, test shard or browser/viewport) plus seam checks. No separate spawn/worktree checkpoint is added.
 
 ## Approval and decision requests
 

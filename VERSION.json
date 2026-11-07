@@ -112,6 +112,15 @@
         "security",
         "testing"
       ]
+    },
+    "codexPlugin": {
+      "version": "0.16.8",
+      "path": "plugins/codex-copilot",
+      "sourceRepo": "https://github.com/Everyone-Needs-A-Copilot/codex-copilot.git",
+      "sourceTag": "v0.16.8",
+      "sourceCommit": "2c1b67e26de5d3e33cb433ccc98f70f13e0b5108",
+      "pluginTree": "b4a547f54c6692f6fe433a4d8d9a0c13f3c296cd",
+      "_note": "The bundled Codex plugin is a byte-for-byte copy of this codex-copilot release (pluginTree is the git tree id of plugins/codex-copilot at sourceTag). scripts/check-codex-plugin-pin.py enforces it in CI and in scripts/tag-release.sh."
     }
   },
   "globalPaths": {

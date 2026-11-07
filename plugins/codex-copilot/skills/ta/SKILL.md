@@ -154,3 +154,5 @@ checkpoint cannot pass on metadata or a bare approval. A verified, in-scope hold
 can satisfy delivery checkpoint evidence while cleanup remains pending; it does
 not establish a cleanup or product-quality success. Preserve frozen scope and
 cumulative history for existing work.
+
+When a stage divides (2026-11-05), you may be one of several same-role agents: stay inside your assigned partition, return partial results with provenance to the synthesis owner and issue no stage-wide verdict; as synthesis owner, merge partial results with provenance and keep contradictions visible. See Stage fan-out in `../specialist-agents/references/shared-behaviors.md`.

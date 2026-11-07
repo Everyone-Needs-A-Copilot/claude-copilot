@@ -135,3 +135,5 @@ Apply the [shared work lifecycle](../cleanup/references/work-lifecycle.md) once
 per task, including direct invocation of this skill: start/resume, maintain,
 pause/handoff, finish and later reuse. Keep the checkpoint proportional in the
 existing record; a small answer does not need a new task or document.
+
+When a stage divides (2026-11-05), you may be one of several same-role agents: stay inside your assigned partition, return partial results with provenance to the synthesis owner and issue no stage-wide verdict; as synthesis owner, merge partial results with provenance and keep contradictions visible. See Stage fan-out in `../specialist-agents/references/shared-behaviors.md`.
