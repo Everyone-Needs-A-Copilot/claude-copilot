@@ -83,7 +83,11 @@ if [[ -n "${FOUNDATION_RELEASE_PUBLIC_KEY:-}" ]]; then
 fi
 trust_file="$(mktemp "${TMPDIR:-/tmp}/foundation-release-signers.XXXXXX")"
 cleanup() {
-    rm -f "${trust_file}"
+    if [[ "${CC_RETAIN_SCRATCH:-0}" == "1" ]]; then
+        echo "retained foundation signer evidence: ${trust_file}" >&2
+    else
+        rm -f "${trust_file}"
+    fi
 }
 trap cleanup EXIT
 chmod 600 "${trust_file}"

@@ -90,9 +90,35 @@ TITLE="$(printf '%s' "$HEADING" | sed -E 's/^## \[[^]]*\][^—]*— [^—]*— ?
 # Historical already-existing tags remain immutable; this does not rewrite them.
 [[ -n "${TC_STAGE_PACKET:-}" && "${TC_STAGE_PACKET_SHA256:-}" =~ ^[0-9a-f]{64}$ ]] ||
   die "TC_STAGE_PACKET and approved TC_STAGE_PACKET_SHA256 are required"
+STAGE_ROOT="$REPO"
+if [[ "$(git rev-parse HEAD)" != "$COMMIT" ]]; then
+  # --at binds the selected immutable tree, not unrelated later working bytes.
+  # Preserve this bounded snapshot as evidence; never change the active checkout.
+  STAGE_ROOT="$(mktemp -d "${TMPDIR:-/tmp}/stage-release-source.XXXXXX")" || die "cannot create release snapshot"
+  git archive --format=tar "$COMMIT" | "${TC_STAGE_PYTHON:-python3}" -c \
+    'import sys,tarfile; tarfile.open(fileobj=sys.stdin.buffer, mode="r|*").extractall(sys.argv[1], filter="data")' \
+    "$STAGE_ROOT" || die "cannot extract selected release tree"
+  echo "retained selected release tree at $STAGE_ROOT" >&2
+fi
 "${TC_STAGE_PYTHON:-python3}" "$SCRIPT_DIR/stage-release-gate.py" \
   --file "$TC_STAGE_PACKET" --sha256 "$TC_STAGE_PACKET_SHA256" \
-  --root "$REPO" --source-commit "$COMMIT" --phase source-ready
+  --root "$STAGE_ROOT" --source-commit "$COMMIT" --phase source-ready
+
+# Preserve a rejected newly-created tag object when retaining release evidence.
+# The compare-and-move transaction refuses drift and never overwrites recovery.
+retire_created_tag() {
+  if [[ "${CC_RETAIN_SCRATCH:-0}" == "1" ]]; then
+    local object archive
+    object="$(git rev-parse "refs/tags/${TAG}")" || return 1
+    archive="refs/release-recovery/${TAG}/$(date +%s)-$$"
+    printf 'start\ncreate %s %s\ndelete refs/tags/%s %s\nprepare\ncommit\n' \
+      "$archive" "$object" "$TAG" "$object" | git update-ref --stdin >/dev/null || return 1
+    [[ "$(git rev-parse "$archive")" == "$object" ]] || return 1
+    echo "retained rejected tag object at $archive" >&2
+  else
+    git tag -d "$TAG" >/dev/null
+  fi
+}
 
 TAG="v${VERSION}"
 CREATED=""
@@ -102,7 +128,7 @@ if git rev-parse -q --verify "refs/tags/${TAG}" >/dev/null; then
   echo "${TAG} already tags ${COMMIT}"
 else
   git tag -s -a "$TAG" -m "Claude Copilot ${VERSION}: ${TITLE}" "$COMMIT"
-  git tag -v "$TAG" >/dev/null 2>&1 || { git tag -d "$TAG" >/dev/null; die "signature on ${TAG} does not verify; tag removed"; }
+  git tag -v "$TAG" >/dev/null 2>&1 || { retire_created_tag || die "cannot preserve rejected tag"; die "signature on ${TAG} does not verify; tag removed"; }
   echo "tagged ${TAG} at ${COMMIT}"
   CREATED=1
 fi
@@ -115,7 +141,7 @@ fi
 # foundation sources, and that is stated rather than hidden.
 if [ "$TARGET" = "HEAD" ]; then
   if ! bash "$SCRIPT_DIR/verify-foundation-release.sh" "$REPO" "$TAG" "$COMMIT" main; then
-    [ -n "$CREATED" ] && git tag -d "$TAG" >/dev/null
+    if [ -n "$CREATED" ]; then retire_created_tag || die "cannot preserve rejected tag"; fi
     die "${TAG} failed the foundation release preflight${CREATED:+; tag removed}"
   fi
 else
