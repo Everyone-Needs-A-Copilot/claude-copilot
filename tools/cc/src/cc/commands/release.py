@@ -58,7 +58,7 @@ def build_cmd(
             yaml.safe_load(layers.read_text(encoding="utf-8")),
             json.loads(pins.read_text(encoding="utf-8")),
         )
-        manifest = build.build_release(sources, home, post_build=build.build_cc_venv)
+        manifest = build.build_release(sources, home, post_build=publisher.make_post_build(home))
     except (build.ReleaseBuildError, OSError, ValueError) as exc:
         _fail(f"release build failed: {exc}")
     if flip_after:
