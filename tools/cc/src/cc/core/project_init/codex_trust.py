@@ -36,6 +36,31 @@ def _has_entry(text: str, project: str) -> bool:
     return f'[projects."{_quote(project)}"]' in text
 
 
+def read_project_trust(config: Path) -> dict:
+    """Read project decisions without emitting other settings or changing files."""
+    try:
+        text = config.read_text(encoding="utf-8")
+    except FileNotFoundError:
+        return {}
+    if tomllib is None:
+        raise ValueError("Python 3.11 or later is required to inspect existing Codex settings safely.")
+    try:
+        projects = tomllib.loads(text).get("projects", {})
+    except (ValueError, TypeError) as exc:
+        raise ValueError("Codex settings are invalid. Existing files were preserved.") from exc
+    if not isinstance(projects, dict):
+        raise ValueError("Codex project settings are invalid. Existing files were preserved.")
+    return projects
+
+
+def check_project_trust(project: Path, config: Path) -> dict:
+    projects = read_project_trust(config)
+    entry = projects.get(str(project.resolve()))
+    if entry is not None and (not isinstance(entry, dict) or entry.get("trust_level") != "trusted"):
+        raise ValueError("Codex has an existing access decision for this project; review it in Codex before setup.")
+    return projects
+
+
 @contextlib.contextmanager
 def _locked(config: Path) -> Iterator[None]:
     lock = config.with_name(config.name + ".lock")
@@ -66,7 +91,7 @@ def ensure_trust(project: Path | str, config: Optional[Path | str] = None) -> st
                 tomllib.loads(text)
             except tomllib.TOMLDecodeError as exc:
                 raise ValueError(f"Codex config is not valid TOML: {exc}") from exc
-        if _has_entry(text, abs_project):
+        if abs_project in check_project_trust(Path(abs_project), cfg):
             return "present"
         if cfg.exists():
             shutil.copy2(cfg, cfg.with_name(cfg.name + ".bak"))

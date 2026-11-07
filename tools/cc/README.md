@@ -251,6 +251,17 @@ Keys set to `"@machine"` fall through to the machine config value, letting proje
 
 ### Ecosystem Reconciliation (retired)
 
+For native project lists and details, `cc project status PATH --json` reads only
+that project's thin wiring; `cc project status --all --json` combines registered
+projects with bounded discovery inside approved project folders. It never scans
+home or unapproved candidates. The states are `initialized`, `needs-init`, and
+`blocked`; initialized means local wiring for both Claude and Codex, with machine
+health checked separately by `cc release doctor`. Reads never change files.
+Activate a selected project with `cc project init PATH --json`, then inspect it
+again. Existing project rules, corrupt registers, and Codex access decisions are
+preserved. Control Tower uses these commands; the old copy-plan actions stay
+retired.
+
 **Retired.** `cc reconcile` (assess, prepare, run, request, plan, apply, verify, recover and the assistant and guide sessions) copied framework files into projects and recorded per-file checksums in `copilot.lock.json`. Central resolution (ADR-001, initiative 06-central-resolution) serves every project from the release pointer, so nothing is copied into a project and no per-project lock exists. Every `cc reconcile` subcommand now exits 2 with a `retired` error that points at the replacements: `cc project init` sets a project up in one step, `cc project migrate` converts a project that still carries old copies and locks (it still reads the old lock records to classify them), `cc release publish|rollback|status` moves every project to a new framework release at once, and `cc doctor` verifies the machine. The same applies to `cc conformance`, `cc workspace configure|finish|verify|plan|migrate|hold|revert` and the bare `cc workspace` status report, `cc settings-hook add|remove|rollback|list-sources`, `cc update --project|--fanout` and `cc freshness --all-projects`; the machine-wide `cc update`, `cc workspace roots|approve-root|forget-root|decline` and `cc settings-hook user-add|user-remove` are unchanged.
 
 ---

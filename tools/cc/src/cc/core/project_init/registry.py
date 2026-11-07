@@ -16,6 +16,22 @@ def default_registry() -> Path:
     return copilot_home() / "registered-projects.json"
 
 
+def read_registered_projects(path: Path) -> list[str]:
+    """Read without writing; a malformed existing register is never reset."""
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except FileNotFoundError:
+        return []
+    except (OSError, ValueError) as exc:
+        raise ValueError("The project register could not be read. Existing files were preserved.") from exc
+    if not isinstance(data, dict) or not isinstance(data.get("projects"), list):
+        raise ValueError("The project register is invalid. Existing files were preserved.")
+    projects = data["projects"]
+    if any(not isinstance(p, str) or not Path(p).is_absolute() for p in projects):
+        raise ValueError("The project register contains an invalid folder. Existing files were preserved.")
+    return projects
+
+
 def register_project(project: Path, registry: Optional[Path] = None) -> bool:
     path = registry or default_registry()
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -29,11 +45,7 @@ def register_project(project: Path, registry: Optional[Path] = None) -> bool:
 
 
 def _register_locked(project: Path, path: Path) -> bool:
-    try:
-        data = json.loads(path.read_text(encoding="utf-8"))
-        projects = [p for p in data.get("projects", []) if isinstance(p, str)]
-    except (OSError, ValueError, AttributeError):
-        projects = []
+    projects = read_registered_projects(path)
     entry = str(project.resolve())
     if entry in projects:
         return False

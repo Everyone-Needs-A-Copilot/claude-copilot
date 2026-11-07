@@ -18,6 +18,32 @@ def _root() -> None:
     """Project Copilot state."""
 
 
+@project_app.command("status")
+def status_command(
+    path: Optional[Path] = typer.Argument(None, help="Inspect exactly this folder (default: current)."),
+    all_projects: bool = typer.Option(False, "--all", help="Registered projects and approved folders only."),
+    json_output: bool = typer.Option(False, "--json", help="Machine-readable output."),
+) -> None:
+    """Read thin project wiring without changing files or checking machine health."""
+    from cc.core.project_init.status import project_status
+
+    if all_projects and path is not None:
+        body = {"schema_version": "1.0", "result": "blocked", "projects": [],
+                "discovery": {"state": "not-granted", "roots": []},
+                "errors": ["Choose one project folder or --all, not both."]}
+    else:
+        body = project_status(path, all_projects=all_projects)
+    if json_output:
+        typer.echo(json.dumps(body))
+    else:
+        for row in body["projects"]:
+            typer.echo(f"{row['state']}: {row['name']} — {row['detail']}")
+        for error in body["errors"]:
+            typer.echo(error)
+    if body["result"] == "blocked":
+        raise typer.Exit(1)
+
+
 @project_app.command("init")
 def init_command(
     path: Path = typer.Argument(Path("."), help="Project folder (default: current)."),
