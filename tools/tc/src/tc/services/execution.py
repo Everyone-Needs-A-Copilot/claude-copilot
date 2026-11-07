@@ -1146,6 +1146,60 @@ def settle_attempt(
     }
 
 
+def _diagnosis_source_changed(conn, row):
+    """Compare a failure with its own task source, never the governing root.
+
+    Scope/ref amendments can change identity without changing code. Reconstruct
+    that attempt's policy and require an exact historical digest before comparing
+    the same prior file scopes. Unknown historical content stays held.
+    """
+    current = _policy(conn, row["task_id"])
+    history = [r for r in _rounds(conn, row["task_id"])
+               if r["created"] is None or r["created"] <= row["started"]]
+    prior = history[-1]["policy"]
+    def selection(policy):
+        return policy["sources"], policy.get("externalSources", [])
+    if selection(prior) == selection(current):
+        return _source(current) != row["source"]
+    if _source(prior) != row["source"]:
+        raise ValidationError("Historical source baseline cannot be reconstructed; preserve the hold")
+
+    from tc.services import external_sources as ext
+
+    # Directory enumeration differs between local and Git snapshots. Compare
+    # actual file/deletion records, including executable mode, not scope markers.
+    def files(records):
+        return [r for r in records if r["kind"] != "directory"]
+
+    relocations = _source_relocation_proofs(conn, prior["root"], prior, current)
+    relocations = {r["local_source"]: r for r in relocations}
+    external = {e["repo"]: e for e in current.get("externalSources", [])}
+    changed = False
+    for scope in prior["sources"]:
+        before = source_manifest(Path(prior["root"]), [scope])
+        if scope in current["sources"]:
+            after = source_manifest(Path(current["root"]), [scope])
+        else:
+            proof = relocations[scope]
+            found = ext.resolve(conn, external[proof["external_repo"]])
+            before = [{**r, "path": (Path(prior["root"]) / r["path"])
+                       .relative_to(Path(proof["local_repository"])).as_posix()} for r in before]
+            after = ext.manifest(found["path"], found["commit"],
+                                 [proof["repository_scope"]], ext.Budget())
+        changed |= files(before) != files(after)
+    for entry in prior.get("externalSources", []):
+        if entry["repo"] not in external:
+            raise ValidationError("Historical external source coverage is unavailable")
+        old = ext.resolve(conn, entry)
+        new = ext.resolve(conn, external[entry["repo"]])
+        if old["remote"] != new["remote"]:
+            raise ValidationError("Historical source repository identity changed")
+        before = ext.manifest(old["path"], old["commit"], entry["paths"], ext.Budget())
+        after = ext.manifest(new["path"], new["commit"], entry["paths"], ext.Budget())
+        changed |= files(before) != files(after)
+    return changed
+
+
 def diagnosis_checkpoint(*, task_id, criterion, regression, db_path=None):
     """A runner receipt must prove a successful regression on changed source.
 
@@ -1165,15 +1219,35 @@ def diagnosis_checkpoint(*, task_id, criterion, regression, db_path=None):
             raise ValidationError(
                 "Regression must be recorded by tc execution prove on this source"
             )
-        rows = [
-            r
-            for r in _rows(conn, task_id)
-            if r["criterion"] == criterion and r["state"] in ("failed", "abandoned")
-        ]
+        has_scopes = conn.execute(
+            "SELECT 1 FROM sqlite_master WHERE type='table' AND name='execution_scope_members'"
+        ).fetchone()
+        family = _scope_rows(conn, task_id) if has_scopes else _rows(conn, task_id)
+        # Previously diagnosed failures stay covered when another child changes.
+        # The new regression still binds the current complete root source.
+        through = 0
+        for checkpoint in conn.execute(
+            "SELECT * FROM execution_checkpoints WHERE task_id=? AND criterion=? AND kind='diagnosis'",
+            (task_id, criterion),
+        ):
+            try:
+                if _artifact(checkpoint["artifact"])[1] == checkpoint["artifact_hash"]:
+                    through = max(through, checkpoint["through_started"])
+            except (OSError, ValidationError):
+                continue
+        rows = [r for r in family if r["criterion"] == criterion
+                and r["state"] in ("failed", "abandoned") and r["started"] > through]
         if criterion not in p["criteria"] or not rows:
             raise ValidationError("No failed criterion to diagnose")
-        if source == rows[-1]["source"]:
-            raise ValidationError("Source is unchanged since the failed attempt")
+        # A timestamp checkpoint covers every earlier failure. Require changed
+        # source for each outstanding task/check, not just the last sibling.
+        latest = {}
+        for row in rows:
+            for key in _work_keys(row.get("work_identity")):
+                latest[(row["task_id"], key)] = row
+        for row in {r["token"]: r for r in latest.values()}.values():
+            if not _diagnosis_source_changed(conn, row):
+                raise ValidationError(f"Source is unchanged since failed attempt for task {row['task_id']}")
         if (
             result.get("exit_code") != 0
             or result.get("task_id") != task_id
