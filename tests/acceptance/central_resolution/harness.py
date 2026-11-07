@@ -5,6 +5,8 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import re
+import shutil
 import stat
 import subprocess
 import time
@@ -162,9 +164,17 @@ def sentinel_snapshot(extra_repos: list[str]) -> dict:
 
 
 # ----------------------------------------------------------------------------- runtime drivers
-CODEX_BIN = os.environ.get("CR_CODEX_BIN", "/opt/homebrew/bin/codex")
+# The codex the owner's shell resolves (WP-319 used it: 0.167.0). /opt/homebrew/bin/codex is a stale 0.153.0 that does not
+# know the configured model, so every turn fails before a command is attempted.
+CODEX_BIN = os.environ.get("CR_CODEX_BIN") or shutil.which("codex") or "/opt/homebrew/bin/codex"
 CLAUDE_BIN = os.environ.get("CR_CLAUDE_BIN", str(rp.REAL_HOME / ".local" / "bin" / "claude"))
-CODEX_MODEL = os.environ.get("CR_CODEX_MODEL", "gpt-5.6-sol")  # config's own model is rejected by this account
+# Empty = the replica config's own model, exactly like the manual WP-319 probe. Forcing a model (-m) that the ChatGPT
+# account does not support fails the turn before any command is attempted ("model is not supported ... ChatGPT account").
+CODEX_MODEL = os.environ.get("CR_CODEX_MODEL", "")
+
+
+def codex_model_args() -> list:
+    return ["-m", CODEX_MODEL] if CODEX_MODEL else []
 RUNTIME_TIMEOUT = int(os.environ.get("CR_RUNTIME_TIMEOUT", "240"))
 
 
@@ -185,7 +195,7 @@ def claude_run(rep, cwd: Path, prompt: str, *, obs: Path | None = None, extra: l
             pass
     result = next((e for e in reversed(events) if e.get("type") == "result"), {})
     return {"run": r, "events": events, "result": result.get("result", "") or "", "is_error": result.get("is_error", True),
-            "text": r.out + "\n" + r.err}
+            "text": r.out + "\n" + r.err, "prompt": prompt}
 
 
 def claude_tool_calls(events: list) -> list[dict]:
@@ -208,11 +218,51 @@ def claude_tool_calls(events: list) -> list[dict]:
     return calls
 
 
-def codex_run(rep, cwd: Path, prompt: str, *, obs: Path | None = None) -> dict:
-    """Headless `codex exec` in the replica: default approval/sandbox from config, never the bypass flag."""
+def _disable_user_prompt_hooks(text: str) -> str:
+    """Set enabled = false in every [hooks.state."...:user_prompt_submit:..."] table (other hook states untouched)."""
+    out, in_ups, seen = [], False, False
+    for line in text.splitlines(keepends=True):
+        st = line.strip()
+        if st.startswith("["):
+            if in_ups and not seen:
+                out.append("enabled = false\n")
+            in_ups = st.startswith("[hooks.state.") and ":user_prompt_submit:" in st
+            seen = False
+        elif in_ups and re.match(r"enabled\s*=", st):
+            line, seen = "enabled = false\n", True
+        out.append(line)
+    if in_ups and not seen:
+        out.append("enabled = false\n")
+    return "".join(out)
+
+
+def codex_run(rep, cwd: Path, prompt: str, *, obs: Path | None = None, without_agents_md: bool = False) -> dict:
+    """Headless `codex exec` in the replica: default approval/sandbox from config, never the bypass flag.
+    without_agents_md: hide the replica CODEX_HOME/AGENTS.md for this one run only (restored in finally), so the model
+    does not obey the coordinator rule and decline to attempt the command the hook is being probed with."""
     env = rep.env({"CRACC_OBS": str(obs)} if obs else {})
-    cmd = [CODEX_BIN, "exec", "-m", CODEX_MODEL, "--json", "--skip-git-repo-check", prompt]
-    r = run(cmd, env=env, cwd=cwd, timeout=RUNTIME_TIMEOUT)
+    cmd = [CODEX_BIN, "exec", *codex_model_args(), "--json", "--skip-git-repo-check", prompt]
+    ag = rep.codex_home / "AGENTS.md"
+    hidden = ag.with_name("AGENTS.md.cracc-hidden")
+    moved = False
+    cfg = rep.codex_home / "config.toml"
+    cfg_orig = None
+    if without_agents_md and ag.exists():
+        ag.rename(hidden)
+        moved = True
+    if without_agents_md and cfg.exists():
+        # The UserPromptSubmit hook injects the coordinator rule as a developer message, which makes the model refuse every
+        # command even with AGENTS.md hidden. Disable only the user_prompt_submit hook state(s) for this run; the
+        # PreToolUse guard (the thing under test) stays enabled.
+        cfg_orig = cfg.read_bytes()
+        cfg.write_text(_disable_user_prompt_hooks(cfg_orig.decode()))
+    try:
+        r = run(cmd, env=env, cwd=cwd, timeout=RUNTIME_TIMEOUT)
+    finally:
+        if moved:
+            hidden.rename(ag)
+        if cfg_orig is not None:
+            cfg.write_bytes(cfg_orig)
     items = []
     for line in r.out.splitlines():
         try:
@@ -231,9 +281,21 @@ def codex_run(rep, cwd: Path, prompt: str, *, obs: Path | None = None) -> dict:
 def codex_hook_trace(rep, cwd: Path, obs: Path | None = None, prompt: str = "Reply with the single word OK") -> dict:
     """One non-JSON `codex exec` pass whose stdout shows `hook: <Event>` / `Completed` lines."""
     env = rep.env({"CRACC_OBS": str(obs)} if obs else {})
-    r = run([CODEX_BIN, "exec", "-m", CODEX_MODEL, "--skip-git-repo-check", prompt],
+    r = run([CODEX_BIN, "exec", *codex_model_args(), "--skip-git-repo-check", prompt],
             env=env, cwd=cwd, timeout=RUNTIME_TIMEOUT)
     return {"run": r, "text": r.out + "\n" + r.err}
+
+
+class RealEnv:
+    """Stand-in for a Replica so codex_hooks_list can inventory a byte copy of the REAL Codex home (never the live one)."""
+    def __init__(self, codex_home: Path | None = None):
+        self.codex_home = codex_home
+
+    def env(self, extra: dict | None = None) -> dict:
+        e = dict(os.environ)
+        if self.codex_home:
+            e["CODEX_HOME"] = str(self.codex_home)
+        return e
 
 
 def codex_hooks_list(rep, cwd: Path, timeout: int = 60) -> dict:
