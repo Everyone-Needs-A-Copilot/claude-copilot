@@ -190,21 +190,6 @@ def test_discover_contributions_layer_missing_id_is_skipped_not_raised(tmp_path)
     assert discover_contributions(layers) == {}
 
 
-def test_discover_contributions_skips_the_layer_repos_own_codex_install(tmp_path):
-    layer_root = tmp_path / "personal"
-    (layer_root / "plugins/codex-copilot").mkdir(parents=True)
-    (layer_root / "plugins/codex-copilot/plugin.json").write_text("{}")
-    (layer_root / "plugins/personal-tool").mkdir(parents=True)
-    (layer_root / "plugins/personal-tool/plugin.json").write_text("{}")
-    (layer_root / ".codex-copilot.json").write_text(
-        '{"installType": "copy", "pluginPath": "./plugins/codex-copilot"}'
-    )
-
-    result = discover_contributions([_layer("personal", 10, local_path=layer_root)])
-
-    assert set(result["personal"]["plugins"]) == {"personal-tool"}
-
-
 def test_discover_contributions_keeps_plugin_without_own_install_declaration(tmp_path):
     layer_root = tmp_path / "foundation"
     (layer_root / "plugins/codex-copilot").mkdir(parents=True)

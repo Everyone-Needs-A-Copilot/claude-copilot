@@ -283,8 +283,8 @@ fi
 # ---------------------------------------------------------------------------
 # Enforcement self-report: are all four hook events actually registered here?
 #
-# WHY. This framework's enforcement is registered per-project, into that
-# project's own .claude/settings.json, by `cc settings-hook add`. A project can
+# WHY. This framework's enforcement is registered once, in ~/.claude/settings.json, by
+# `cc settings-hook user-add` (a project's own .claude/settings.json is no longer written). A project can
 # therefore carry the whole instruction layer -- agents, commands, skills,
 # CLAUDE.md -- with enforcement partly or wholly unregistered, and nothing says
 # so. The session then behaves like vanilla Claude Code with some markdown in
@@ -314,9 +314,14 @@ from pathlib import Path
 REQUIRED = ("SessionStart", "PreToolUse", "SubagentStop", "UserPromptSubmit")
 root = Path(sys.argv[1])
 
+# User, project and local settings all register hooks; the user-level shim entries
+# (~/.claude/settings.json) satisfy enforcement for a project that has none of its own.
 live = set()
-for name in ("settings.json", "settings.local.json"):
-    path = root / ".claude" / name
+for path in (
+    Path.home() / ".claude" / "settings.json",
+    root / ".claude" / "settings.json",
+    root / ".claude" / "settings.local.json",
+):
     if not path.is_file():
         continue
     try:
@@ -336,7 +341,7 @@ if missing:
         f"  Registered: {len(REQUIRED) - len(missing)}/4. Missing: {', '.join(missing)}.\n"
         "  The instruction layer is loaded, but the missing events are inert -- "
         "so the discipline they enforce is advisory here, not mechanical.\n"
-        "  Repair: `cc settings-hook add --scope project`"
+        "  Repair: `cc settings-hook user-add` (registers the shim once for every project)"
     )
 ENFEOF
   )"

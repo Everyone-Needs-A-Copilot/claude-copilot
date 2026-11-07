@@ -249,106 +249,20 @@ Keys set to `"@machine"` fall through to the machine config value, letting proje
 
 ---
 
-### Ecosystem Reconciliation
+### Ecosystem Reconciliation (retired)
 
-`cc reconcile` is the Python-owned safety boundary for assessing and updating
-the selected Copilot ecosystem. `assess` is read-only. `plan`, `apply`, and
-`verify` all consume the same explicit request file; `apply` additionally
-requires the fresh opaque plan identifier returned by `plan`. `recover` takes
-no caller-authored mutation input: it resolves interrupted private transaction
-state before another apply can begin. For a large mixed fleet, the guided
-lifecycle writes one immutable work order and one short `start_prompt` under an
-approved projects root. A person opens a normal Terminal at the returned root,
-starts Codex or Claude Code themselves, and pastes the prompt. The helper does
-not own or observe the assistant process. The assistant can inspect and correct
-the exact selected projects, but only Python's fresh verifier can mark them
-ready. Ecosystem repositories and projects held by safety policy never enter
-the work order. The earlier bounded assistant recipe selector remains available
-for deployments that do not allow an assistant to inspect project paths or
-content.
+For native project lists and details, `cc project status PATH --json` reads only
+that project's thin wiring; `cc project status --all --json` combines registered
+projects with bounded discovery inside approved project folders. It never scans
+home or unapproved candidates. The states are `initialized`, `needs-init`, and
+`blocked`; initialized means local wiring for both Claude and Codex, with machine
+health checked separately by `cc release doctor`. Reads never change files.
+Activate a selected project with `cc project init PATH --json`, then inspect it
+again. Existing project rules, corrupt registers, and Codex access decisions are
+preserved. Control Tower uses these commands; the old copy-plan actions stay
+retired.
 
-```bash
-# Complete read-only machine and project census under configured approved roots
-cc reconcile assess --json
-
-# Write one root-level instruction package and copy prompt for the exact
-# assessed selection. The person starts Codex or Claude Code themselves.
-cc reconcile guide-prepare --request /private/path/reconcile-request.json --json
-# Optional lifecycle marker retained for non-Control-Tower clients.
-cc reconcile guide-start --guide-id guide_0123456789abcdef0123456789abcdef --assistant codex --json
-cc reconcile guide-check --guide-id guide_0123456789abcdef0123456789abcdef --project /absolute/project/path --json
-cc reconcile guide-status --guide-id guide_0123456789abcdef0123456789abcdef --json
-cc reconcile guide-finalize --guide-id guide_0123456789abcdef0123456789abcdef --json
-
-# Optional bounded recipe-selection lifecycle with no project access
-cc reconcile assistant-prepare --request /private/path/reconcile-request.json --json
-cc reconcile assistant-run --session-id session_0123456789abcdef0123456789abcdef --json
-cc reconcile assistant-status --session-id session_0123456789abcdef0123456789abcdef --json
-
-# Check cc/tc prerequisites and write the one-project request (both components)
-# for a Git project root; /setup-project and /update-project use this.
-cc reconcile request --project /absolute/project/path --output /private/path/reconcile-request.json
-
-# Freeze explicit user intent in a private file, then review the exact plan
-cc reconcile plan --request /private/path/reconcile-request.json --json
-
-# Apply only that freshly reviewed capability
-cc reconcile apply \
-  --request /private/path/reconcile-request.json \
-  --plan-id plan_0123456789abcdef0123456789abcdef \
-  --json
-
-# Finalize interrupted runs from their private, durable recovery authority
-cc reconcile recover --json
-
-# Independently inspect the same selected components again
-cc reconcile verify --request /private/path/reconcile-request.json --json
-```
-
-Request schema 1.0 is deliberately small and closed:
-
-```json
-{
-  "schema_version": "1.0",
-  "roots": ["/path/to/projects"],
-  "projects": [
-    {
-      "path": "/path/to/projects/example",
-      "components": ["claude", "codex"],
-      "recipe_ids": {
-        "claude": "claude.customized-preserve-entry.v1"
-      }
-    }
-  ]
-}
-```
-
-Every project keeps independent Claude and Codex states plus one primary
-route. Python authors the counts, explanations, recommendations, operations,
-preservation boundary, verification result, next actions, rollback outcomes,
-diagnostic reference, and any component-scoped `recipe_options`. The request
-may only echo a recipe identifier that Python issued for that component; plan
-revalidates its eligibility against a fresh dossier. A dirty, detached,
-excluded, ambiguous, or unverifiable project is reported without mutation.
-Customized projects accept only registered, typed, fully covering reviewed
-recipes. Plugin, gate, framework, lock, unreadable-config, and other ownership
-conflicts remain owner decisions with no mutation. Arbitrary shell or patch
-execution is not supported.
-
-`plan` capabilities expire and are single-use. `apply` repeats the assessment,
-claims the exact request/plan binding, re-inspects each project while holding
-its canonical lock, snapshots every bounded target, verifies selected
-components, and restores transaction-owned outputs on failure. Private
-redacted diagnostics live below the machine diagnostics root with directory
-mode `0700`, file mode `0600`, and a default retention of 20 records. A pending
-run blocks every new apply until `recover` either completes rollback and binds
-the final diagnostic or safely abandons a proven pre-claim intent. Repeating
-`recover` after finalization is a zero-op.
-
-JSON exit codes are part of the contract: `0` means the phase completed without
-a blocking outcome, `1` carries a valid structured `blocked` or `partial`
-report, and `2` carries a closed `phase: "error"` request/environment report.
-The frozen schemas are under `tests/fixtures/schemas/reconcile*.schema.json`.
+**Retired.** `cc reconcile` (assess, prepare, run, request, plan, apply, verify, recover and the assistant and guide sessions) copied framework files into projects and recorded per-file checksums in `copilot.lock.json`. Central resolution (ADR-001, initiative 06-central-resolution) serves every project from the release pointer, so nothing is copied into a project and no per-project lock exists. Every `cc reconcile` subcommand now exits 2 with a `retired` error that points at the replacements: `cc project init` sets a project up in one step, `cc project migrate` converts a project that still carries old copies and locks (it still reads the old lock records to classify them), `cc release publish|rollback|status` moves every project to a new framework release at once, and `cc doctor` verifies the machine. The same applies to `cc conformance`, `cc workspace configure|finish|verify|plan|migrate|hold|revert` and the bare `cc workspace` status report, `cc settings-hook add|remove|rollback|list-sources`, `cc update --project|--fanout` and `cc freshness --all-projects`; the machine-wide `cc update`, `cc workspace roots|approve-root|forget-root|decline` and `cc settings-hook user-add|user-remove` are unchanged.
 
 ---
 

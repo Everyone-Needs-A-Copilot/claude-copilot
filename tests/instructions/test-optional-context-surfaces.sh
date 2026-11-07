@@ -10,7 +10,9 @@
 #   - .claude/agents/qa.md
 #   - .claude/commands/protocol.md
 #   - templates/CLAUDE.template.md
-#   - plugins/codex-copilot/skills/specialist-agents/references/shared-behaviors.md
+# (The Codex copy of this block, plugins/codex-copilot/skills/specialist-agents/references/
+# shared-behaviors.md, lives in the codex-copilot repo since this repo stopped bundling the
+# plugin; that repo's own drift check covers it.)
 #
 # Root CLAUDE.md is deliberately NOT in this list (per C1's own scope: it
 # ships nowhere and only needs prose consistency, not byte identity).
@@ -40,7 +42,6 @@ EMBED_SURFACES=(
   ".claude/agents/qa.md"
   ".claude/commands/protocol.md"
   "templates/CLAUDE.template.md"
-  "plugins/codex-copilot/skills/specialist-agents/references/shared-behaviors.md"
 )
 
 # Extracts the '## Optional Context' block (heading through the final

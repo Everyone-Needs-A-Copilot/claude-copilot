@@ -707,7 +707,7 @@ def _lockfile_path_default() -> Any:
     path = default_lockfile_path()
     if path is None:
         raise RuntimeError(
-            "cc update: cannot determine where to write copilot.lock.json "
+            "cc update: cannot determine where to write the ecosystem lockfile "
             "(not inside a git repo and no lockfile path configured/injected)."
         )
     return path

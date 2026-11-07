@@ -279,8 +279,8 @@ def _source_repository(
     _write(repo / "tools" / "cc" / "install.sh", "#!/bin/sh\n", mode=0o755)
     _write(repo / "tools" / "cc" / "pyproject.toml", "[project]\nname='cc-test'\n")
     _write(
-        repo / "tools" / "cc" / "src" / "cc" / "core" / "conformance" / "roundtrip.py",
-        "# committed roundtrip\n",
+        repo / "tools" / "cc" / "src" / "cc" / "main.py",
+        "# committed cc entry point\n",
     )
     _write(repo / "tracked-outside-runtime.txt", "full archive sentinel\n")
     (repo / "tracked-link").symlink_to("tracked-outside-runtime.txt")
@@ -798,34 +798,29 @@ def test_reuse_rejects_snapshot_that_no_longer_matches_git(
     assert {path: path.read_bytes() for path in managed} == before
 
 
-def test_full_repository_snapshot_runs_real_roundtrip_without_cnr(
+def test_full_repository_snapshot_runs_its_own_cli(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path, candidate_repository
 ):
-    from cc.commands import conformance
-    from cc.core.conformance import roundtrip
-    from cc.core.conformance.types import Verdict
-
+    """Old expectation: the installed snapshot ran the conformance plan/apply/verify round trip
+    (`roundtrip.transaction.plan_apply_verify`) against a fixture project. New expectation: that
+    harness and the copy transaction it exercised are retired, so the snapshot is proven by running
+    its own `cc` entry point: it reports a version and refuses the retired copy commands."""
     source, commit, tree = candidate_repository
     home = tmp_path / "home"
     report = _install(source, commit, tree, home)
     snapshot = Path(report["snapshot"])
-    codex_fixture = (
-        REPO_ROOT / "tools" / "cc" / "tests" / "fixtures" / "codex-installer"
-    )
-    monkeypatch.setenv("CC_PATHS_CLAUDE_COPILOT_ROOT", str(snapshot))
-    monkeypatch.setenv("CC_PATHS_CODEX_COPILOT_ROOT", str(codex_fixture))
-    monkeypatch.setattr(
-        roundtrip, "discover_framework_repo_root", lambda start=None: snapshot
-    )
+    env = {**os.environ, "PYTHONPATH": str(snapshot / "tools" / "cc" / "src")}
 
-    conformance._ensure_registry_loaded()
-    results = conformance._run_roundtrip_layer()
-
-    assert results
-    assert any(
-        result.id == "roundtrip.transaction.plan_apply_verify" for result in results
+    version = subprocess.run(
+        [sys.executable, "-m", "cc.main", "--version"], env=env, capture_output=True, text=True, timeout=60
     )
-    assert all(result.verdict is not Verdict.COULD_NOT_RUN for result in results)
+    assert version.returncode == 0, version.stderr
+    retired = subprocess.run(
+        [sys.executable, "-m", "cc.main", "reconcile", "apply", "--json"],
+        env=env, capture_output=True, text=True, timeout=60,
+    )
+    assert retired.returncode == 2
+    assert json.loads(retired.stdout)["error"]["code"] == "retired"
 
 
 def test_full_repository_real_installer_succeeds_in_isolated_home(

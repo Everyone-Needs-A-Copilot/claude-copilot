@@ -1,9 +1,9 @@
 {
-  "framework": "5.34.8",
-  "lastUpdated": "2026-11-05",
+  "framework": "5.35.0",
+  "lastUpdated": "2026-11-06",
   "components": {
     "cc": {
-      "version": "2.18.0",
+      "version": "2.19.0",
       "path": "tools/cc",
       "installScript": "tools/cc/install.sh",
       "provides": [
@@ -15,7 +15,6 @@
         "cc docs",
         "cc usage",
         "cc eval",
-        "cc reconcile",
         "cc store",
         "cc support",
         "cc skill select",
@@ -25,7 +24,9 @@
         "cc design",
         "cc rule",
         "cc priorities",
-        "cc resources"
+        "cc resources",
+        "cc project",
+        "cc release"
       ]
     },
     "tc": {

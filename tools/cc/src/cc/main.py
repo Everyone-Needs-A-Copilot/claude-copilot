@@ -17,7 +17,9 @@ from cc.commands.layers import layers_app
 from cc.commands.memory import memory_app
 from cc.commands.onboard import onboard_cmd
 from cc.commands.priorities import priorities_cmd
+from cc.commands.project import project_app
 from cc.commands.reconcile import reconcile_app
+from cc.commands.release import release_app
 from cc.commands.resources import resources_app
 from cc.commands.rule import rule_app
 from cc.commands.settings_hook import settings_hook_app
@@ -60,6 +62,8 @@ app.add_typer(support_app, name="support")
 app.add_typer(settings_hook_app, name="settings-hook")
 app.add_typer(conformance_app, name="conformance")
 app.add_typer(rule_app, name="rule")
+app.add_typer(release_app, name="release")
+app.add_typer(project_app, name="project")
 app.command("priorities")(priorities_cmd)
 app.command("onboard")(onboard_cmd)
 app.command("status")(status_cmd)
@@ -206,6 +210,7 @@ def doctor_cmd(
     ),
     runtime_details: bool = typer.Option(False, "--runtime-details", help="Report project runtime evidence separately from the stable doctor contract."),
     exercise_runtime: bool = typer.Option(False, "--exercise-runtime", help="Explicitly run native hook diagnostics in disposable state; implies --runtime-details."),
+    release: bool = typer.Option(False, "--release", help="Check the machine release pointer, links, Codex marketplace and Control Tower record; exit 1 on any failure."),
 ) -> None:
     """Run health checks and report status (WS-A `doctor --json` contract).
 
@@ -214,6 +219,14 @@ def doctor_cmd(
     IS the doctor verb. Read-only — does not take the copilot lock.
     """
     import json as _json
+
+    if release:
+        from cc.core.release.publish import run_doctor
+
+        checks = run_doctor()
+        rows = [{"name": c.name, "ok": c.ok, "detail": c.detail} for c in checks]
+        typer.echo(_json.dumps(rows, indent=None if output_json else 2))
+        raise typer.Exit(0 if all(c.ok for c in checks) else 1)
 
     from cc.commands.doctor import (
         build_doctor_report,
@@ -378,11 +391,7 @@ def freshness_cmd(
     all_projects: bool = typer.Option(
         False,
         "--all-projects",
-        help=(
-            "Machine-wide per-project freshness sweep (Component Sync) instead "
-            "of the single-SHA tier poll -- dispatches to "
-            "commands.projects.build_all_projects_freshness()."
-        ),
+        help="RETIRED: per-project freshness no longer exists (no project copies).",
     ),
     per_layer: bool = typer.Option(
         False,
@@ -417,33 +426,13 @@ def freshness_cmd(
         raise typer.Exit(2)
 
     if all_projects:
-        from cc.commands.projects import (
-            build_all_projects_freshness,
-            render_all_projects_freshness_rich,
+        from cc.commands.retired import refuse
+
+        raise refuse(
+            "freshness --all-projects",
+            output_json=output_json,
+            detail="Projects carry no framework copies to be stale; `cc release status` reports the release.",
         )
-
-        try:
-            report = build_all_projects_freshness()
-        except Exception as exc:  # environment/unexpected error -> exit 2
-            if output_json:
-                typer.echo(
-                    _json.dumps(
-                        {
-                            "schema_version": "1.0",
-                            "error": {"code": "environment-error", "message": str(exc)},
-                        }
-                    )
-                )
-            else:
-                typer.echo(f"freshness: environment error: {exc}", err=True)
-            raise typer.Exit(2) from exc
-
-        if output_json:
-            typer.echo(_json.dumps(report))
-        else:
-            render_all_projects_freshness_rich(report)
-
-        raise typer.Exit(0)
 
     from cc.commands.freshness import (
         build_freshness_report,
@@ -509,10 +498,7 @@ def update_cmd(
         None,
         "--project",
         help=(
-            "Materialize a single embedding project's component instead of "
-            "the machine-wide ecosystem sync (Component Sync Stream-E). "
-            "Requires --component. Reuses this same --json contract shape "
-            "plus an additive `path` field."
+            "RETIRED: materializing a project component. Refuses; use `cc project init`."
         ),
     ),
     component: Optional[str] = typer.Option(
@@ -553,9 +539,8 @@ def update_cmd(
     writes `copilot.lock.json`. See cc/commands/update.py's module
     docstring for the never-destroy guarantees.
 
-    `--project`/`--fanout` are opt-in Component Sync additions (see
-    cc/commands/projects.py) -- with neither flag this command is
-    byte-shape-identical to the pre-existing contract (regression guard).
+    `--project`/`--fanout` (per-project materialization) are retired and
+    refuse; the plain machine-wide sync is unchanged.
     """
     import json as _json
 
@@ -574,104 +559,14 @@ def update_cmd(
             typer.echo(message, err=True)
         raise typer.Exit(2)
 
-    if project:
-        if not component:
-            message = "cc update: --project requires --component."
-            if output_json:
-                typer.echo(
-                    _json.dumps(
-                        {
-                            "schema_version": "1.0",
-                            "error": {"code": "invalid-argument", "message": message},
-                        }
-                    )
-                )
-            else:
-                typer.echo(message, err=True)
-            raise typer.Exit(2)
+    if project or fanout:
+        from cc.commands.retired import refuse
 
-        from cc.commands.projects import execute_materialize_project
-        from cc.commands.update import render_update_report_rich
-
-        build_kwargs: dict = {}
-        if target_version is not None:
-            build_kwargs["target_version"] = target_version
-        if release_tag is not None:
-            build_kwargs["release_tag"] = release_tag
-        if source_root is not None:
-            build_kwargs["source_root"] = source_root
-
-        try:
-            report, exit_code = execute_materialize_project(
-                project, component=component, dry_run=dry_run, **build_kwargs
-            )
-        except Exception as exc:  # environment/unexpected error -> exit 2
-            if output_json:
-                typer.echo(
-                    _json.dumps(
-                        {
-                            "schema_version": "1.0",
-                            "error": {"code": "environment-error", "message": str(exc)},
-                        }
-                    )
-                )
-            else:
-                typer.echo(f"update: environment error: {exc}", err=True)
-            raise typer.Exit(2) from exc
-
-        if "error" in report:
-            exit_code = 2
-
-        if output_json:
-            typer.echo(_json.dumps(report))
-        else:
-            render_update_report_rich(report)
-
-        raise typer.Exit(exit_code)
-
-    if fanout:
-        from cc.commands.projects import (
-            execute_fanout,
-            render_fanout_report_rich,
-            resolve_fanout_sources,
+        raise refuse(
+            "update --project/--fanout",
+            output_json=output_json,
+            detail="Materializing framework files into a project is retired; the plain machine-wide `cc update` is unchanged.",
         )
-        from cc.core.ecosystem.workspaces import default_excluded_registry
-
-        try:
-            # Real production wiring: without these, every project folds to
-            # "latest unknown" and the sweep silently finds nothing (`total:
-            # 0`) -- see `resolve_fanout_sources()`'s own docstring.
-            source_roots, latest_by_product, release_tags = resolve_fanout_sources()
-            report, exit_code = execute_fanout(
-                dry_run=dry_run,
-                _source_roots=source_roots,
-                _latest_by_product=latest_by_product,
-                _release_tags=release_tags,
-                _excluded_registry=default_excluded_registry(),
-            )
-        except Exception as exc:  # environment/unexpected error -> exit 2
-            if output_json:
-                typer.echo(
-                    _json.dumps(
-                        {
-                            "schema_version": "1.0",
-                            "error": {"code": "environment-error", "message": str(exc)},
-                        }
-                    )
-                )
-            else:
-                typer.echo(f"update: environment error: {exc}", err=True)
-            raise typer.Exit(2) from exc
-
-        if "error" in report:
-            exit_code = 2
-
-        if output_json:
-            typer.echo(_json.dumps(report))
-        else:
-            render_fanout_report_rich(report)
-
-        raise typer.Exit(exit_code)
 
     from cc.commands.update import execute_update, render_update_report_rich
 

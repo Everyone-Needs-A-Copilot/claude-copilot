@@ -20,6 +20,9 @@ Start with `cc --help`, then `cc skill --help`, then the selected command's `--h
 | Inspect a capability | `cc skill get cli-authoring` | Reads the selected skill; a missing skill is an availability issue, not an invented command. |
 | Explain configuration provenance | `cc config where paths.knowledge_repo` | Reads configuration and reports its source. |
 | Inspect installation observations | `cc status --json` | Reports recorded observations without running probes. |
+| Inspect one project's wiring | `cc project status /path/to/project --json` | Reads exactly that folder and its registration/trust metadata; returns `initialized`, `needs-init` or `blocked`. Machine health is separate. |
+| List registered and approved projects | `cc project status --all --json` | Reads registered paths and bounded discovery inside approved folders; never searches home or unapproved candidates. |
+| Connect a project to both runtimes | `cc project init /path/to/project --json` | Writes the marker, thin instruction sections, Codex trust and registration while preserving project rules. Copies no framework files; inspect project status afterward. |
 
 ## Inputs and outputs
 
@@ -27,11 +30,11 @@ Structured output is per-command: use `--json` only where its help lists it, aft
 
 ## Effects and verification
 
-Skill/config reads and status inspection are local reads. Memory store, config set, connect, reconciliation and updates write state; auth and docs fallback can use the network. `doctor` runs probes, unlike `status`. `repair` is explicitly an engine-blocked stub in this release. Reconciliation has assess/plan/apply/recover stages; use its documented plan identity and verify result rather than inventing a universal dry-run.
+Skill/config reads and project status inspection are local reads. Memory store, config set, connect and project init write state; auth and docs fallback can use the network. Project init is the single writer for thin Claude and Codex integration. `initialized` confirms local wiring; use `cc release doctor` for machine health. Project migration prints a plan by default and writes only with `--apply`; releases and machine-wide updates change the central installation. Reconciliation and per-project copy/update workflows are retired and exit 2 with replacement guidance.
 
 ## Errors and recovery
 
-If `cc` is the compiler, select the installed Copilot executable from `~/.local/bin`. Missing config: inspect `cc config where KEY` and the configuration README before changing the appropriate scope. Missing skill: check `cc skill list` and the configured tier. Interrupted reconciliation: follow the README recovery procedure for the existing transaction; do not replace the lock or discard evidence.
+If `cc` is the compiler, select the installed Copilot executable from `~/.local/bin`. Missing config: inspect `cc config where KEY` and the configuration README before changing the appropriate scope. Missing skill: check `cc skill list` and the configured tier. A `blocked` project status names the malformed settings, unavailable folder or existing Codex access decision to review; preserved state is not silently overwritten. Inspect status again after resolving that issue. An interrupted migration uses its retained backup manifest: `cc project migrate --rollback --manifest /path/to/manifest` restores recorded state and reports conflicts for review.
 
 ## Maintenance
 

@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import ast
 import json
+import os
 import re
 from pathlib import Path
 
@@ -174,7 +175,10 @@ CONSUMER_FILES = [
     REPO_ROOT / ".claude" / "hooks" / "subagent-stop.sh",
     REPO_ROOT / ".claude" / "agents" / "qa.md",
     REPO_ROOT / "scripts" / "copilot-gate.sh",
-    REPO_ROOT / "plugins" / "codex-copilot" / "skills" / "qa" / "SKILL.md",
+    # The Codex qa skill is no longer vendored under plugins/; it ships in the
+    # machine release's codex-copilot layer (the canonical location now).
+    Path(os.environ.get("COPILOT_HOME", str(Path.home() / ".copilot")))
+    / "current" / "codex-copilot" / "skills" / "qa" / "SKILL.md",
 ]
 
 # Deliberately anchored, not a loose "-run"/"-check" substring scan (which

@@ -1,6 +1,6 @@
 # ADR-002: Auto-Apply Published Framework Updates; Hold On Dirty WIP
 
-> Status: Accepted (owner, 2026-07-16)
+> Status: Superseded by [06-central-resolution ADR-001](../../06-central-resolution/decisions/ADR-001-central-release-pointer.md) (2026-11-06). Previously: Accepted (owner, 2026-07-16)
 
 ## Context
 

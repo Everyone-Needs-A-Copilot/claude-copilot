@@ -26,6 +26,8 @@ After approval of the scoped plan or done block, the coordinator dispatches inde
 
 If the organization skill is unavailable, report that fallback and use the installed `tc cycle --help` contract: validated exclusive write ownership, actual cwd/branch verification, visible native dispatch within resource/runtime limits, one integration owner, current independent QA, and verified retirement under applicable deletion authority. Read-only research need not create a worktree. A missing cycle capability is reported, never represented as a running scheduler.
 
+**Blast-Radius QA (2026-11-06):** default QA strategy: test the change's blast radius, not the whole product. Canonical text: the organization `blast-radius-qa` skill (`cc skill get blast-radius-qa --scope machine --json`; Codex reads the same file). It replaces any earlier QA-depth statement.
+
 ## Work lifecycle
 
 Read `.claude/agents/_shared/work-lifecycle.md` once per task and apply its proportional start/resume, during-work, handoff, finish and later-use checkpoints, including direct invocation. Use the existing task and maintained narrative; selective memory pointers must not duplicate them. Preserve exact destructive approval and recovery, original authority and required assets. Substantial QA-required work needs an observable `WORK-LIFECYCLE` criterion before acceptance freezes; cleanup status and product acceptance remain separate.
