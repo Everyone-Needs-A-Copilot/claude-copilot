@@ -202,7 +202,7 @@ def read_git_tree_snapshot(
         )
         if listing.returncode != 0:
             return None
-        files: list[GitTreeFile] = []
+        entries: list[tuple[str, int, str]] = []
         for record in listing.stdout.split(b"\0"):
             if not record:
                 continue
@@ -229,29 +229,72 @@ def read_git_tree_snapshot(
                 or not re.fullmatch(r"[0-9a-f]{40,64}", oid)
             ):
                 return None
-            blob = subprocess.run(
-                ["git", "-C", str(root), "cat-file", "blob", oid],
-                capture_output=True,
-                timeout=8.0,
-                check=False,
+            entries.append(
+                (Path(path).as_posix(), 0o755 if raw_mode == b"100755" else 0o644, oid)
             )
-            if blob.returncode != 0:
-                return None
-            files.append(
-                GitTreeFile(
-                    path=Path(path).as_posix(),
-                    mode=0o755 if raw_mode == b"100755" else 0o644,
-                    oid=oid,
-                    content=blob.stdout,
-                )
-            )
+        if not entries or len({path for path, _, _ in entries}) != len(entries):
+            return None
+        # One process reads the captured objects, never mutable refs or files.
+        # Repeated blobs share bytes, but every response is bound to its request.
+        oids = tuple(dict.fromkeys(oid for _, _, oid in entries))
+        batch = subprocess.run(
+            ["git", "-C", str(root), "cat-file", "--batch"],
+            input="".join(f"{oid}\n" for oid in oids).encode("ascii"),
+            capture_output=True,
+            timeout=8.0,
+            check=False,
+        )
+        if batch.returncode != 0:
+            return None
+        contents = _parse_git_blob_batch(batch.stdout, oids)
+        if contents is None:
+            return None
     except (OSError, subprocess.SubprocessError):
         return None
-    if not files or len({item.path for item in files}) != len(files):
-        return None
     return GitTreeSnapshot(
-        tree=tree, files=tuple(sorted(files, key=lambda item: item.path))
+        tree=tree,
+        files=tuple(
+            GitTreeFile(path=path, mode=mode, oid=oid, content=contents[oid])
+            for path, mode, oid in sorted(entries)
+        ),
     )
+
+
+def _parse_git_blob_batch(data: bytes, oids: Sequence[str]) -> dict[str, bytes] | None:
+    """Accept exactly the requested blob frames, including their Git digests."""
+    contents: dict[str, bytes] = {}
+    offset = 0
+    for oid in oids:
+        end = data.find(b"\n", offset)
+        if end < 0:
+            return None
+        fields = data[offset:end].split(b" ")
+        if (
+            len(fields) != 3
+            or fields[0] != oid.encode("ascii")
+            or fields[1] != b"blob"
+            or re.fullmatch(rb"0|[1-9][0-9]*", fields[2]) is None
+        ):
+            return None
+        try:
+            size = int(fields[2])
+        except ValueError:
+            return None
+        start = end + 1
+        end = start + size
+        if end >= len(data) or data[end : end + 1] != b"\n":
+            return None
+        content = data[start:end]
+        if len(oid) not in {40, 64}:
+            return None
+        digest = hashlib.new("sha1" if len(oid) == 40 else "sha256")
+        digest.update(b"blob " + str(size).encode("ascii") + b"\0")
+        digest.update(content)
+        if digest.hexdigest() != oid:
+            return None
+        contents[oid] = content
+        offset = end + 1
+    return contents if offset == len(data) else None
 
 
 def _ssh_signer_fingerprint(*streams: str) -> str | None:
