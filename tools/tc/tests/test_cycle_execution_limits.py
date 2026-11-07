@@ -240,3 +240,29 @@ def test_foreign_lease_cannot_settle_actual_attempt(tmp_path):
     status = governed_status(w)
     assert status["usage"]["attempts"] == 1
     assert status["attempts"][0]["state"] == "running"
+
+
+@pytest.mark.parametrize("regroup", [False, True])
+def test_failed_reviewed_case_retry_history_survives_new_generation_lease_and_group(tmp_path, regroup):
+    import copy
+    from tc.services import cycle_stages
+    w = managed_world(tmp_path, count=1)
+    for attempt in range(2):
+        w.start("q1")
+        w.result("q1", "C1", "failed", defect=f"D{attempt + 1}")
+        w.stop("q1")
+        if attempt == 0:
+            w.advance("candidate-integrated")
+    assert governed_status(w)["usage"]["attempts"] == 2
+    if regroup:
+        # A legitimately reviewed additive check may expand a shard, but cannot
+        # turn its unchanged twice-failed existing C1 into a first observation.
+        plan = copy.deepcopy(w.plan)
+        plan["checks"].append({**plan["checks"][0], "id": "C2", "consumer": "new-adjacent-case"})
+        w.advance("inventory-revised", actor="planner", reviewer="independent", plan=plan)
+    else:
+        w.advance("candidate-integrated")
+    with pytest.raises(REFUSAL):
+        w.start("q1")
+    assert governed_status(w)["usage"]["attempts"] == 2
+    assert not cycle_stages.check_cycle(cycle=w.cycle, phase="source-ready", db_path=w.db)["approved"]
