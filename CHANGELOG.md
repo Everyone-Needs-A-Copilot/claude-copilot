@@ -1,5 +1,9 @@
 # Changelog
 
+## [5.35.3] - 2026-11-07
+
+- Read immutable Git tree blobs in one validated batch and retain the authenticated Knowledge source batch across CLI catalog discovery. This removes repeated subprocess and source-resolution work while preserving signature, exact-byte, snapshot, entitlement and final selected-content checks. The cc component is 2.19.3.
+
 ## [5.35.2] - 2026-11-07
 
 - Bind frozen cc migration/scan framework discovery to the active central release, never ancestors of the executable extraction directory. Source checkouts retain their verified layout root; missing or escaping central roots return an actionable structured error. The cc component is 2.19.2.
