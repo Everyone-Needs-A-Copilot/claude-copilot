@@ -97,3 +97,7 @@ cProfile breakdown of the 293 s full-scope plan:
 - What was the intended human window for the 900 s TTL, given that apply's own preflight consumes part of it?
 - Should `CC_PROJECTS_ROOTS` scoping become a documented, supported `/setup-project` option (for example `cc reconcile request --scope project`), or should it stay an operator workaround?
 - How many `assess_project` calls per project are expected? The profile shows about 2.8 Codex source resolutions per project in one plan.
+
+## Resolution under central resolution (2026-11-07)
+
+Central resolution (framework 5.35.0, [ADR-001](../40-initiatives/06-central-resolution/decisions/ADR-001-central-release-pointer.md)) resolves this brief by removal rather than repair. `cc reconcile` is retired (every subcommand exits 2), `cc project init` sets up a single project in seconds without a census or plan, and `cc project migrate --scan <roots>` replaces reconcile's machine census as an explicit, read-only scan. Plan expiry no longer applies because there are no plans or apply steps for projects. Still open: `cc project migrate --apply` across the 71 projects is not covered by this brief's scoping fix and its runtime on very broad roots has not been timed; the sixth direction (non-Git crash) is covered by init's own criterion, not by a reconcile fix.

@@ -1,6 +1,6 @@
 # ADR-001 (initiative 06-central-resolution): One release pointer, zero per-project sync
 
-**Status:** Proposed (owner confirmed the governing done block 2026-11-06; becomes Accepted when @agent-doc lands it and the pilot checkpoint passes)
+**Status:** Accepted (owner confirmed the governing done block 2026-11-06; implemented in framework 5.35.0, cc 2.19.0). Final-behaviour notes are in the section at the end.
 
 **Supersedes:** codex-copilot `docs/40-initiatives/02-repository-portable-copilot/decisions/ADR-001-embed-assets-and-derive-caches.md` (copy model, status Proposed); claude-copilot `docs/40-initiatives/04-component-sync/decisions/ADR-001-lock-manifest-as-propagation-index.md` and `ADR-002-auto-apply-and-hold-on-dirty.md` (lock manifest as propagation index; auto-apply). Hold-on-dirty survives only as a migration-tool rule. `docs/30-operations/21-cc-reconcile-single-project-scope-and-plan-expiry.md` becomes historical: its project-reconcile defects are moot once project recipes are retired (see Consequences).
 
@@ -59,3 +59,11 @@ Reversibility: high until fleet migration (project copies are untouched and iner
 ### Trade-offs
 
 Optimised: propagation cost, consistency across runtimes and tiers, rollback speed. Sacrificed: clone-and-go portability to non-CSE machines; byte-level per-project reproducibility (replaced by machine-level release history). Reversible: pointer and links fully; fleet migration via git history.
+
+### Final behaviour (framework 5.35.0)
+
+- The Codex plugin is a frozen core: `cc release publish` defaults the marketplace step to `strict_frozen`, and the Codex trust gate compares content hashes per hook key and refuses a flip that would change plugin content and force a re-trust, naming the affected hooks.
+- Each framework hook handler is registered once per event. Source repos (release sources) are protected by a guard: `cc project migrate` keeps their protected paths as source and removes only byte-identical copies of files in the release's foundation components; edited copies are held.
+- `cc project migrate --scan <roots>` is the read-only census behind fitness function 3. Migration decides copies by content against all released history.
+- `cc reconcile`, `cc conformance`, `cc update --project|--fanout` and project lock verification are retired now (task 211), not after fleet migration; the commands exit 2 pointing at `cc project init` and `cc release`.
+- `cc release build` runs the same post-build as `publish` (source markers, cc venv, Codex marketplace, generated files).

@@ -4,7 +4,7 @@
 
 Goal: make a new machine resolve the framework centrally, then add any project with `cc project init`. After this, you never copy framework files into a project. Design: [ADR-001](../40-initiatives/06-central-resolution/decisions/ADR-001-central-release-pointer.md).
 
-Status: the `cc release` and `cc project` commands below are delivered by the central-resolution initiative (PRD-16). Until the first release is published, use the commands in [the user journey](01-user-journey.md).
+Status: delivered in framework 5.35.0 (cc 2.19.0). `cc release build` builds a release (add `--flip` to switch to it); `cc release publish` does build, flip, links, marketplace refresh and doctor in one command.
 
 ## Prerequisites
 
@@ -44,7 +44,7 @@ Every tier pinned to a signed tag (foundation, organization and department tiers
 
 ## 4. Trust the Codex hooks
 
-Codex asks for trust once per hook definition, not per release. Open Codex, run `/hooks`, and trust the `codex-copilot@enac-materialized` hooks, including `codex-copilot@enac-materialized:hooks/hooks.json:pre_tool_use:1:0` (the coordinator guard). Hook definitions stay byte-identical across releases, so later releases do not ask again.
+Codex asks for trust once per hook definition, not per release. Open Codex, run `/hooks`, and trust the `codex-copilot@enac-materialized` hooks, including `codex-copilot@enac-materialized:hooks/hooks.json:pre_tool_use:1:0` (the coordinator guard). Hook definitions stay byte-identical across releases (the Codex plugin is a frozen core), and the trust gate refuses a release flip that would change plugin content and force a re-trust, so later releases do not ask again.
 
 ## 5. Verify
 
@@ -61,7 +61,7 @@ cd /path/to/project
 cc project init
 ```
 
-Takes seconds. It writes the `copilot.project.json` marker, adds thin project sections to `CLAUDE.md` and `AGENTS.md` only if absent, registers Codex trust for the path and updates `.gitignore`. It works in a non-Git folder or returns a clean JSON error.
+Takes seconds. It writes the `copilot.project.json` marker, adds thin project sections to `CLAUDE.md` and `AGENTS.md` only if absent, registers Codex trust for the path and updates `.gitignore`. It works in a non-Git folder or returns a clean JSON error. To convert an already synced project use `cc project migrate` (dry run; add `--apply`), and `cc project migrate --scan <roots>` reports remaining copies and locks across projects.
 
 ## Roll back
 
