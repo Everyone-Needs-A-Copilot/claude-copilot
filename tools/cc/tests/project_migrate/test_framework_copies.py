@@ -7,6 +7,7 @@ import os
 import subprocess
 from pathlib import Path
 
+import pytest
 from typer.testing import CliRunner
 
 from cc.commands.project import project_app
@@ -14,6 +15,23 @@ from cc.core.project_migrate import apply_migration, build_known, plan_migration
 from tests.project_migrate.conftest import Fx, build_project, make_known
 
 ENV = {"GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@t", "GIT_COMMITTER_NAME": "t", "GIT_COMMITTER_EMAIL": "t@t"}
+
+
+@pytest.fixture(autouse=True)
+def release_signer(tmp_path, monkeypatch):
+    """Release fixtures carry authenticated tags, not merely commits named v1/v2."""
+    from cc.core.ecosystem import policy
+    key = tmp_path / "fixture-release-key"
+    subprocess.run(["ssh-keygen", "-q", "-t", "ed25519", "-N", "", "-f", str(key)], check=True)
+    public = key.with_suffix(".pub").read_text().strip()
+    fingerprint = subprocess.check_output(["ssh-keygen", "-lf", str(key.with_suffix(".pub"))], text=True).split()[1]
+    monkeypatch.setattr(policy, "FOUNDATION_SSH_SIGNING_KEYS", {fingerprint: public})
+    monkeypatch.setenv("CR_TEST_RELEASE_SIGNER", str(key))
+
+
+def _release(root: Path, tag: str) -> None:
+    _git(root, "-c", "gpg.format=ssh", "-c", f"user.signingkey={os.environ['CR_TEST_RELEASE_SIGNER']}",
+         "tag", "-s", tag, "-m", tag)
 
 
 def _git(root: Path, *args: str) -> None:
@@ -42,11 +60,13 @@ def make_framework(tmp: Path) -> Path:
     (repo / ".agents/skills").mkdir(parents=True)
     (repo / ".agents/skills/codex-copilot").symlink_to("../../plugins/codex-copilot/skills")
     _commit(repo, "v1")
+    _release(repo, "v1")
     for rel in (".claude/commands/keyword-parser.ts", ".claude/skills/security/stride-dread/SKILL.md",
                 "plugins/codex-copilot/scripts/protocol-cycle.py"):
         (repo / rel).write_text("current release\n")
     (repo / ".agents/skills/codex-copilot").unlink()
     _commit(repo, "v2")
+    _release(repo, "v2")
     return repo
 
 

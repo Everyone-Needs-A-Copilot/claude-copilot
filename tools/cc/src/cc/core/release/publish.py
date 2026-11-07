@@ -174,7 +174,9 @@ def _restore(home, codex_home, previous: str | None, flipped: bool, config_chang
             pointer.rollback(home, to=previous, reason="publish failed; automatic restore")
             plan_path = layout.release_dir(previous, home) / layout.LINK_PLAN_NAME
             if plan_path.is_file():
-                apply_plan(plan_from_json(json.loads(plan_path.read_text(encoding="utf-8"))), home)
+                applied = apply_plan(plan_from_json(json.loads(plan_path.read_text(encoding="utf-8"))), home)
+                if not applied.ok:
+                    ok = False
         elif flipped:
             layout.current_path(home).unlink(missing_ok=True)
     except Exception:  # noqa: BLE001 - restore failure is reported, not raised over the original
@@ -215,6 +217,11 @@ def publish(sources: Sequence[build.ComponentSource], home: Path | str | None = 
     report.trust = gate.to_json()
     step = "flip"
     config_changed = False
+
+    def record_config(result: codex_config.ConfigResult) -> None:
+        nonlocal config_changed
+        config_changed = result.changed
+
     try:
         pointer.flip(manifest.release_id, home, reason="publish")
         report.flipped = True
@@ -231,7 +238,8 @@ def publish(sources: Sequence[build.ComponentSource], home: Path | str | None = 
         if not applied.ok:
             raise RuntimeError("; ".join(applied.errors))
         step = "codex"
-        result = codex_step.run(home, codex_home, codex_bin=codex_bin, runner=codex_runner)
+        result = codex_step.run(home, codex_home, codex_bin=codex_bin, runner=codex_runner,
+                                on_config=record_config)
         config_changed = result.config.changed
         report.codex = {"refreshed_with": result.refreshed_with, "plugins": result.plugins,
                         "config_changed": result.config.changed}
@@ -246,3 +254,43 @@ def publish(sources: Sequence[build.ComponentSource], home: Path | str | None = 
         raise PublishError(f"{step} failed: {exc}", step=step, restored=restored,
                            rollback_hint=hint) from exc
     return report
+
+
+def rollback(home: Path | str | None = None, codex_home: Path | str | None = None, *,
+             to: str | None = None, steps: int = 1, reason: str = "",
+             codex_bin: str = "codex", codex_runner: codex_step.Runner = codex_step.default_runner,
+             control_tower_app: Path | str = CONTROL_TOWER_APP) -> dict:
+    """Restore a release and its consumers before committing rollback history.
+
+    Pointer owns atomic movement and restores the previous target on callback
+    failure. Its recovery callback runs the same consumer checks; failure is
+    surfaced rather than treating a changed pointer as consumer readiness.
+    """
+    config_changed = False
+
+    def record_config(result: codex_config.ConfigResult) -> None:
+        nonlocal config_changed
+        config_changed = result.changed
+
+    def ready(release_id: str) -> None:
+        nonlocal config_changed
+        # On pointer recovery, undo this attempt's config before applying the
+        # prior release. A no-op apply must never restore an older receipt.
+        if config_changed:
+            codex_config.rollback(home, force=True)
+            config_changed = False
+        relink(home)(release_id)
+        codex_step.run(home, codex_home, codex_bin=codex_bin, runner=codex_runner,
+                       on_config=record_config)
+        checks = run_doctor(home, codex_home, control_tower_app=control_tower_app)
+        failed = [c for c in checks if not c.ok]
+        if failed:
+            raise RuntimeError("rollback doctor failed: " + "; ".join(
+                f"{c.name}: {c.detail}" for c in failed))
+
+    try:
+        return pointer.rollback(home, to=to, steps=steps, reason=reason, on_moved=ready)
+    except Exception:
+        if config_changed:
+            codex_config.rollback(home, force=True)
+        raise

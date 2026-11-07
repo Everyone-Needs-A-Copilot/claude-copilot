@@ -81,10 +81,11 @@ def rollback_cmd(
     steps: int = typer.Option(1, "--steps", min=1, help="Walk back this many releases"),
     home: Optional[Path] = HomeOpt,
     reason: str = "",
+    codex_home: Optional[Path] = typer.Option(None, "--codex-home"),
 ) -> None:
     """Walk back --steps releases through history, or to the --to named release."""
     try:
-        _emit(pointer.rollback(home, to=to, steps=steps, reason=reason, on_moved=publisher.relink(home)))
+        _emit(publisher.rollback(home, codex_home, to=to, steps=steps, reason=reason))
     except Exception as exc:
         _fail(f"rollback failed: {exc}")
 
