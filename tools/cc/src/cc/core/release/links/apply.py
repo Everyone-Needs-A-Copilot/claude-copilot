@@ -283,7 +283,7 @@ def apply_plan(plan: LinkPlan, home: Path | str | None = None, *, dry_run: bool 
         report.customized.extend(c.as_dict() for c in result.customized)
         report.personal_overrides = list(plan.personal_overrides)
         report.stale_copies = list(plan.stale_copies)
-        accounted = {*owned, *(a["path"] for a in report.adopted),
+        accounted = {*(row["path"] for row in recorded), *(a["path"] for a in report.adopted),
                      *(str(Path(c["path"]).relative_to(base)) for c in report.customized
                        if Path(c["path"]).is_relative_to(base))}
         report.kept = sorted(

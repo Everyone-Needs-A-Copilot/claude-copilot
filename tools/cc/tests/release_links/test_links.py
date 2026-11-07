@@ -110,6 +110,40 @@ def test_idempotent(home, release):
     assert len(second.unchanged) == len(first.created)
 
 
+def test_receipt_accounts_for_owner_items_shadowing_planned_links(home, release):
+    import json
+
+    from cc.core.release.links import adopt
+
+    for name in ("infographics", "data-visualization"):
+        skill(release / "knowledge/organization/03-ai-enabling/01-skills", name, name)
+    owner_paths = (".claude/skills/infographics", ".codex/skills/infographics",
+                   ".codex/skills/data-visualization")
+    for rel in owner_paths:
+        skill(home, rel, Path(rel).name, "owner version")
+    plan = build_plan(release, home)
+    before = {rel: (home / rel / "SKILL.md").read_bytes() for rel in owner_paths}
+    for _ in range(2):
+        report = apply_plan(plan, home)
+        assert report.ok
+        receipt = json.loads(layout.links_receipt_path(home).read_text())
+        kept = {row["path"]: row for row in receipt["kept"]}
+        served = {row["path"] for row in receipt["links"]}
+        assert {entry.link for entry in plan.entries} == served | set(owner_paths)
+        assert set(owner_paths) <= kept.keys()
+        for rel in owner_paths:
+            assert kept[rel]["origin"] == "owner"
+            assert "shadows a planned release link" in kept[rel]["reason"]
+            assert not (home / rel).is_symlink()
+            assert (home / rel / "SKILL.md").read_bytes() == before[rel]
+    # Inventory must also cover an owner replacement of a formerly receipt-owned path.
+    rows = receipt["links"]
+    rows.append({"path": owner_paths[0], "target": "former-release-target"})
+    layout.links_receipt_path(home).write_text(json.dumps(receipt))
+    assert owner_paths[0] in {row["path"] for row in apply_plan(plan, home).kept}
+    assert set(owner_paths) <= {row["path"] for row in adopt.inventory_kept(plan, home, served)}
+
+
 def test_never_clobbers_owner_items(home, release):
     owner_dir = home / ".claude/skills/mine"
     owner_dir.mkdir(parents=True)

@@ -388,7 +388,8 @@ def inventory_kept(plan: LinkPlan, home: Path | str, accounted: Iterable[str],
     the release no longer serves), else `owner`. Nothing here is ever changed.
     """
     base = Path(home)
-    skip = set(accounted) | {e.link for e in plan.entries}
+    skip = set(accounted)
+    planned = {e.link for e in plan.entries}
     out: list[dict[str, str]] = []
     for rel in KEPT_DIRS:
         root = base / rel
@@ -407,7 +408,9 @@ def inventory_kept(plan: LinkPlan, home: Path | str, accounted: Iterable[str],
             elif index is not None and not child.is_symlink() and _is_framework_owned(child, index):
                 origin, reason = "framework-copy", "matches a framework version this release does not serve"
             else:
-                origin, reason = "owner", "not part of any release; left untouched"
+                origin = "owner"
+                reason = ("owner item shadows a planned release link; left untouched" if link in planned
+                          else "not part of any release; left untouched")
             out.append({"path": link, "origin": origin, "reason": reason})
     return out
 
