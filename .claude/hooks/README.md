@@ -168,7 +168,7 @@ Stronger language noting that the force-delegate hook and QA gate may receive in
 ## PreCompact Hook — Handoff Before Compaction
 
 **File:** `.claude/hooks/pre-compact-handoff.sh`
-**Config:** `.claude/settings.json` → `hooks.PreCompact` (installed in projects by `cc settings-hook add`, dispatched as `copilot-hook.sh pre-compact-handoff`)
+**Config:** `.claude/settings.json` → `hooks.PreCompact` (registered once at user level by `cc settings-hook user-add`, dispatched as `copilot-hook.sh pre-compact-handoff`; projects carry no registration)
 
 Before Claude Code compacts the context, this hook writes `.copilot/handoffs/<YYYYMMDD-HHMMSS>-<session8>.md` in the project at the payload's `cwd`, in the work-lifecycle handoff shape: a Kickoff line, Outcome being pursued, Verified, Governing decisions, Remaining, Evidence, and the owner's last three messages from the transcript. The task is the in-progress task whose newest log entry carries the session id, else the most recently updated in-progress task, else none (the file is still written with the owner messages and transcript path). Verified comes from the newest QA work product's CRITERION and VERDICT lines and its last ARTIFACT line; Remaining lists contract criteria without an approved CRITERION line plus open dependent tasks. When a task exists the file is also stored with `tc wp store --type handoff`. The hook always exits 0, reports the file on stderr, fails open on every error, and `COPILOT_PRE_COMPACT=off` skips it. Test: `bash tests/hooks/test-pre-compact-handoff.sh`.
 

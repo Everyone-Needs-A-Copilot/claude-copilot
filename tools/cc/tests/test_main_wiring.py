@@ -25,7 +25,6 @@ since the CLI surface itself exposes no `_root`-style injection points.
 from __future__ import annotations
 
 import base64
-import hashlib
 import json
 import subprocess
 from pathlib import Path
@@ -102,17 +101,15 @@ def test_layers_list_empty_catalog(cli):
     assert payload["layers"] == []
 
 
-def test_freshness_all_projects_no_roots_is_empty(cli):
-    """`cc freshness --all-projects --json` with no `projects.roots`
-    configured on this machine -- an honest empty sweep, exit 0."""
+def test_freshness_all_projects_is_retired(cli):
+    """Old: `cc freshness --all-projects --json` swept every project's recorded copies for staleness
+    (empty sweep with no roots, exit 0). New: projects carry no copies, so the flag refuses (exit 2,
+    code `retired`)."""
     result = cli(["freshness", "--all-projects", "--json"])
 
-    assert result.exit_code == 0
+    assert result.exit_code == 2
     payload = json.loads(result.output)
-    assert payload["schema_version"] == "1.0"
-    assert payload["total"] == 0
-    assert payload["projects"] == []
-    assert payload["global"] == []
+    assert payload["error"]["code"] == "retired"
 
 
 def test_freshness_all_projects_and_per_layer_mutually_exclusive(cli):
@@ -126,35 +123,30 @@ def test_freshness_all_projects_and_per_layer_mutually_exclusive(cli):
     assert payload["error"]["code"] == "invalid-argument"
 
 
-def test_update_project_on_tmp_project_up_to_date(cli, tmp_path):
-    """`cc update --project <path> --component claude --json` against a
-    fresh project with no lock manifest yet -- an honest `up-to-date`
-    no-op (nothing to materialize), exit 0."""
+def test_update_project_is_retired_and_writes_nothing(cli, tmp_path):
+    """Old: `cc update --project <path> --component claude` on a fresh project was an `up-to-date`
+    no-op (exit 0) and materialized framework files into projects that needed them. New: the command
+    refuses (exit 2, code `retired`) and leaves the project untouched."""
     project = tmp_path / "a-project"
     project.mkdir()
 
     result = cli(["update", "--project", str(project), "--component", "claude", "--json"])
 
-    assert result.exit_code == 0
-    payload = json.loads(result.output)
-    assert payload["schema_version"] == "1.0"
-    assert payload["result"] == "up-to-date"
-    assert payload["path"] == str(project)
+    assert result.exit_code == 2
+    assert json.loads(result.output)["error"]["code"] == "retired"
+    assert list(project.iterdir()) == []
 
 
-def test_update_project_requires_component(cli, tmp_path):
-    """`cc update --project <path>` without `--component` is refused,
-    exit 2, rather than crashing on `execute_materialize_project()`'s
-    required keyword argument."""
+def test_update_project_without_component_is_also_retired(cli, tmp_path):
+    """Old: `--project` without `--component` was refused as `invalid-argument`. New: the whole
+    `--project` path is retired, so it reports `retired` whether or not `--component` is given."""
     project = tmp_path / "a-project"
     project.mkdir()
 
     result = cli(["update", "--project", str(project), "--json"])
 
     assert result.exit_code == 2
-    payload = json.loads(result.output)
-    assert payload["schema_version"] == "1.0"
-    assert payload["error"]["code"] == "invalid-argument"
+    assert json.loads(result.output)["error"]["code"] == "retired"
 
 
 def test_update_project_and_fanout_mutually_exclusive(cli, tmp_path):
@@ -179,86 +171,13 @@ def test_update_project_and_fanout_mutually_exclusive(cli, tmp_path):
     assert payload["error"]["code"] == "invalid-argument"
 
 
-def test_update_fanout_no_projects_is_clean(cli):
-    """`cc update --fanout --json` with no discovered projects -- an
-    honest empty roll-up, exit 0 (no held/failed counts)."""
+def test_update_fanout_is_retired(cli):
+    """Old: `cc update --fanout --json` rolled up per-project materialize results (empty roll-up,
+    exit 0, with no projects). New: refuses (exit 2, code `retired`)."""
     result = cli(["update", "--fanout", "--json"])
 
-    assert result.exit_code == 0
-    payload = json.loads(result.output)
-    assert payload["schema_version"] == "1.0"
-    assert payload["summary"]["total"] == 0
-    assert payload["summary"]["held"] == 0
-    assert payload["summary"]["failed"] == 0
-
-
-def test_update_fanout_wires_source_roots_and_reports_real_count(cli, tmp_path, monkeypatch):
-    """The reported defect, end-to-end: before this fix, `cc update
-    --fanout --json` always reported `summary.total == 0` because
-    `cc/main.py`'s call site wired neither `_source_roots` nor
-    `_latest_by_product` into `execute_fanout()` -- every project folded to
-    `stale: None` and was dropped with a bare `continue`, never landing in
-    `results[]`. With a real stale project under a configured root and a
-    real claude source root carrying a `VERSION.json`, the fan-out must now
-    report it, with the actual materialize outcome visible."""
-    projects_root = tmp_path / "projects-root"
-    projects_root.mkdir()
-    project = projects_root / "some-project"
-    project.mkdir()
-    subprocess.run(["git", "init", "-q"], cwd=project, check=True)
-    subprocess.run(["git", "config", "user.email", "t@example.invalid"], cwd=project, check=True)
-    subprocess.run(["git", "config", "user.name", "T"], cwd=project, check=True)
-    (project / ".claude" / "commands").mkdir(parents=True)
-    (project / ".claude" / "commands" / "x.md").write_text("v1", encoding="utf-8")
-    (project / "copilot.lock.json").write_text(
-        json.dumps(
-            {
-                "schema_version": "1.0",
-                "components": [
-                    {
-                        "component": "claude",
-                        "version": "1.0.0",
-                        "release_tag": "v1.0.0",
-                        "files": [
-                            {
-                                "path": ".claude/commands/x.md",
-                                "ownership": "framework",
-                                "checksum": "sha256:" + hashlib.sha256(b"v1").hexdigest(),
-                            }
-                        ],
-                    }
-                ],
-            }
-        ),
-        encoding="utf-8",
-    )
-    subprocess.run(["git", "add", "-A"], cwd=project, check=True)
-    subprocess.run(["git", "commit", "-q", "-m", "init"], cwd=project, check=True)
-
-    claude_source = tmp_path / "claude-source"
-    (claude_source / ".claude" / "commands").mkdir(parents=True)
-    (claude_source / "VERSION.json").write_text(json.dumps({"framework": "2.0.0"}), encoding="utf-8")
-    (claude_source / ".claude" / "commands" / "x.md").write_text("v2", encoding="utf-8")
-
-    monkeypatch.setenv("CC_PROJECTS_ROOTS", str(projects_root))
-    monkeypatch.setenv("CC_PATHS_CLAUDE_COPILOT_ROOT", str(claude_source))
-    monkeypatch.setenv("CC_PATHS_CODEX_COPILOT_ROOT", str(tmp_path / "no-codex-here"))
-
-    result = cli(["update", "--fanout", "--dry-run", "--json"])
-
-    assert result.exit_code == 0
-    payload = json.loads(result.output)
-    assert payload["schema_version"] == "1.0"
-    assert payload["summary"]["total"] == 1
-    assert payload["summary"]["updated"] == 1
-    assert payload["summary"]["failed"] == 0
-    entry = payload["results"][0]
-    assert entry["path"] == str(project)
-    assert entry["component"] == "claude"
-    assert entry["report"]["result"] == "applied"
-
-    # --dry-run: the project's own file must be untouched.
-    assert (project / ".claude" / "commands" / "x.md").read_text(encoding="utf-8") == "v1"
+    assert result.exit_code == 2
+    assert json.loads(result.output)["error"]["code"] == "retired"
 
 
 def _fake_onboard_run(args):

@@ -88,13 +88,15 @@ validate_agents() {
 
   echo "Validating agents..."
 
-  # Read the same authoritative roster used by project reconciliation.
+  # Read the authoritative roster declared in VERSION.json.
   local roster_output
   if ! roster_output=$(PYTHONPATH="$PROJECT_ROOT/tools/cc/src" python3 - "$PROJECT_ROOT" "agents" <<'PYROSTER'
+import json
 import sys
 from pathlib import Path
-from cc.core.ecosystem.canonical_transaction import claude_reference_roster
-commands, agents = claude_reference_roster(Path(sys.argv[1]))
+components = json.loads((Path(sys.argv[1]) / "VERSION.json").read_text(encoding="utf-8"))["components"]
+commands = components["commands"]["projectCommands"]
+agents = [*components["agents"]["frameworkAgents"], "kc"]
 print("\n".join(commands if sys.argv[2] == "commands" else (a + ".md" for a in agents)))
 PYROSTER
   ); then
@@ -128,13 +130,15 @@ validate_commands() {
 
   echo "Validating commands..."
 
-  # Read the same authoritative roster used by project reconciliation.
+  # Read the authoritative roster declared in VERSION.json.
   local roster_output
   if ! roster_output=$(PYTHONPATH="$PROJECT_ROOT/tools/cc/src" python3 - "$PROJECT_ROOT" "commands" <<'PYROSTER'
+import json
 import sys
 from pathlib import Path
-from cc.core.ecosystem.canonical_transaction import claude_reference_roster
-commands, agents = claude_reference_roster(Path(sys.argv[1]))
+components = json.loads((Path(sys.argv[1]) / "VERSION.json").read_text(encoding="utf-8"))["components"]
+commands = components["commands"]["projectCommands"]
+agents = [*components["agents"]["frameworkAgents"], "kc"]
 print("\n".join(commands if sys.argv[2] == "commands" else (a + ".md" for a in agents)))
 PYROSTER
   ); then

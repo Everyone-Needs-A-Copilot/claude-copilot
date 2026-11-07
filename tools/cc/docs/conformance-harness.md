@@ -1,3 +1,5 @@
+> **Retired (2026-11-06, central resolution, PRD-16 task 211).** The harness checked per-project framework copies, `copilot.lock.json` checksums and the plan/apply round trip. With no copies and no locks there is nothing for it to verify, so the harness, its dimensions and its tests were removed and every `cc conformance` subcommand refuses with a pointer to `cc doctor`. This guide is kept as a historical record of what it measured.
+
 # The ecosystem conformance harness
 
 This is the operator guide for `cc conformance` — the harness that turns "is the Copilot ecosystem correct?" into a command you run instead of a judgement call. Design source of truth: `HARNESS-DESIGN.md` and `TEST-MATRIX.md` (the design specs this package implements against). This document explains what exists today, how to run it, how to read a failure, and how the committed baseline works.

@@ -11,7 +11,6 @@ from cc.commands.layers import GITHUB_KEYCHAIN_SERVICE, build_layers_join_report
 from cc.commands.update import build_update_report
 from cc.core.ecosystem import entitlement
 from cc.core.ecosystem.policy import permissive_policy
-from cc.core.ecosystem.project_sources import resolve_claude_content
 
 NOW = datetime(2026, 8, 12, 12, 0, tzinfo=timezone.utc)
 
@@ -1076,56 +1075,6 @@ def test_revocation_never_destroys_customized_materialized_content(
     )
     assert target.read_text() == "human customization\n"
     assert revoked["held_for_approval"]
-
-
-def test_stale_protected_claude_cache_cannot_win_project_resolution(
-    tmp_path: Path,
-) -> None:
-    state = tmp_path / "state" / "entitlements.json"
-    org = tmp_path / "org"
-    foundation = tmp_path / "foundation"
-    _write(org, "commands/protocol.md", "protected organization protocol\n")
-    _write(
-        foundation / ".claude",
-        "commands/protocol.md",
-        "public foundation protocol\n",
-    )
-    org_layer = _layer(
-        "claude-organization",
-        product="claude",
-        role="organization",
-        rank=30,
-        path=org,
-    )
-    foundation_layer = _layer(
-        "claude-foundation",
-        product="claude",
-        role="foundation",
-        rank=40,
-        path=foundation / ".claude",
-        auth="anon",
-    )
-    _observe(org_layer, state, 200, now=NOW)
-
-    entitled = resolve_claude_content(
-        foundation_root=foundation,
-        items={"commands": ("protocol",)},
-        _layers=[org_layer, foundation_layer],
-        entitlement_state_path=state,
-        entitlement_login="octocat",
-        entitlement_now=NOW + timedelta(hours=1),
-    )
-    assert entitled[("commands", "protocol")].layer == "claude-organization"
-
-    stale = resolve_claude_content(
-        foundation_root=foundation,
-        items={"commands": ("protocol",)},
-        _layers=[org_layer, foundation_layer],
-        entitlement_state_path=state,
-        entitlement_login="octocat",
-        entitlement_now=NOW + timedelta(hours=73),
-    )
-    assert stale[("commands", "protocol")].layer == "claude-foundation"
 
 
 def test_entitlement_state_symlink_or_identity_change_never_authorizes_cache(

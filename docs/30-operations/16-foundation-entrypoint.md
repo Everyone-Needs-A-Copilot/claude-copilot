@@ -7,11 +7,7 @@ profile. The complete local Claude + Codex reference remains the setup contract.
 
 ## First project setup
 
-Open the target Git repository in Claude Code and run `/setup-project`. That
-adapter checks the real Copilot `cc` and `tc`, builds an exact read-only
-`cc reconcile plan`, asks for confirmation, applies that plan, and runs fresh
-`cc reconcile verify`. Follow the adapter's reported holds; do not copy framework
-files manually or reset project-owned work to make setup appear complete.
+Open the target Git repository in Claude Code and run `/setup-project`. That adapter checks the real Copilot `cc` and `tc`, runs `cc project init` (the marker, thin CLAUDE.md and AGENTS.md sections and Codex trust; nothing is copied into the project because the framework resolves centrally from the release pointer), and reports `cc doctor`. The former `cc reconcile plan`, apply and verify route is retired. Follow the adapter's reported holds; do not copy framework files manually or reset project-owned work to make setup appear complete.
 
 If the CLIs are absent, follow the existing `/setup` machine prerequisite route,
 then return to this project. `cc onboard` is ecosystem discovery/onboarding, not

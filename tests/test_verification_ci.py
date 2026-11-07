@@ -140,7 +140,9 @@ def test_discovery_union_preserves_existing_roots_and_mac_os_contract():
                 for p in (ROOT / directory).rglob("test_*.py")
                 if not p.relative_to(ROOT).as_posix().startswith(("tests/unit/", "tests/integration/"))}
     assert owned_inventory(ROOT) == intended
-    assert any(name.startswith("tools/cc/tests/conformance/") for name in intended)
+    # Nested cc test directories are discovered too. (Old expectation named tools/cc/tests/conformance/,
+    # removed with the conformance harness; project_migrate/ is the surviving nested suite.)
+    assert any(name.startswith("tools/cc/tests/project_migrate/") for name in intended)
 
 
 def test_new_tests_join_discovered_inventory_without_a_workflow_edit(tmp_path):

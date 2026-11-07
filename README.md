@@ -47,7 +47,7 @@ It's not separate software. It's markdown files (agents, commands, skills, proje
 | **Known References** | Configured paths and refs surface into every session (`cc config set refs.*`) |
 | **Extensions** | Override or extend agents with your company's methodologies through a knowledge repo |
 | **Code-Execution Path** | `tc.api` / `cc.api` facades for multi-step operations without CLI round-trip token cost |
-| **Codex Too** | The [Codex Copilot](https://github.com/Everyone-Needs-A-Copilot/codex-copilot) plugin ships embedded under `plugins/codex-copilot`, so `/update-copilot` can deliver the same capabilities to Codex |
+| **Codex Too** | The [Codex Copilot](https://github.com/Everyone-Needs-A-Copilot/codex-copilot) plugin is delivered through the central release pointer (`~/.copilot/current/codex-copilot`, enabled once in the `enac-materialized` marketplace), not bundled in this repo, so one `cc release publish` gives Codex the same capabilities |
 
 The design goal is more disciplined, resumable work built from the practices that tend to produce better software. We measure process and context efficiency, not output quality; there is no defect or rework data yet.
 

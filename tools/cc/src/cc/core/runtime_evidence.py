@@ -78,9 +78,9 @@ def build_runtime_report(project: Path, *, exercise: bool = False) -> dict[str, 
         raise ValueError("Project must be a directory")
     hooks = project / "plugins/codex-copilot/hooks"
     registry = hooks / "hooks.json"
-    paths = [project / "AGENTS.md", project / "CLAUDE.md", project / "copilot.lock.json",
+    paths = [project / "AGENTS.md", project / "CLAUDE.md",
              project / ".claude/settings.json", project / ".claude/settings.local.json",
-             project / ".codex/config.toml", project / ".codex-copilot.json", registry]
+             project / ".codex/config.toml", registry]
     paths += list(hooks.glob("*.sh")) + list((project / ".claude/hooks").glob("*.sh"))
     before = _fingerprint(project, paths)
     declared = False

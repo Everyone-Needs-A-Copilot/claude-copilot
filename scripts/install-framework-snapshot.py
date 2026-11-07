@@ -57,7 +57,7 @@ _REQUIRED_SNAPSHOT_FILES = (
     "VERSION.json",
     "tools/cc/install.sh",
     "tools/cc/pyproject.toml",
-    "tools/cc/src/cc/core/conformance/roundtrip.py",
+    "tools/cc/src/cc/main.py",
 )
 _MARKER_NAMES = (".source-commit", ".source-tree")
 # Every committed version of the framework-installed paths, so a project update
@@ -1164,7 +1164,10 @@ def install_framework_snapshot(
                 raise FrameworkInstallError("tc receipt checksum mismatch")
             shim_checksum = _sha256(_read_regular(staged_shim))
             plugin_transaction = None
-            if not claude_only:
+            # This repo no longer bundles the Codex plugin (central resolution serves it from the
+            # release pointer), so a snapshot without a bundled marketplace installs Claude only.
+            bundled_codex = (snapshot / ".agents" / "plugins" / "marketplace.json").is_file()
+            if not claude_only and bundled_codex:
                 try:
                     plugin_artifacts, plugin_manifest_sha256 = validate_snapshot_plugin(
                         snapshot

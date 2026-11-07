@@ -11,7 +11,7 @@
 #   resolves), so fixing a guardrail fixes it in every project that
 #   carries this shim, without touching that project's lock file.
 #
-# INVOCATION (registered by `cc settings-hook add`, see
+# INVOCATION (legacy per-project registration by the retired `cc settings-hook add`, see
 #   core/ecosystem/mutations.py's DEFAULT_HOOK_ENTRIES):
 #   bash "$CLAUDE_PROJECT_DIR/.claude/hooks/copilot-hook.sh" <event-name>
 #   <event-name> is one of: session-start | pretool-check | subagent-stop
@@ -81,9 +81,8 @@
 #   how a breaking change is SIGNALED: bump PROTOCOL_HARD_MIN in the
 #   global install and every project still carrying an old shim starts
 #   reporting itself as unenforced (via this same fail-open/fail-closed
-#   path) until `cc update --project` / `cc reconcile apply` refreshes
-#   its vendored shim to one whose SHIM_PROTOCOL_MAX covers the new
-#   floor.
+#   path) until `cc project migrate --apply` removes the stale vendored shim and the
+#   release's user-level shim takes over.
 #
 # USER-LEVEL MODE (central resolution, ADR-001 decision 4):
 #   When THIS file runs from a release (not from the project's own
@@ -274,7 +273,7 @@ fi
 # ---------------------------------------------------------------------------
 GLOBAL_HARD_MIN="$(cat "$HOOKS_ROOT/PROTOCOL_HARD_MIN" 2>/dev/null || echo "0")"
 if [[ "$GLOBAL_HARD_MIN" =~ ^[0-9]+$ ]] && [[ "$SHIM_PROTOCOL_MAX" -lt "$GLOBAL_HARD_MIN" ]]; then
-  _unreachable "this project's vendored shim (protocol <= $SHIM_PROTOCOL_MAX) is older than the global install's minimum ($GLOBAL_HARD_MIN); run 'cc update --project' or 'cc reconcile apply' to refresh it"
+  _unreachable "this project's vendored shim (protocol <= $SHIM_PROTOCOL_MAX) is older than the global install's minimum ($GLOBAL_HARD_MIN); run 'cc project migrate --apply' to remove the stale vendored shim and use the release's"
 fi
 
 GLOBAL_PROTOCOL="$(cat "$HOOKS_ROOT/PROTOCOL_VERSION" 2>/dev/null || echo "1")"
