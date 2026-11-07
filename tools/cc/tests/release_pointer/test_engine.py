@@ -201,7 +201,7 @@ def test_default_extractor_archives_subpath(home, repo, tmp_path):
 
 
 def test_cli_status_flip_history_rollback_prune(home, make_release, monkeypatch):
-    a, b = make_release(), make_release()
+    a, b = make_release(activation_metadata=True), make_release(activation_metadata=True)
     runner = CliRunner()
     base = ["--home", str(home)]
     assert runner.invoke(release_app, ["flip", a.release_id, *base]).exit_code == 0

@@ -71,10 +71,10 @@ def test_every_subcommand_leaves_the_real_home_untouched(machine, tmp_path):
         assert snapshot(real) == before, cmd
 
 
-def test_flip_and_rollback_move_only_the_isolated_pointer(machine, make_sources, tmp_path, monkeypatch):
+def test_flip_and_rollback_move_only_the_isolated_pointer(machine, make_activation_sources, tmp_path, monkeypatch):
     real, iso = machine
-    first = build.build_release(make_sources("v1"), None, verifier=fake_verifier, post_build=fake_post_build)
-    second = build.build_release(make_sources("v2"), None, verifier=fake_verifier, post_build=fake_post_build)
+    first = build.build_release(make_activation_sources("v1"), None, verifier=fake_verifier, post_build=fake_post_build)
+    second = build.build_release(make_activation_sources("v2"), None, verifier=fake_verifier, post_build=fake_post_build)
     assert (iso / ".copilot" / "releases" / first.release_id).is_dir()
     before = snapshot(real)
     assert run("flip", first.release_id).exit_code == 0
