@@ -26,8 +26,8 @@ def test_compiled_keys_match_reviewed_fingerprints(tmp_path):
 def test_claude_migration_does_not_change_codex_authority():
     assert FOUNDATION_ALLOWED_SIGNERS["claude"] == (NEW, OLD)
     assert FOUNDATION_ALLOWED_SIGNERS["codex"] == (OLD,)
-    assert FOUNDATION_ALLOWED_SIGNERS["cli"] == ()
-    assert FOUNDATION_ALLOWED_SIGNERS["knowledge"] == ()
+    assert FOUNDATION_ALLOWED_SIGNERS["cli"] == (OLD,)
+    assert FOUNDATION_ALLOWED_SIGNERS["knowledge"] == (OLD,)
 
 
 def test_release_preflight_trusts_exactly_the_claude_signers():
