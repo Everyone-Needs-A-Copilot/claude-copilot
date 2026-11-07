@@ -38,6 +38,9 @@ def require_activation(release_root: Path, *, packet: Path | str | None = None,
     framework = version.get("framework")
     if not isinstance(framework, str) or not re.fullmatch(r"[0-9]+\.[0-9]+\.[0-9]+", framework):
         raise ValueError("framework version is missing or malformed")
+    recorded = component.version.removeprefix("v")
+    if recorded != framework:
+        raise ValueError("framework VERSION does not match the verified component version")
     governed = tuple(map(int, framework.split("."))) >= (5, 36, 0)
     policy = version.get("stagePolicyVersion")
     if policy is None and not governed:
