@@ -1,13 +1,13 @@
 """Real candidate CLI/hook bootstrap boundaries; no mocked permissive authority."""
 import json
 import os
-from pathlib import Path
 import subprocess
 import sys
+from pathlib import Path
 
 import pytest
-
 from tc.db.connection import init_db
+
 from tests.cycle_stage_fixtures import make_world
 
 ROOT = Path(__file__).resolve().parents[3]
@@ -118,3 +118,12 @@ def test_explicit_local_authority_missing_still_refuses(tmp_path):
                             cwd=tmp_path, env=env, capture_output=True, text=True)
     assert result.returncode != 0
     assert '"managed": false' not in result.stdout
+
+
+def test_dangling_authority_directory_never_becomes_unmanaged(tmp_path):
+    authority = tmp_path / '.copilot'
+    authority.symlink_to(tmp_path / 'missing-authority-directory', target_is_directory=True)
+    result = context(tmp_path)
+    assert result.returncode != 0
+    assert '"managed": false' not in result.stdout
+    assert authority.is_symlink()
