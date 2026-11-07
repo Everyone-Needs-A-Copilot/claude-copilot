@@ -174,3 +174,9 @@ from tc.services.cycles import (
 from tc.services.prds import body_status
 __all__ += ["validate_plan", "create_cycle", "cycle_status", "claim_stream", "record_event",
             "prepare_worktree", "verify_dispatch", "cleanup_plan", "cleanup_cycle", "finish_cycle", "smoke_roles", "inspect_adapter", "body_status"]
+
+from tc.services.cycle_stages import advance_cycle, check_cycle, audit_cycle, export_packet, verify_packet
+__all__ += ["advance_cycle", "check_cycle", "audit_cycle", "export_packet", "verify_packet"]
+
+from tc.services.execution import bind_scope, scope_usage
+__all__ += ["bind_scope", "scope_usage"]

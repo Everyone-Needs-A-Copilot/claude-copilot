@@ -83,6 +83,7 @@ def _db(db_path):
         conn.execute("BEGIN IMMEDIATE")
         for sql in _TABLES:
             conn.execute(sql)
+        _ensure_work_identity(conn)
         yield conn
         conn.commit()
     except BaseException:
@@ -90,6 +91,30 @@ def _db(db_path):
         raise
     finally:
         conn.close()
+
+
+
+def _ensure_work_identity(conn):
+    if 'work_identity' not in {r[1] for r in conn.execute('PRAGMA table_info(execution_attempts)')}:
+        conn.execute('ALTER TABLE execution_attempts ADD COLUMN work_identity TEXT')
+
+
+@contextmanager
+def _attempt_db(db_path=None, conn=None):
+    """Borrow an active caller transaction, or retain standalone ownership."""
+    if conn is None:
+        with _db(db_path) as owned:
+            yield owned
+        return
+    if db_path is not None:
+        raise ValidationError("Use either an existing connection or db_path, not both")
+    if not conn.in_transaction:
+        raise ValidationError("Borrowed execution connection requires an active transaction")
+    for sql in _TABLES:
+        conn.execute(sql)
+    _ensure_work_identity(conn)
+    # The caller owns commit/rollback, including exceptions and reconcile writes.
+    yield conn
 
 
 def _contract(task):
@@ -140,6 +165,7 @@ def _source(p):
     # locators live in the registry, so moving a checkout does not change the policy.
     import sqlite3
     from urllib.parse import quote
+
     from tc.services.qa_contract import scoped_content
     conn = sqlite3.connect(f"file:{quote(p['database'])}?mode=ro", uri=True)
     try:
@@ -784,6 +810,17 @@ def _normalized_evidence(row):
     return row["artifact_hash"]
 
 
+def _work_keys(value):
+    if not value:
+        return {None}
+    return set(json.loads(value))
+
+
+def _repeated_work(failures, work_identity=None):
+    keys = _work_keys(work_identity) if work_identity else set().union(*(_work_keys(r.get('work_identity')) for r in failures))
+    return any(sum(key in _work_keys(r.get('work_identity')) for r in failures) >= 2 for key in keys)
+
+
 def _progress(conn, p, task_id, rows, source=None):
     """Machine-checkable progress for a v2 task.
 
@@ -795,20 +832,21 @@ def _progress(conn, p, task_id, rows, source=None):
     settled = [r for r in rows if r["state"] in _SETTLED]
     seen_pass, seen_evidence, seen_source, flags = set(), {}, {}, []
     for r in settled:
-        c = r["criterion"]
         progress = False
-        if r["state"] == "succeeded" and c not in seen_pass:
-            seen_pass.add(c)
-            progress = True
-        evidence = _normalized_evidence(r) if r["artifact"] else None
-        if evidence and evidence not in seen_evidence.setdefault(c, set()):
-            seen_evidence[c].add(evidence)
-            progress = True
-        tried = seen_source.setdefault(c, set())
-        sources = {x for x in (r["source"], r["end_source"]) if x}
-        if sources - tried:
-            progress = True
-        tried |= sources
+        for key in _work_keys(r.get('work_identity')):
+            c = (r['criterion'], key)
+            if r['state'] == 'succeeded' and c not in seen_pass:
+                seen_pass.add(c)
+                progress = True
+            evidence = _normalized_evidence(r) if r['artifact'] else None
+            if evidence and evidence not in seen_evidence.setdefault(c, set()):
+                seen_evidence[c].add(evidence)
+                progress = True
+            tried = seen_source.setdefault(c, set())
+            sources = {x for x in (r['source'], r['end_source']) if x}
+            if sources - tried:
+                progress = True
+            tried |= sources
         flags.append(progress)
     window_start = 0
     if source is not None:
@@ -937,14 +975,20 @@ def reopen_ceiling(
 
 
 def begin_attempt(
-    *, task_id, criterion, label, reserve_calls=0, reserve_usd=0, db_path=None
+    *, task_id, criterion, label, reserve_calls=0, reserve_usd=0, db_path=None, conn=None, work_identity=None
 ):
+    if work_identity is not None:
+        if not isinstance(work_identity, list) or not work_identity or any(not isinstance(key, str) or not re.fullmatch(r'[a-f0-9]{64}', key) for key in work_identity):
+            raise ValidationError('Work identity must list stable reviewed check SHA256 identities')
+        work_identity = json.dumps(sorted(set(work_identity)))
+    borrowed = conn is not None
     reserve_calls = _integer(reserve_calls, "reserve_calls")
     reserve_micros = _micros(reserve_usd)
     if not isinstance(label, str) or not label.strip():
         raise ValidationError("Attempt label is required")
-    with _db(db_path) as conn:
+    with _attempt_db(db_path, conn) as conn:
         p = _policy(conn, task_id)
+        check_scope_authority(conn, task_id, criterion, work_identity=work_identity)
         if criterion not in p["criteria"]:
             raise ValidationError(
                 "Criterion is outside the registered acceptance scope"
@@ -971,9 +1015,11 @@ def begin_attempt(
         if v2:
             halted = _halt(conn, p, task_id, rows, source)
             if halted:
-                # Persist the auto-reconcile above even though this call refuses.
-                conn.commit()
-                conn.execute("BEGIN IMMEDIATE")
+                # Standalone calls preserve reconcile even when refusing. A cycle
+                # caller owns this transaction and must never be committed here.
+                if not borrowed:
+                    conn.commit()
+                    conn.execute("BEGIN IMMEDIATE")
                 raise ValidationError(halted[1])
             _reserve_within_budget(conn, p, task_id, reserve_calls, reserve_micros)
         elif (
@@ -1003,13 +1049,13 @@ def begin_attempt(
             and r["state"] in ("failed", "abandoned")
             and r["started"] > through
         ]
-        if len(failures) >= 2:
+        if _repeated_work(failures, work_identity):
             raise ValidationError(
                 "Two failed attempts require changed source and a successful regression checkpoint before retry"
             )
         token = str(uuid4())
         conn.execute(
-            "INSERT INTO execution_attempts(token,task_id,criterion,label,source,state,reserved_calls,reserved_micros,started) VALUES (?,?,?,?,?,'running',?,?,?)",
+            "INSERT INTO execution_attempts(token,task_id,criterion,label,source,state,reserved_calls,reserved_micros,started,work_identity) VALUES (?,?,?,?,?,'running',?,?,?,?)",
             (
                 token,
                 task_id,
@@ -1019,6 +1065,7 @@ def begin_attempt(
                 reserve_calls,
                 reserve_micros,
                 time.time(),
+                work_identity,
             ),
         )
     return {
@@ -1062,13 +1109,13 @@ def consume_call(*, token, db_path=None):
 
 
 def settle_attempt(
-    *, token, succeeded, artifact, calls=None, cost_usd=None, reason="", db_path=None
+    *, token, succeeded, artifact, calls=None, cost_usd=None, reason="", db_path=None, conn=None
 ):
     """Retain full reserved usage when receipts are unavailable. Idempotency is refused."""
     if type(succeeded) is not bool:
         raise ValidationError("succeeded must be a boolean")
     path, sha = _artifact(artifact)
-    with _db(db_path) as conn:
+    with _attempt_db(db_path, conn) as conn:
         r = _attempt(conn, token)
         p = _policy(conn, r["task_id"])
         count = r["reserved_calls"] if calls is None else _integer(calls, "calls")
@@ -1321,6 +1368,12 @@ def snapshot(*, task_id, conn):
     p = _policy(conn, task_id)
     task = get_task(task_id=task_id, conn=conn)
     rows = _rows(conn, task_id)
+    # Report the same unique attempt set enforced by the governing scope.
+    # Child-local views remain local; project paid accounting still reads each
+    # attempt exactly once from its original owning task.
+    if conn.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='execution_scope_members'").fetchone():
+        if conn.execute('SELECT 1 FROM execution_scope_members WHERE root_task_id=?', (task_id,)).fetchone():
+            rows = _scope_rows(conn, task_id)
     active = next((r for r in rows if r["state"] == "running"), None)
     state = "awaiting_result" if active else "idle"
     if active and time.time() - active["started"] > p["stale_seconds"]:
@@ -1388,7 +1441,7 @@ def snapshot(*, task_id, conn):
                     and r["state"] in ("failed", "abandoned")
                     and r["started"] > through
                 ]
-                if len(failures) >= 2:
+                if _repeated_work(failures):
                     state, blocker = "blocked", f"diagnosis_required:{criterion}"
                     break
     from tc.services.qa import check_task_qa
@@ -1456,3 +1509,80 @@ def record_regression(*, task_id, criterion, artifact, db_path=None):
             "INSERT INTO execution_checkpoints(task_id,criterion,kind,source,artifact,artifact_hash,created) VALUES (?,?,'regression',?,?,?,?)",
             (task_id, criterion, source, path, sha, time.time()),
         )
+
+
+def _scope_table(conn):
+    conn.execute('CREATE TABLE IF NOT EXISTS execution_scope_members (task_id INTEGER PRIMARY KEY REFERENCES tasks(id), root_task_id INTEGER NOT NULL REFERENCES tasks(id), criterion_map TEXT NOT NULL, created REAL NOT NULL)')
+
+
+def bind_scope(*, root_task_id, task_id, criterion_map, db_path=None):
+    """Persist child authority without copying spend or resetting task histories."""
+    if root_task_id == task_id or not isinstance(criterion_map, dict):
+        raise ValidationError('Scope requires distinct root/child and criterion mapping')
+    with _db(db_path) as conn:
+        _scope_table(conn)
+        root, child = _policy(conn, root_task_id), _policy(conn, task_id)
+        if not _is_v2(root) or not _is_v2(child):
+            raise ValidationError('Stage scopes require policy-v2 limits')
+        if set(criterion_map) != set(child['criteria']) or not set(criterion_map.values()) <= set(root['criteria']):
+            raise ValidationError('Scope mapping must cover every child criterion in root authority')
+        parent = conn.execute('SELECT root_task_id,criterion_map FROM execution_scope_members WHERE task_id=?', (root_task_id,)).fetchone()
+        if parent:
+            # A governing root cannot itself be a child. Flattening here erased
+            # the requested parent and made sibling reparenting look idempotent.
+            # Bind every descendant directly to its immutable governing root.
+            raise ValidationError('Scope authority must be the governing root, not a child')
+        if root_task_id == task_id or conn.execute('SELECT 1 FROM execution_scope_members WHERE root_task_id=?', (task_id,)).fetchone():
+            raise ValidationError('Cannot reparent a scope root or create a scope cycle')
+        prior = conn.execute('SELECT root_task_id,criterion_map FROM execution_scope_members WHERE task_id=?', (task_id,)).fetchone()
+        body = json.dumps(criterion_map, sort_keys=True)
+        if prior and (prior[0] != root_task_id or prior[1] != body):
+            raise ValidationError('Scope association is immutable')
+        conn.execute('INSERT OR IGNORE INTO execution_scope_members VALUES (?,?,?,?)', (task_id, root_task_id, body, time.time()))
+        return {'root_task_id': root_task_id, 'task_id': task_id, 'criterion_map': criterion_map}
+
+
+def _scope_rows(conn, root_task_id):
+    rows = _rows(conn, root_task_id)
+    for member in conn.execute('SELECT task_id,criterion_map FROM execution_scope_members WHERE root_task_id=?', (root_task_id,)):
+        mapping = json.loads(member[1])
+        rows.extend({**row, 'criterion': mapping[row['criterion']]} for row in _rows(conn, member[0]))
+    return sorted(rows, key=lambda r: (r['started'], r['token']))
+
+
+def check_scope_authority(conn, task_id, criterion=None, work_identity=None):
+    """Called within the claim/attempt transaction. No spend is duplicated."""
+    if not conn.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='execution_scope_members'").fetchone():
+        return
+    member = conn.execute('SELECT root_task_id,criterion_map FROM execution_scope_members WHERE task_id=?', (task_id,)).fetchone()
+    root_id = member[0] if member else task_id
+    if not member and not conn.execute('SELECT 1 FROM execution_scope_members WHERE root_task_id=?', (root_id,)).fetchone():
+        return
+    p = _policy(conn, root_id)
+    root_task = get_task(task_id=root_id, conn=conn)
+    if root_task['status'] in {'completed', 'cancelled', 'blocked'}:
+        raise ValidationError('Governing task is not executable')
+    source = _source(p)
+    rows = _scope_rows(conn, root_id)
+    halted = _halt(conn, p, root_id, rows, source)
+    if halted:
+        raise ValidationError(halted[1])
+    if member and criterion is not None:
+        mapped = json.loads(member[1])[criterion]
+        checkpoint = conn.execute("SELECT * FROM execution_checkpoints WHERE task_id=? AND criterion=? AND kind='diagnosis' ORDER BY id DESC LIMIT 1", (root_id, mapped)).fetchone()
+        through = 0
+        if checkpoint and checkpoint['source'] == source and _artifact(checkpoint['artifact'])[1] == checkpoint['artifact_hash']:
+            through = checkpoint['through_started']
+        failures = [r for r in rows if r['criterion'] == mapped and r['state'] in {'failed', 'abandoned'} and r['started'] > through]
+        if _repeated_work(failures, work_identity):
+            raise ValidationError('Two failed governing-criterion attempts require root diagnosis and changed-source regression proof')
+
+
+def scope_usage(*, task_id, db_path=None):
+    with _db(db_path) as conn:
+        _scope_table(conn)
+        member = conn.execute('SELECT root_task_id FROM execution_scope_members WHERE task_id=?', (task_id,)).fetchone()
+        root = member[0] if member else task_id
+        p = _policy(conn, root)
+        rows = _scope_rows(conn, root)
+        return {'root_task_id': root, 'usage': _usage(rows), 'progress': _progress(conn, p, root, rows, _source(p)), 'accounting': 'sum unique child/root attempts; project spend unchanged'}

@@ -103,6 +103,12 @@ def check_task_qa(*, task_id: int, conn=None, db_path: Optional[Path] = None, ta
             "legacy": False,
         }
 
+        from tc.services.cycle_stages import task_gate
+        stage = task_gate(task_id=task_id, conn=conn, metadata=task_metadata(task["metadata"]))
+        if not stage["approved"]:
+            result["reason"] = "Stage gate: " + "; ".join(stage["reasons"])
+            return result
+
         # Tier branch: a valid T1/T2 tc attestation approves without a per-criterion
         # packet. Anything else (including every untiered task) takes the strict T3 path below.
         from tc.services import tiers

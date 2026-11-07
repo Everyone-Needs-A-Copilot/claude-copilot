@@ -1,12 +1,14 @@
 """Internal protocol coordination commands shared by both native harnesses."""
+import json as jsonlib
 from pathlib import Path
 from typing import Optional
-import json as jsonlib
+
 import typer
+
 from tc.db.exceptions import ConflictError, ValidationError
-from tc.formatting import output_json, output_error_json
-from tc.utils.errors import require_db
+from tc.formatting import output_error_json, output_json
 from tc.services import cycles
+from tc.utils.errors import require_db
 
 cycle_app = typer.Typer(help="Protocol-owned ready-work coordination; no model calls. Guide: tools/tc/docs/CYCLE.md.")
 
@@ -106,3 +108,56 @@ def finish(cycle: str, json: bool = typer.Option(False, "--json")):
 def adapter(project: Path, json: bool = typer.Option(False, "--json")):
     """Discover one project's setup/check/teardown and declared isolation without execution."""
     _run(cycles.inspect_adapter, json, project=project)
+
+
+@cycle_app.command('capability')
+def capability(json: bool = typer.Option(False, '--json')):
+    """Report supported control schemas, not native execution capabilities."""
+    _run(lambda: {'schemaVersions': [1, 2], 'stagePolicyVersion': 1, 'nativeDispatch': False}, json)
+
+
+@cycle_app.command('advance')
+def advance(cycle: str, event: str = typer.Option(..., '--event'), file: Path = typer.Option(..., '--file'), expect_revision: Optional[int] = typer.Option(None, '--expect-revision'), json: bool = typer.Option(False, '--json')):
+    """Commit one source-bound stage transition; never dispatch workers."""
+    from tc.services.cycle_stages import advance_cycle
+    _run(advance_cycle, json, cycle=cycle, event=event, receipt=_read(file), expect_revision=expect_revision, db_path=require_db())
+
+
+@cycle_app.command('check')
+def check(cycle: str, phase: str = typer.Option('complete', '--phase'), candidate: Optional[str] = typer.Option(None, '--candidate'), json: bool = typer.Option(False, '--json')):
+    """Refuse incomplete or stale stage acceptance."""
+    from tc.services.cycle_stages import check_cycle
+    def checked():
+        result = check_cycle(cycle=cycle, phase=phase, candidate=candidate, db_path=require_db())
+        if not result['approved']:
+            raise ValidationError('; '.join(result['reasons']))
+        return result
+    _run(checked, json)
+
+
+@cycle_app.command('audit')
+def audit(cycle: str, json: bool = typer.Option(False, '--json')):
+    """Report durable queue/native observations and explicit unknown intervals."""
+    from tc.services.cycle_stages import audit_cycle
+    _run(audit_cycle, json, cycle=cycle, db_path=require_db())
+
+
+@cycle_app.command('export')
+def export(cycle: str, phase: str = typer.Option(..., '--phase'), out: Path = typer.Option(..., '--out'), json: bool = typer.Option(False, '--json')):
+    """Export a new nonsecret release packet after phase acceptance."""
+    from tc.services.cycle_stages import export_packet
+    _run(export_packet, json, cycle=cycle, phase=phase, output=out, db_path=require_db())
+
+
+@cycle_app.command('verify-packet')
+def verify_packet(file: Path = typer.Option(..., '--file'), sha256: str = typer.Option(..., '--sha256'), root: Path = typer.Option(..., '--root'), phase: str = typer.Option(..., '--phase'), source_commit: Optional[str] = typer.Option(None, '--source-commit'), candidate_inputs_sha256: Optional[str] = typer.Option(None, '--candidate-inputs-sha256'), json: bool = typer.Option(False, '--json')):
+    """Verify approved packet digest/source binding offline; no local task DB."""
+    from tc.services.cycle_stages import verify_packet as verify
+    _run(verify, json, file=file, sha256=sha256, root=root, phase=phase, source_commit=source_commit, candidate_inputs_sha256=candidate_inputs_sha256)
+
+
+@cycle_app.command('dispatch-context')
+def dispatch_context(cwd: Path = typer.Option(..., '--cwd'), json: bool = typer.Option(False, '--json')):
+    """Find active stage enrollment for omitted-envelope dispatch protection."""
+    from tc.services.cycle_stages import dispatch_context as context
+    _run(context, json, cwd=cwd, db_path=require_db())

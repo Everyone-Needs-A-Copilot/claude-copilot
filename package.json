@@ -1,6 +1,6 @@
 {
   "name": "@copilot/framework",
-  "version": "5.35.4",
+  "version": "5.36.0",
   "description": "Claude Copilot - AI-enabled development framework",
   "private": true,
   "scripts": {

@@ -1,9 +1,9 @@
 {
-  "framework": "5.35.4",
+  "framework": "5.36.0",
   "lastUpdated": "2026-11-07",
   "components": {
     "cc": {
-      "version": "2.19.4",
+      "version": "2.20.0",
       "path": "tools/cc",
       "installScript": "tools/cc/install.sh",
       "provides": [
@@ -30,7 +30,7 @@
       ]
     },
     "tc": {
-      "version": "2.12.0",
+      "version": "2.13.0",
       "path": "tools/tc",
       "installCommand": "bash ~/.claude/copilot/tools/tc/install.sh"
     },
@@ -135,5 +135,6 @@
     "state": "combined candidate under verification",
     "detectorEngine": "0.1.3",
     "authority": "tc QA; detector and reports are advisory"
-  }
+  },
+  "stagePolicyVersion": 1
 }

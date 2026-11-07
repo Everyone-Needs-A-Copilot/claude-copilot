@@ -414,6 +414,13 @@ def update_task(
 
         existing_metadata = task_metadata(row["metadata"])
         effective_metadata = {**existing_metadata, **task_metadata(new_metadata)}
+        if existing_metadata.get("stageRequirement") and effective_metadata.get("stageRequirement") != existing_metadata["stageRequirement"]:
+            raise ValidationError("Stage requirement cannot be removed or rebound")
+        if status == "completed":
+            from tc.services.cycle_stages import task_gate
+            stage = task_gate(task_id=task_id, conn=conn, metadata=effective_metadata)
+            if not stage["approved"]:
+                raise ValidationError("Stage gate: " + "; ".join(stage["reasons"]))
         from tc.services.execution import protect_update
         protect_update(conn, task_id, existing_metadata, effective_metadata, row["status"], status)
         if existing_metadata.get("requiresQa") and not effective_metadata.get("requiresQa"):

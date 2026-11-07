@@ -7,15 +7,13 @@ from __future__ import annotations
 
 import hashlib
 import json
-import os
-from pathlib import Path, PurePosixPath
 import re
 import shutil
-import sqlite3
 import subprocess
 import sys
 import time
 import uuid
+from pathlib import Path, PurePosixPath
 from typing import Any
 
 from tc.db.exceptions import ConflictError, ValidationError
@@ -102,6 +100,9 @@ def validate_claims(streams: list[dict], root: Path | str | None = None) -> list
 
 
 def validate_plan(plan: dict) -> dict:
+    if isinstance(plan, dict) and plan.get("schemaVersion") == 2:
+        from tc.services.cycle_stages import validate_plan as validate_stages
+        return validate_stages(plan)
     if not isinstance(plan, dict) or plan.get("schemaVersion") != 1:
         raise ValidationError("Cycle plan requires schemaVersion 1")
     data = json.loads(json.dumps(plan))
@@ -191,6 +192,8 @@ def _load(conn, cycle):
 
 
 def _save(conn, data, stream, event, payload):
+    from tc.services.cycle_stages import record_queue
+    record_queue(conn, data)
     data["revision"] += 1
     conn.execute("UPDATE protocol_cycles SET revision=?, data=? WHERE id=?", (data["revision"], json.dumps(data, sort_keys=True), data["id"]))
     conn.execute("INSERT INTO protocol_cycle_events(cycle_id,stream_id,event,payload,created) VALUES(?,?,?,?,?)", (data["id"], stream, event, json.dumps(payload, sort_keys=True), time.time()))
@@ -212,6 +215,8 @@ def create_cycle(*, plan, db_path):
             return old
         data = {"id": normalized["id"], "task": normalized["task"], "revision": 1, "plan": normalized,
                 "streams": {s["id"]: {"state": "planned", "events": {}, "claim": None} for s in normalized["streams"]}, "resources": []}
+        from tc.services.cycle_stages import initialize
+        initialize(data, conn)
         conn.execute("INSERT INTO protocol_cycles VALUES(?,?,?,?)", (data["id"], data["task"], 1, json.dumps(data, sort_keys=True)))
         conn.execute("INSERT INTO protocol_cycle_events(cycle_id,event,payload,created) VALUES(?,?,?,?)", (data["id"], "planned", json.dumps(normalized, sort_keys=True), time.time()))
         conn.commit()
@@ -283,11 +288,14 @@ def worker_is_active(data, sid):
     return bool(data["streams"][sid].get("claim")) and not _current(data, sid, "stopped")
 
 
-def ready_state(data):
+def ready_state(data, conn=None):
     plan = data["plan"]
     active = [sid for sid in data["streams"] if worker_is_active(data, sid)]
     by_id = {s["id"]: s for s in plan["streams"]}
-    available = max(0, plan["capacity"] - len(active))
+    slots = max(0, plan["capacity"] - len(active))
+    if conn is not None and plan.get("schemaVersion") == 2:
+        slots = min(slots, _runtime_available(conn, data))
+    available = slots
     counts = {}
     for sid in active:
         resource = by_id[sid]["resource"]
@@ -297,7 +305,8 @@ def ready_state(data):
         sid = stream["id"]
         if data["streams"][sid]["state"] not in {"planned", "rejected", "released"}:
             continue
-        missing = [f"{d['stream']}.{d['event']}: {d['reason']}" for d in stream["dependsOn"] if not _current(data, d["stream"], d["event"])]
+        from tc.services.cycle_stages import eligibility
+        missing = eligibility(data, stream) + [f"{d['stream']}.{d['event']}: {d['reason']}" for d in stream["dependsOn"] if not _current(data, d["stream"], d["event"])]
         resource = stream["resource"]
         if missing:
             queued.append({"id": sid, "reason": "input", "details": missing})
@@ -311,16 +320,20 @@ def ready_state(data):
             counts[resource] = counts.get(resource, 0) + 1
     return {"ready": ready, "queued": queued, "running": active,
             "stalled": [sid for sid in active if data["streams"][sid]["claim"]["leaseUntil"] < time.time()],
-            "capacity": plan["capacity"], "available": max(0, plan["capacity"] - len(active))}
+            "capacity": plan["capacity"], "available": slots}
 
 
 def cycle_status(*, cycle, db_path):
     conn = _connection(db_path)
     try:
         data = _load(conn, cycle)
-        result = {**data, **ready_state(data)}
+        result = {**data, **ready_state(data, conn)}
         result["stale"] = [sid for sid, state in data["streams"].items() if state["state"] in {"integrated", "accepted"} and not _current(data, sid, state["state"])]
         result["deliveryAccepted"] = all(s["state"] == "accepted" and sid not in result["stale"] for sid, s in data["streams"].items())
+        if data["plan"].get("schemaVersion") == 2:
+            from tc.services.cycle_stages import _check
+            result["stages"] = data["stageState"]
+            result["deliveryAccepted"] = _check(data)["approved"]
         result["cleanupComplete"] = not data["resources"] and not result["running"]
         task = conn.execute("SELECT prd_id FROM tasks WHERE id=?", (data["task"],)).fetchone()
         if task and task["prd_id"] is not None:
@@ -374,6 +387,28 @@ def _preflight(data, stream, cwd, branch):
     return identity
 
 
+def _runtime_available(conn, data):
+    """Conservative shared-runtime pool within this authoritative database."""
+    active = 0
+    ceiling = data['plan']['runtimeCapability']['workers']
+    for row in conn.execute('SELECT data FROM protocol_cycles'):
+        other = json.loads(row[0])
+        if other['id'] == data['id']:
+            other = data
+        if other['plan']['runtime'] != data['plan']['runtime']:
+            continue
+        count = sum(worker_is_active(other, sid) for sid in other['streams'])
+        active += count
+        if count and other['plan'].get('schemaVersion') == 2:
+            ceiling = min(ceiling, other['plan']['runtimeCapability']['workers'])
+    return max(0, ceiling - active)
+
+
+def _assert_runtime_capacity(conn, data):
+    if not _runtime_available(conn, data):
+        raise ConflictError('Shared runtime worker capacity is occupied; reconcile or refill after stop')
+
+
 def claim_stream(*, cycle, stream, agent, cwd, branch=None, lease_seconds=900, db_path):
     _slug(agent, "agent")
     _positive(lease_seconds, "lease_seconds")
@@ -389,10 +424,19 @@ def claim_stream(*, cycle, stream, agent, cwd, branch=None, lease_seconds=900, d
             if old["agent"] == agent and old["identity"]["cwd"] == str(Path(cwd).resolve()):
                 return old  # Retry never creates another lease or process.
             raise ConflictError("Stream already claimed; an expired lease is held until explicit release")
-        if stream not in ready_state(data)["ready"]:
+        if stream not in ready_state(data, conn)["ready"]:
             raise ConflictError("Stream is not ready or lacks capacity")
         spec = next(s for s in data["plan"]["streams"] if s["id"] == stream)
+        if data["plan"].get("schemaVersion") == 2:
+            from tc.services.cycle_stages import validate_task_scope
+            validate_task_scope(conn, data["task"])
+            validate_task_scope(conn, spec["task"], data["task"])
+        if data["plan"].get("schemaVersion") == 2:
+            _assert_runtime_capacity(conn, data)
         identity = _preflight(data, spec, cwd, branch)
+        _assert_active_paths(conn, data, spec)
+        from tc.services.execution import check_scope_authority
+        check_scope_authority(conn, spec["task"])
         if not spec.get("readOnly") and any(s["state"] == "running" and s["claim"]["identity"]["cwd"] == identity["cwd"] for s in data["streams"].values()):
             raise ConflictError("Execution directory already has a writer")
         if not spec.get("readOnly"):
@@ -406,6 +450,7 @@ def claim_stream(*, cycle, stream, agent, cwd, branch=None, lease_seconds=900, d
         claim = {"agent": agent, "token": uuid.uuid4().hex, "leaseUntil": time.time() + lease_seconds, "identity": identity, "started": time.time(), "dependencyIdentity": _dependency_identity(data, spec)}
         state.update(state="running", claim=claim)
         state["events"].pop("stopped", None)
+        state.pop("nativeStart", None)
         _save(conn, data, stream, "claimed", claim)
         conn.commit()
         return claim
@@ -495,8 +540,8 @@ def record_event(*, cycle, stream, event, receipt, db_path):
             actual = fingerprint(data["plan"]["root"], spec["paths"])
             if receipt.get("sourceFingerprint") != actual or receipt.get("verdict") != "approved":
                 raise ValidationError("Acceptance receipt has stale sources or a failing verdict")
-            from tc.services.tasks import get_task
             from tc.services.qa import check_task_qa, task_metadata
+            from tc.services.tasks import get_task
             task = get_task(task_id=spec["task"], conn=conn)
             if task_metadata(task["metadata"]).get("requiresQa"):
                 qa = check_task_qa(task_id=spec["task"], conn=conn)
@@ -523,6 +568,13 @@ def record_event(*, cycle, stream, event, receipt, db_path):
             if receipt.get("passed") is not True or not receipt.get("command"):
                 raise ValidationError("Teardown needs command and passed=true evidence")
             body["artifactIdentity"] = _artifact(receipt.get("artifact", ""), data["plan"]["root"])
+        if data['plan'].get('schemaVersion') == 2 and event in {'stopped', 'released'} and claim and claim.get('executionToken'):
+            from tc.services import cycle_stages as stages
+            from tc.services import execution
+            checks = [r for r in data['plan']['checks'] if r['stream'] == stream and r['required']]
+            succeeded = bool(state.get('nativeStart') and checks and all(stages.result_current(data, r) and data['checkResults'][r['id']]['outcome'] == 'passed' for r in checks))
+            body['executionSettlement'] = execution.settle_attempt(token=claim['executionToken'], succeeded=succeeded,
+                artifact=body['artifactIdentity']['path'], reason='Observed native stop with current complete results' if succeeded else 'Stopped without complete passing result evidence', conn=conn)
         state["events"][event] = body
         if event not in {"contract", "teardown", "stopped"}:
             state["state"] = {"released": "released", "held": "held"}.get(event, event)
@@ -723,6 +775,28 @@ def verify_dispatch(*, cycle, stream, role, cwd, blocked_task=None, blocked_task
         identity = _preflight(data, spec, cwd, spec.get("branch"))
         if identity["cwd"] != claim["identity"]["cwd"] or identity["inode"] != claim["identity"]["inode"] or identity.get("setupIdentity") != claim["identity"].get("setupIdentity") or identity.get("adapterSha256") != claim["identity"].get("adapterSha256"):
             raise ValidationError("Dispatch execution-root identity drifted")
+        if data['plan'].get('schemaVersion') == 2:
+            from tc.services import cycle_stages as stages
+            from tc.services import execution
+            reasons = stages.eligibility(data, spec)
+            if reasons:
+                raise ConflictError('Dispatch stage no longer ready: ' + '; '.join(reasons))
+            stages.validate_task_scope(conn, data['task'])
+            stages.validate_task_scope(conn, spec['task'], data['task'])
+            if _dependency_identity(data, spec) != claim['dependencyIdentity'] or identity.get('base') != claim['identity'].get('base'):
+                raise ConflictError('Claimed input changed before dispatch')
+            checks = [r for r in data['plan']['checks'] if r['stream'] == stream and r['required']]
+            if any(stages.binding(data, r) != data['bindings'][r['id']] for r in checks):
+                raise ConflictError('Frozen case source changed before dispatch')
+            criteria = {r['criterion'] for r in checks}
+            criterion = spec.get('criterion') or (next(iter(criteria)) if len(criteria) == 1 else None)
+            if not criterion or (criteria and criterion not in criteria):
+                raise ValidationError('Stream requires one explicit registered execution criterion')
+            attempt = execution.begin_attempt(task_id=spec['task'], criterion=criterion,
+                                              label=f"cycle {cycle}/{stream} generation {data['generation']}",
+                                              work_identity=[stages._digest({"rootTask": data["task"], "check": r["id"]}) for r in checks], conn=conn)
+            claim['executionToken'] = attempt['token']
+            claim['executionCriterion'] = criterion
         claim["dispatchAuthorized"] = True
         result = {"allowed": True, "cycle": cycle, "stream": stream, "role": role, "task": spec["task"], "cwd": identity["cwd"], "leaseToken": claim["token"], "runtime": data["plan"]["runtime"]}
         _save(conn, data, stream, "dispatch-authorized", result)
@@ -786,6 +860,12 @@ def cleanup_cycle(*, cycle, db_path):
 
 
 def finish_cycle(*, cycle, db_path):
+    from tc.services.cycle_stages import check_cycle
+    initial = cycle_status(cycle=cycle, db_path=db_path)
+    if initial["plan"].get("schemaVersion") == 2:
+        checked = check_cycle(cycle=cycle, db_path=db_path)
+        if not checked["approved"]:
+            raise ValidationError("Stage gate: " + "; ".join(checked["reasons"]))
     """Close the PRD only after current acceptance, cleanup, and every body task resolves."""
     status = cycle_status(cycle=cycle, db_path=db_path)
     if not status["deliveryAccepted"] or not status["cleanupComplete"]:
@@ -842,3 +922,25 @@ def inspect_adapter(*, project):
                 if detected:
                     result.update(source="package-scripts", sourceSha256=hashlib.sha256(package.read_bytes()).hexdigest(), detectedScripts=detected)
     return result
+
+
+def _repository_identity(root):
+    try:
+        return _git(root, "rev-parse", "--path-format=absolute", "--git-common-dir")
+    except ValidationError:
+        return str(Path(root).resolve())
+
+
+def _assert_active_paths(conn, data, spec):
+    if spec.get("readOnly"):
+        return
+    identity = _repository_identity(data["plan"]["root"])
+    for row in conn.execute("SELECT data FROM protocol_cycles"):
+        other = json.loads(row[0])
+        if _repository_identity(other["plan"]["root"]) != identity:
+            continue
+        for peer in other["plan"]["streams"]:
+            if other["id"] == data["id"] and peer["id"] == spec["id"]:
+                continue
+            if not peer.get("readOnly") and worker_is_active(other, peer["id"]) and any(paths_overlap(a, b) for a in spec["paths"] for b in peer["paths"]):
+                raise ConflictError("Active writer owns overlapping canonical repository paths")

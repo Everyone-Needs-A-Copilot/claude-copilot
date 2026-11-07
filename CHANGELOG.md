@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+## [5.36.0] - 2026-11-07
+
+- Add shared schema-2 stage coordination in tc 2.13.0: reviewed coverage, complete result collection, selective source-bound reuse, durable ready/refill observations, native lifecycle receipts, and atomic dispatch execution accounting. Native agent launch remains the coordinator's responsibility; receipts do not attest provider activity.
+- Require approved source/activation packets at supported publishing entrypoints for governed releases. cc 2.20.0 verifies candidate composition before activation; historical signed releases remain compatible. Claude and Codex consume one core service, with actual host-hook capability differences explicit.
+
+
 - Integrate PR #156: keep empty-step process/reference notes out of UI specification text; preserve superseding authorization behavior already present in the current release. Current release versions remain unchanged.
 
 

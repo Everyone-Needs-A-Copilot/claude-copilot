@@ -1,6 +1,6 @@
 """Task Copilot CLI - Agent-agnostic task management."""
 
-__version__ = "2.12.0"
+__version__ = "2.13.0"
 
 # Default paths
 DEFAULT_DB_DIR = ".copilot"
