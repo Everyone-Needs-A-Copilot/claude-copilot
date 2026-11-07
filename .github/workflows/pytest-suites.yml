@@ -103,6 +103,21 @@ jobs:
           python -m pip install --disable-pip-version-check pytest
           python -m pip install --disable-pip-version-check -e "./tools/tc"
 
+      - name: Check out the immutable central Codex consumer
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          repository: Everyone-Needs-A-Copilot/codex-copilot
+          ref: c6e2992db227b63c0df7e1b4f05f52a2ba2b7675
+          path: .ci/codex-copilot
+          persist-credentials: false
+
+      - name: Provide the central consumer fixture
+        run: |
+          fixture_root="$RUNNER_TEMP/tc-central-fixture"
+          mkdir -p "$fixture_root/current"
+          ln -s "$GITHUB_WORKSPACE/.ci/codex-copilot" "$fixture_root/current/codex-copilot"
+          echo "COPILOT_HOME=$fixture_root" >> "$GITHUB_ENV"
+
       - name: Run tc pytest suite
         working-directory: tools/tc
         run: python -m pytest tests/

@@ -39,7 +39,7 @@ Apply protocol’s execution contract and any discovered organization policy. Re
 2. Hydrate CC_SHARED_DOCS/CC_KNOWLEDGE_REPO: `eval "$(cc env)"`.
 3. Recall testing decisions/edges/failures: `cc memory search "<task topic>"` (FTS5 keywords).
 4. Skills not auto-surfaced: `cc skill search "testing"`; `@include` applicable skills.
-5. Understand the feature/bug. Given a full-regression or multi-criterion scope as convergence owner (`blast-radius-qa`: run every check to completion, one defect list, retest only failed checks plus checks sharing changed code), propose partitions (criterion, journey, surface, file/shard, browser/viewport) to the coordinator rather than running everything; as a partition worker, stay inside your partition and record evidence against the shared integrated identity (see `parallel-execution` skill).
+5. Understand the feature/bug. Apply `blast-radius-qa`: finish every check, collect one defect list, retest failures and checks sharing changed code. For full regression or multiple criteria, propose coordinator partitions by criterion, journey, surface, file/shard or browser/viewport. Workers stay in their partition and bind evidence to the shared integrated identity (`parallel-execution`).
 6. Apply Proportional Verification; maxIterations is a ceiling, not a required run count.
 7. Reuse sufficient checks; fill behavior/boundary gaps.
 8. Update canonical records; memory links only.

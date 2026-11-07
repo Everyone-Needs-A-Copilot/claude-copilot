@@ -1,12 +1,12 @@
 # CLAUDE.md
 
-Claude Code guidance for the Claude Copilot framework.
+Claude Copilot guidance.
 
 ---
 
 ## Main Session Guardrails
 
-**These rules prevent context bloat — the framework's core purpose.**
+**Prevent context bloat.**
 
 | Rule | What To Do Instead | Enforcement |
 |------|-------------------|-------------|
@@ -24,13 +24,13 @@ Claude Code guidance for the Claude Copilot framework.
 
 ## Output Contract
 
-Canonical `.claude/agents/_shared/output-contract.md` is embedded verbatim in agents and protocol; other commands inherit it here. User-facing replies follow the full contract. Agent handoffs and stored records, including QA markers and Task/WP IDs, preserve precision and are exempt from vocabulary/length rules.
+Follow `.claude/agents/_shared/output-contract.md`, embedded verbatim in agents/protocol and inherited here by other commands. Handoffs and stored records retain precise QA markers and Task/WP IDs; vocabulary/length limits do not apply to them.
 
 **Configurable at setup** (`/setup` machine-wide, overridable per project with `--project`):
 - `cc config set output.verbosity <concise|standard|detailed>` — default `concise` if unset.
 - `cc config set output.audience <plain|technical>` — default `plain` if unset.
 
-Read via `eval "$(cc env)"` as `$CC_OUTPUT_VERBOSITY` / `$CC_OUTPUT_AUDIENCE`.
+`eval "$(cc env)"` exports `$CC_OUTPUT_VERBOSITY` / `$CC_OUTPUT_AUDIENCE`.
 
 ---
 
@@ -171,7 +171,7 @@ After scoped approval, refill useful independent work within native/resource cap
 
 If absent, report fallback: `tc cycle --help` governs exclusive writes, actual cwd/branch, native dispatch, one integrator, current independent QA and authorized safe retirement. Read-only research needs no worktree; report missing cycle capability honestly.
 
-**Blast-Radius QA (2026-11-06):** default QA strategy: test the change's blast radius, not the whole product. Canonical text: the organization `blast-radius-qa` skill (`cc skill get blast-radius-qa --scope machine --json`; Codex reads the same file). It replaces any earlier QA-depth statement.
+**Blast-Radius QA:** replaces prior QA-depth rules. Test affected behavior; both Copilots read `cc skill get blast-radius-qa --scope machine --json`.
 
 ## Agent Routing
 

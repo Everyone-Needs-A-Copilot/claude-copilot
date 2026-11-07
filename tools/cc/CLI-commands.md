@@ -2914,7 +2914,7 @@ Generated from the registered parser. Command callbacks were not executed. For i
 ╭─ Options ────────────────────────────────────────────────────────────────────────────────────────╮
 │ *  --pins          PATH  JSON file of framework component pins. [required]                       │
 │    --layers        PATH  [default:                                                               │
-│                          /private/tmp/cr-release-readiness-20261107/task234-generation/home/.co… │
+│                          ~/.config/copilot/copilot.layers.yml                                │
 │    --home          PATH  Home directory (default: user home).                                    │
 │    --flip                Flip current to the new release.                                        │
 │    --help                Show this message and exit.                                             │
