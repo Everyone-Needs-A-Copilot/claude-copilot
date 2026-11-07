@@ -28,7 +28,16 @@ def install(mp, name):
     if dest.exists():
         if os.environ.get("COPILOT_TEST_RETAIN_SCRATCH") == "1":
             preserved = Path(tempfile.mkdtemp(prefix="codex-cache-retained-", dir=home.parent))
-            shutil.move(str(dest), str(preserved / "cache"))
+            original_mode = dest.stat().st_mode & 0o7777
+            moved = False
+            os.chmod(dest, original_mode | 0o200)
+            try:
+                # macOS requires a writable directory for rename. Never fall
+                # back to copy/delete, and restore the exact archived mode.
+                os.rename(dest, preserved / "cache")
+                moved = True
+            finally:
+                os.chmod(preserved / "cache" if moved else dest, original_mode)
             (preserved / "origin.txt").write_text(str(dest))
         else:
             for d, _, _f in os.walk(dest):
