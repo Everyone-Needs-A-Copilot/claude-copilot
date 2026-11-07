@@ -21,8 +21,9 @@ def candidate(tmp_path, version=None):
     root = layout.release_dir("20261107T000000Z-candidate", home)
     framework = root / layout.COMPONENT_CLAUDE
     framework.mkdir(parents=True)
+    declared = version.get("framework", "5.36.0") if isinstance(version, dict) else "5.36.0"
     entries = tuple(schema.Component(name, "foundation", layout.KIND_SIGNED,
-                                    "5.36.0", "v5.36.0", "a" * 40,
+                                    declared, "v" + declared, "a" * 40,
                                     "/authored/source", name, "SHA256:fixture")
                     for name in layout.all_component_names())
     manifest = schema.Manifest(root.name, "2026-11-07T00:00:00Z", None, entries)
@@ -100,3 +101,10 @@ def test_real_flip_command_refuses_before_changing_current_or_history(tmp_path, 
     assert "activation requires" in result.output
     assert current.readlink() == before
     assert not layout.history_path(home).exists()
+
+
+def test_extracted_version_cannot_downgrade_verified_component_policy(tmp_path):
+    _, root, _ = candidate(tmp_path, {"framework": "5.36.0", "stagePolicyVersion": 1})
+    (root / layout.COMPONENT_CLAUDE / "VERSION.json").write_text(json.dumps({"framework": "5.35.4"}))
+    with pytest.raises(ValueError, match="verified component version"):
+        require_activation(root)
