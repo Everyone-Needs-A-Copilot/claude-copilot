@@ -666,6 +666,14 @@ def record_queue(conn, data):
     data['queueSnapshot'] = current
 
 
+def governing_task(conn, task_id):
+    """Resolve the existing direct execution association, without creating one."""
+    if not conn.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='execution_scope_members'").fetchone():
+        return task_id
+    member = conn.execute('SELECT root_task_id FROM execution_scope_members WHERE task_id=?', (task_id,)).fetchone()
+    return member[0] if member else task_id
+
+
 def validate_task_scope(conn, task_id, root_task_id=None):
     row = conn.execute('SELECT metadata FROM tasks WHERE id=?', (task_id,)).fetchone()
     metadata = json.loads(row[0] or '{}') if row else {}
@@ -681,5 +689,7 @@ def validate_task_scope(conn, task_id, root_task_id=None):
         if not conn.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='execution_scope_members'").fetchone():
             raise ValidationError('Bind child to governing execution scope before dispatch')
         member = conn.execute('SELECT root_task_id FROM execution_scope_members WHERE task_id=?', (task_id,)).fetchone()
-        if not member or member[0] != root_task_id:
+        # A separately enrolled cycle may itself be a child of the governing
+        # task. Its workers retain direct associations to that same authority.
+        if not member or member[0] != governing_task(conn, root_task_id):
             raise ValidationError('Bind child to governing execution scope before dispatch')
