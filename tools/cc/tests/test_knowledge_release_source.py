@@ -271,8 +271,30 @@ def test_without_current_release_authoring_provenance_stays_strict(released_sour
 
 
 def test_release_read_still_requires_current_entitlement(released_source, monkeypatch):
-    repo, layer, _root, _component, _manifest = released_source
-    layer["auth"] = "work"
+    repo, layer, root, foundation_component, manifest = released_source
+    # Foundation is public even with auth=work.  Exercise revocation through a
+    # genuinely protected organization release without changing fixture defaults.
+    knowledge = root / "knowledge"
+    knowledge.chmod(0o755)
+    (knowledge / "foundation").rename(knowledge / "organization")
+    knowledge.chmod(0o555)
+    organization_component = next(
+        row for row in manifest["components"] if row["name"] == "knowledge/organization"
+    )
+    organization_component.update(
+        foundation_component
+        | {
+            "name": "knowledge/organization",
+            "tier": "organization",
+            "path": "knowledge/organization",
+        }
+    )
+    foundation_component.update(
+        {key: "" for key in foundation_component if key != "name"}
+        | {"kind": "record"}
+    )
+    layer.update({"role": "organization", "rank": 30, "auth": "work"})
+    _save_manifest(released_source)
     state_path = repo.parent / "entitlements.json"
     checked = (
         datetime.now(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z")
