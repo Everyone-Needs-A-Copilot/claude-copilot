@@ -18,6 +18,8 @@ PYTHON_URL="https://www.python.org/ftp/python/${PYTHON_VERSION}/${PYTHON_PACKAGE
 PYTHON_SHA256="a909cb655af5db67d5a90b3603437a1d58bec3446d624e4034e278ac62023cc9"
 PYINSTALLER_VERSION="6.21.0"
 
+BOOTSTRAP_PYTHON="${CC_RELEASE_PYTHON:-python3}"
+
 SOURCE_REF=""
 SOURCE_COMMIT=""
 OUTPUT_DIR=""
@@ -32,6 +34,9 @@ Usage: scripts/package-cc-macos-release.sh \
 Required environment:
   CT_SIGN_IDENTITY              Developer ID Application identity
   CT_NOTARY_KEYCHAIN_PROFILE    notarytool Keychain profile
+
+Optional environment:
+  CC_RELEASE_PYTHON            Python 3 executable for packaging helpers (default: python3 on PATH)
 
 Or use the API-key notarization form:
   CT_NOTARY_KEY_ID
@@ -109,6 +114,8 @@ for command in \
 do
     require_cmd "${command}"
 done
+require_cmd "${BOOTSTRAP_PYTHON}"
+BOOTSTRAP_PYTHON="$(command -v "${BOOTSTRAP_PYTHON}")"
 
 [[ -n "${OUTPUT_DIR}" ]] || OUTPUT_DIR="${REPO_ROOT}/dist/cc-macos-release"
 case "${OUTPUT_DIR}" in
@@ -204,13 +211,13 @@ while IFS= read -r -d '' macho_file; do
                 dependency_target="${dependency#"${python_install_prefix}"}"
                 absolute_target="${python_root}/${dependency_target}"
                 relative_target="$(
-                    /usr/bin/python3 -c \
+                    "${BOOTSTRAP_PYTHON}" -c \
                         'import os,sys; print(os.path.relpath(sys.argv[1], sys.argv[2]))' \
                         "${absolute_target}" \
                         "$(dirname "${macho_file}")"
                 )"
                 same_file="$(
-                    /usr/bin/python3 -c \
+                    "${BOOTSTRAP_PYTHON}" -c \
                         'import os,sys; print(os.path.realpath(sys.argv[1]) == os.path.realpath(sys.argv[2]))' \
                         "${absolute_target}" "${macho_file}"
                 )"
@@ -403,7 +410,7 @@ env HOME="${probe_home}" \
     "${artifact}" auth login \
     --org Everyone-Needs-A-Copilot \
     --json > "${device_flow_probe}"
-/usr/bin/python3 - "${device_flow_probe}" <<'PY'
+"${BOOTSTRAP_PYTHON}" - "${device_flow_probe}" <<'PY'
 import json
 import sys
 
@@ -444,7 +451,7 @@ finder_onboard_exit=$?
 set -e
 [[ "${finder_onboard_exit}" -eq 0 || "${finder_onboard_exit}" -eq 1 ]] ||
     die "Finder-environment onboarding probe exited ${finder_onboard_exit}"
-/usr/bin/python3 - "${finder_onboard_probe}" <<'PY'
+"${BOOTSTRAP_PYTHON}" - "${finder_onboard_probe}" <<'PY'
 import json
 import sys
 
@@ -504,7 +511,7 @@ finder_scan_exit=$?
 set -e
 [[ "${finder_scan_exit}" -eq 0 || "${finder_scan_exit}" -eq 1 ]] ||
     die "Finder-environment project scan probe exited ${finder_scan_exit}"
-/usr/bin/python3 - "${finder_scan_probe}" <<'PY'
+"${BOOTSTRAP_PYTHON}" - "${finder_scan_probe}" <<'PY'
 import json
 import sys
 
@@ -532,7 +539,7 @@ finder_doctor_exit=$?
 set -e
 [[ "${finder_doctor_exit}" -eq 1 ]] ||
     die "Finder-environment release doctor probe exited ${finder_doctor_exit}, expected a structured failure (1)"
-/usr/bin/python3 - "${finder_doctor_probe}" <<'PY'
+"${BOOTSTRAP_PYTHON}" - "${finder_doctor_probe}" <<'PY'
 import json
 import sys
 
@@ -554,20 +561,20 @@ run_notarytool submit "${archive}" \
     --wait \
     --output-format json > "${notary_result}"
 notary_status="$(
-    /usr/bin/python3 -c \
+    "${BOOTSTRAP_PYTHON}" -c \
         'import json,sys; print(json.load(open(sys.argv[1]))["status"])' \
         "${notary_result}"
 )"
 [[ "${notary_status}" == "Accepted" ]] ||
     die "Apple notarization status was ${notary_status}"
 notary_id="$(
-    /usr/bin/python3 -c \
+    "${BOOTSTRAP_PYTHON}" -c \
         'import json,sys; print(json.load(open(sys.argv[1]))["id"])' \
         "${notary_result}"
 )"
 notary_log="${scratch}/notary-log.json"
 run_notarytool log "${notary_id}" "${notary_log}"
-/usr/bin/python3 - "${notary_log}" <<'PY'
+"${BOOTSTRAP_PYTHON}" - "${notary_log}" <<'PY'
 import json
 import sys
 
