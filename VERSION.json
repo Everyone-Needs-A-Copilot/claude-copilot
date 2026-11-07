@@ -15,7 +15,6 @@
         "cc docs",
         "cc usage",
         "cc eval",
-        "cc reconcile",
         "cc store",
         "cc support",
         "cc skill select",
@@ -25,7 +24,9 @@
         "cc design",
         "cc rule",
         "cc priorities",
-        "cc resources"
+        "cc resources",
+        "cc project",
+        "cc release"
       ]
     },
     "tc": {

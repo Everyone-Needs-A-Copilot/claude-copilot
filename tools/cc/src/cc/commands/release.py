@@ -91,11 +91,13 @@ def rollback_cmd(
 
 @release_app.command("status")
 def status_cmd(home: Optional[Path] = HomeOpt) -> None:
+    """Show the active release pointer and its manifest."""
     _emit(pointer.status(home))
 
 
 @release_app.command("history")
 def history_cmd(home: Optional[Path] = HomeOpt) -> None:
+    """Read the recorded central release transitions."""
     _emit(pointer.read_history(home))
 
 
