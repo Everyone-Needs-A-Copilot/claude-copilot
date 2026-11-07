@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import sys
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Optional, Sequence
@@ -19,8 +20,28 @@ HISTORY_FILE = Path(__file__).with_name("framework_section_history.json")
 
 
 def default_claude_root() -> Path:
-    # .../tools/cc/src/cc/core/project_migrate/known.py -> repository / snapshot root
-    return Path(__file__).resolve().parents[6]
+    # A frozen executable's __file__ is inside its temporary extraction tree,
+    # not a framework checkout. Never walk that tree's machine-level parents.
+    if not getattr(sys, "frozen", False):
+        parents = Path(__file__).resolve().parents
+        if len(parents) > 6:
+            source = parents[6]
+            if (source / "VERSION.json").is_file() and (source / "tools" / "cc").is_dir():
+                return source
+    from cc.core.project_init.homes import copilot_home
+    from cc.core.project_migrate.model import MigrateError
+
+    home = copilot_home()
+    current = home / "current"
+    release = current.resolve()
+    root = release / "claude-copilot"
+    if (current.is_symlink() and release.parent == (home / "releases").resolve()
+            and not root.is_symlink() and root.is_dir()
+            and (root / "VERSION.json").is_file() and (root / "tools" / "cc").is_dir()):
+        return root
+    raise MigrateError("framework-unavailable",
+                       "No usable central Claude framework release is active. "
+                       "Publish or restore a verified release with cc release before scanning or migrating projects.")
 
 
 def default_codex_root() -> Optional[Path]:

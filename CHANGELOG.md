@@ -1,5 +1,9 @@
 # Changelog
 
+## [5.35.2] - 2026-11-07
+
+- Bind frozen cc migration/scan framework discovery to the active central release, never ancestors of the executable extraction directory. Source checkouts retain their verified layout root; missing or escaping central roots return an actionable structured error. The cc component is 2.19.2.
+
 ## [5.35.1] - 2026-11-07
 
 - Preserve authenticated organization and department release pins during onboarding. Existing signed tags, source identity and signer policy are verified before their compatible rows are retained; custom branches, untrusted tags and unfamiliar settings still require review. This lets the real Finder onboarding probe reach Codex without replacing central release pins with `main`. The cc component is 2.19.1.

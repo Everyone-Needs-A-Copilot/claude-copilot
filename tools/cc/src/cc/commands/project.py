@@ -115,7 +115,7 @@ def migrate_command(
 
 def _scan(path: Path, scan_all: bool, json_output: bool, mixed: bool) -> None:
     from cc.core.project_init.registry import default_registry
-    from cc.core.project_migrate import scan_projects
+    from cc.core.project_migrate import MigrateError, scan_projects
 
     if mixed or (scan_all and path != Path(".")):
         typer.echo("error: --scan is read-only and cannot be combined with --apply, --rollback, --commit-branch, or a path with --all")
@@ -127,7 +127,13 @@ def _scan(path: Path, scan_all: bool, json_output: bool, mixed: bool) -> None:
             roots = []
     else:
         roots = [path]
-    report = scan_projects(roots, depth=2)
+    try:
+        report = scan_projects(roots, depth=2)
+    except MigrateError as exc:
+        body = {"schema_version": "1.0", "result": "error",
+                "error": {"code": exc.code, "message": exc.message}}
+        typer.echo(json.dumps(body) if json_output else f"error: {exc.message}")
+        raise typer.Exit(1)
     dirty = report["lock_files"] or report["copied_files"] or report["hook_registrations"]
     if json_output:
         typer.echo(json.dumps(report))
