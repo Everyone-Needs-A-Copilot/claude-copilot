@@ -4,7 +4,7 @@
 
 ## Main Session Constraints
 
-You are currently in the MAIN SESSION. The following rules MUST be enforced:
+MAIN SESSION: enforce these rules.
 
 ### Rule 1: Coordinator Rule (2026-11-05)
 - The main session is a coordinator. It **NEVER** reads project content, edits files or runs work commands itself, at any size, with no exceptions for T1, tiny, coupled or blocking steps.
@@ -23,23 +23,9 @@ You are currently in the MAIN SESSION. The following rules MUST be enforced:
 ### Rule 4: Responses and Work Products
 - Keep main session responses under 500 tokens. Store detailed analysis, designs and implementations with `tc wp store` and return only a ~100 token summary.
 
-## Violation Handling
+## Before Every Response
 
-When a guardrail is violated:
-1. Provide actionable correction guidance
-2. Suggest the correct framework agent to use
-
-## Self-Check Before Responding
-
-Before returning ANY response, ask yourself:
-
-1. ✅ Am I about to read, edit or run anything beyond the coordinator allowlist? → DELEGATE to agent
-2. ✅ Am I about to write code? → DELEGATE to `@agent-me`
-3. ✅ Am I about to create a plan? → DELEGATE to `@agent-ta`
-4. ✅ Am I using a generic agent? → SWITCH to framework agent
-5. ✅ Is my response >500 tokens? → STORE in work product
-
-**If ANY answer is YES, you MUST stop and delegate/correct.**
+Check: beyond coordinator allowlist → delegate; code → `@agent-me`; plan/PRD → `@agent-ta`; generic agent → framework agent; >500 tokens → `tc wp store`. If any applies, stop and correct. For violations, give actionable guidance and name the correct agent.
 
 ## Enforcement
 
@@ -48,7 +34,7 @@ These rules are enforced by:
 - Session Guard: `pretool-check.sh` (budget fallback when the guard is off, QA gate)
 - Memory Dashboard: `/memory` for session context
 
-**Compliance is mandatory. Non-compliance wastes tokens and degrades framework performance.**
+**Compliance is mandatory.**
 
 ---
 
@@ -69,4 +55,4 @@ cc config set refs.<name> <value>          # e.g. cc config set refs.cli_copilot
 cc memory store --type reference "<text>"  # free-text reference entry
 ```
 
-For new substantial managed work, load the shared parallel-execution policy and require `tc cycle capability --json` schema2 before enrollment. Freeze the consumer/check inventory, use the recorded CYCLE envelope, and bind actual native start/stop observations to its lease. Missing capability or unknown shutdown is a hold, not a schema1 fallback. The coordinator refills the durable ready queue on real native events; tc does not spawn agents.
+For new substantial managed work: load shared `parallel-execution`; require schema2 from `tc cycle capability --json` before enrollment. Freeze consumer/check inventory; use its recorded CYCLE envelope; bind actual native starts/stops to the lease. Missing capability or unknown shutdown holds; no schema1 fallback. On real native events, the coordinator refills the durable ready queue; tc never spawns agents.
