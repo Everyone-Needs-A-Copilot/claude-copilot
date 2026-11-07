@@ -6,8 +6,8 @@ as release_tag v5.15.4) while the newest tag was v5.15.2.
 
 from __future__ import annotations
 
-import json
 import importlib.util
+import json
 import os
 import subprocess
 import sys
