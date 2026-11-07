@@ -7,14 +7,23 @@ as release_tag v5.15.4) while the newest tag was v5.15.2.
 from __future__ import annotations
 
 import json
+import importlib.util
 import os
 import subprocess
+import sys
 from pathlib import Path
 
 import pytest
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 SCRIPT = REPO_ROOT / "scripts" / "tag-release.sh"
+
+_fixture_spec = importlib.util.spec_from_file_location(
+    "release_stage_fixture", REPO_ROOT / "tests/stage_release_fixture.py"
+)
+assert _fixture_spec is not None and _fixture_spec.loader is not None
+_fixture = importlib.util.module_from_spec(_fixture_spec)
+_fixture_spec.loader.exec_module(_fixture)
 
 
 def _git(cwd: Path, *args: str, check: bool = True) -> subprocess.CompletedProcess:
@@ -66,8 +75,13 @@ def _release_key(repo: Path) -> str:
 
 
 def _tag(repo: Path, *args: str, release_key: str | None = None) -> subprocess.CompletedProcess:
+    target = args[args.index("--at") + 1] if "--at" in args else "HEAD"
+    commit = _git(repo, "rev-parse", target).stdout.strip()
     env = {**os.environ, "GIT_CONFIG_NOSYSTEM": "1",
-           "FOUNDATION_RELEASE_PUBLIC_KEY": release_key or _release_key(repo)}
+           "FOUNDATION_RELEASE_PUBLIC_KEY": release_key or _release_key(repo),
+           "TC_STAGE_PYTHON": sys.executable,
+           "CC_RETAIN_SCRATCH": "1",
+           **_fixture.exported_packet(repo, commit, repo.parent)}
     return subprocess.run(["bash", str(SCRIPT), *args], cwd=repo, env=env,
                           capture_output=True, text=True, timeout=60)
 

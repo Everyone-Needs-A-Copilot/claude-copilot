@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import importlib.util
 import shutil
 import subprocess
 import sys
@@ -13,6 +14,13 @@ ROOT = Path(__file__).parents[3]
 PACKAGER = ROOT / "scripts/package-cc-macos-release.sh"
 VERIFIER = ROOT / "scripts/verify-foundation-release.sh"
 WORKFLOW = ROOT / ".github/workflows/cc-macos-release.yml"
+
+_fixture_spec = importlib.util.spec_from_file_location(
+    "release_stage_fixture", ROOT / "tests/stage_release_fixture.py"
+)
+assert _fixture_spec is not None and _fixture_spec.loader is not None
+_fixture = importlib.util.module_from_spec(_fixture_spec)
+_fixture_spec.loader.exec_module(_fixture)
 
 
 def _git(repo: Path, *args: str) -> str:
@@ -38,6 +46,9 @@ def test_packager_verifies_real_tag_main_ancestry_before_building(
         _git(origin, "config", name, value)
     (origin / "scripts").mkdir()
     shutil.copy2(VERIFIER, origin / "scripts/verify-foundation-release.sh")
+    shutil.copy2(ROOT / "scripts/stage-release-gate.py", origin / "scripts/stage-release-gate.py")
+    shutil.copytree(ROOT / "tools/tc/src/tc", origin / "tools/tc/src/tc",
+                    ignore=shutil.ignore_patterns("__pycache__", "*.pyc"))
     _git(origin, "add", ".")
     _git(origin, "commit", "-qS", "-m", "signed base")
     if not integrated:
@@ -97,6 +108,9 @@ def test_packager_verifies_real_tag_main_ancestry_before_building(
             "CT_NOTARY_KEY_PATH": str(tmp_path / "unused-fixture-key.p8"),
             "FOUNDATION_RELEASE_PRINCIPAL": "fixture-foundation",
             "FOUNDATION_RELEASE_PUBLIC_KEY": key.with_suffix(".pub").read_text().strip(),
+            "CC_RELEASE_PYTHON": sys.executable,
+            "CC_RETAIN_SCRATCH": "1",
+            **_fixture.exported_packet(origin, commit, tmp_path),
         }
     )
     result = subprocess.run(
