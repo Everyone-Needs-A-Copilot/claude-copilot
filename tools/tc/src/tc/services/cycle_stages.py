@@ -184,6 +184,13 @@ def eligibility(data, stream):
     own_checks = [r for r in data['plan']['checks'] if r['stream'] == stream['id'] and r['required']]
     if own_checks and all(result_current(data, r) and data['checkResults'][r['id']]['outcome'] == 'passed' for r in own_checks):
         return ['unchanged-evidence-retained']
+    # Results are immutable within a generation. Do not spend another worker
+    # permit on a failed/stale result that result-recorded must reject later.
+    # Current retained passes may coexist with still-missing checks.
+    if any(r['id'] in data['checkResults'] and not (
+            result_current(data, r) and data['checkResults'][r['id']]['outcome'] == 'passed'
+    ) for r in data['plan']['checks'] if r['stream'] == stream['id']):
+        return ['result-requires-generation-transition']
     stage = next(s for s in data['plan']['stages'] if s['id'] == stream['stage'])
     state = data['stageState'][stage['id']]
     if state['state'] in {'held', 'accepted'}:
