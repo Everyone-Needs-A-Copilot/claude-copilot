@@ -291,6 +291,48 @@ def task_gate(*, task_id, conn, metadata=None):
         return {'approved': False, 'reasons': [str(exc)]}
 
 
+def _transition_source(data, receipt, body, expect_revision):
+    """Move source authority, preserving the old candidate and execution history."""
+    c = _cy()
+    transition = receipt['sourceTransition']
+    keys = {'fromRoot', 'fromCommit', 'toRoot', 'toCommit', 'inventoryDigest'}
+    if not isinstance(transition, dict) or set(transition) != keys or any(
+        not isinstance(value, str) or not value.strip() for value in transition.values()
+    ):
+        raise ValidationError('sourceTransition requires exact nonempty source identity fields')
+    if expect_revision is None:
+        raise ValidationError('Source transition requires an explicit current revision')
+    if not receipt.get('actor') or not receipt.get('reviewer') or receipt['actor'] == receipt['reviewer']:
+        raise ValidationError('Source transition requires independent review')
+    if transition['inventoryDigest'] != data.get('inventoryDigest'):
+        raise ConflictError('Source transition inventory changed')
+    old_root = Path(data['plan']['root']).resolve()
+    new_root = Path(transition['toRoot']).resolve()
+    if Path(transition['fromRoot']).resolve() != old_root or old_root == new_root:
+        raise ValidationError('Source transition requires the current root and a distinct successor')
+    identities = []
+    for root, field in ((old_root, 'fromCommit'), (new_root, 'toCommit')):
+        if not root.is_dir():
+            raise ValidationError('Source transition root is unavailable')
+        if Path(c._git(root, 'rev-parse', '--show-toplevel')).resolve() != root:
+            raise ValidationError('Source transition must name a Git checkout root')
+        if not re.fullmatch(r'[a-f0-9]{40}|[a-f0-9]{64}', transition[field]) or c._git(root, 'rev-parse', 'HEAD') != transition[field]:
+            raise ConflictError('Source transition commit does not match checkout HEAD')
+        if c._git(root, 'status', '--porcelain', '--untracked-files=all'):
+            raise ConflictError('Source transition requires clean source checkouts')
+        identities.append(Path(c._git(root, 'rev-parse', '--path-format=absolute', '--git-common-dir')).resolve())
+    if identities[0] != identities[1]:
+        raise ValidationError('Source transition requires the same Git common repository')
+    c._git(new_root, 'merge-base', '--is-ancestor', transition['fromCommit'], transition['toCommit'])
+    body['previousCandidate'] = json.loads(json.dumps({key: data.get(key) for key in (
+        'plan', 'generation', 'bindings', 'checkResults', 'stageState', 'streams',
+        'inventoryApproval', 'inventoryDigest', 'inventoryFrozen',
+    )}))
+    data['plan']['root'] = str(new_root)
+    data['inventoryDigest'] = _digest(data['plan'])
+    data['inventoryApproval'] = body
+
+
 def advance_cycle(*, cycle, event, receipt, db_path, expect_revision=None):
     c = _cy()
     if not isinstance(receipt, dict):
@@ -302,6 +344,8 @@ def advance_cycle(*, cycle, event, receipt, db_path, expect_revision=None):
         data = c._load(conn, cycle)
         if not managed(data):
             raise ValidationError('Stage operations require schema2')
+        if 'sourceTransition' in receipt and event != 'candidate-integrated':
+            raise ValidationError('Source transition is only valid for candidate-integrated')
         original = data['operations'].get(op)
         body_hash = _digest({'event': event, 'receipt': receipt})
         if original:
@@ -389,6 +433,8 @@ def advance_cycle(*, cycle, event, receipt, db_path, expect_revision=None):
                 data['inventoryFrozen'] = True
             elif not inventory_current(data):
                 raise ConflictError('Inventory approval is stale; independently revise it before integrating')
+            if event == 'candidate-integrated' and 'sourceTransition' in receipt:
+                _transition_source(data, receipt, body, expect_revision)
             bindings = {r['id']: binding(data, r) for r in data['plan']['checks']}
             retained = {key: row for key, row in data['checkResults'].items() if row['outcome'] == 'passed' and row['binding'] == bindings[key] and _artifact_current(row)}
             data['generation'] += 1
