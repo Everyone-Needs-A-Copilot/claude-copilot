@@ -415,6 +415,10 @@ def _pack_root(tmp: Path) -> Path:
 
 def _pipeline_fx(tmp: Path) -> Fx:
     root = build_project(tmp / "s", shape="pipeline")
+    # build_project supplies identity only to its initial commit. Later fixture
+    # commits must also work on CI without a developer's global Git identity.
+    git(root, "config", "user.name", "Migration fixture")
+    git(root, "config", "user.email", "migration-fixture@example.invalid")
     # a valid link, a link to a missing file that is NOT a pack link, an unrelated broken pack-shaped link kept in git
     (root / "valid-link").symlink_to("CLAUDE.md")
     (root / "weird").symlink_to("/nonexistent/place")
