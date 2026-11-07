@@ -40,7 +40,7 @@ def main() -> int:
     ap.add_argument("--only", help="comma-separated check IDs (e.g. CR-C,CR-F)")
     ap.add_argument("--rerun-failed", metavar="REPORT", help="rerun the failed checks recorded in REPORT")
     ap.add_argument("--with-adjacent", action="store_true", help="with --rerun-failed: add checks sharing components")
-    ap.add_argument("--sandbox", help="sandbox root (default: /Volumes/Dev/cr-acceptance/<timestamp>)")
+    ap.add_argument("--sandbox", help="sandbox root (default: <sites parent>/cr-acceptance/<timestamp>)")
     ap.add_argument("--report", help="report path (default: <sandbox>/report.json)")
     ap.add_argument("--keep-credentials", action="store_true", help="leave copied auth files in the sandbox")
     ap.add_argument("--reuse", action="store_true", help="debug only: reuse an existing sandbox instead of rebuilding")
@@ -72,7 +72,7 @@ def main() -> int:
         selected = [i for i in ck.ORDER if i in want]
         print(f"rerun: failed={sorted(failed)} selected={selected}")
 
-    sandbox = Path(args.sandbox or f"/Volumes/Dev/cr-acceptance/{time.strftime('%Y%m%dT%H%M%S')}-{os.getpid()}")
+    sandbox = Path(args.sandbox or str(rp.SITES.parent / "cr-acceptance") + f"/{time.strftime('%Y%m%dT%H%M%S')}-{os.getpid()}")
     t0 = time.monotonic()
     support = []
     # ---- sentinel before ----------------------------------------------------------------------------

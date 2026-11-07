@@ -11,7 +11,8 @@ violations=""
 intentional_fixture() {
   case "$1" in
     tools/cc/src/cc/core/evaluation/safety.py | \
-    tools/cc/tests/conformance/baselines/2026-08-12-reviewed-current.json)
+    tools/cc/tests/conformance/baselines/2026-08-12-reviewed-current.json | \
+    tools/cc/tests/release_codex/fixtures/hooks_list_live_codex_0.167.0.json)
       return 0
       ;;
   esac

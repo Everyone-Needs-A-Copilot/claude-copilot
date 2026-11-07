@@ -189,7 +189,7 @@ def test_live_link_target_is_protected(env):
     rel = release(tmp, repos)
     (rel / "codex/organization/extra").mkdir()
     (rel / "codex/organization/extra/tool.md").write_text("tool\n")
-    link = {"target": f"{tmp}/home/.copilot/current/codex/organization/extra/tool.md"}
+    link = {"target": f"{tmp}/user-home/.copilot/current/codex/organization/extra/tool.md"}
     (rel / "links.json").write_text(json.dumps({"entries": [link]}))
     assert "extra/tool.md" in live_link_targets(rel)["codex/organization"]
     guard = build_guard(root, rel)
@@ -265,7 +265,7 @@ def test_scan_treats_source_settings_hooks_as_source_not_leftovers(env):
 
 
 # -- real source repos, read-only ------------------------------------------------------------------
-REAL = Path("/Volumes/Dev/Sites/CSE")
+REAL = next((p for p in Path(__file__).resolve().parents if p.name == "CSE"), Path.home() / "no-CSE-root")
 RELEASE = Path.home() / ".copilot" / "current"
 REAL_REPOS = ["claude-copilot", "codex-copilot", "cli-copilot", "cli-copilot-internal", "copilot-control-tower",
               "product-creation-copilot", "knowledge-copilot-internal", "codex-copilot-internal"]

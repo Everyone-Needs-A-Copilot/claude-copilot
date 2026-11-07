@@ -21,11 +21,11 @@ PY
 
 # run <name> <user-events> <project-events> <local-events>; echoes hook output
 run() {
-  local d="$TMP/$1"; mkdir -p "$d/home/.claude" "$d/proj/.claude"
-  settings $2 > "$d/home/.claude/settings.json"
+  local d="$TMP/$1"; mkdir -p "$d/fakehome/.claude" "$d/proj/.claude"
+  settings $2 > "$d/fakehome/.claude/settings.json"
   settings $3 > "$d/proj/.claude/settings.json"
   settings $4 > "$d/proj/.claude/settings.local.json"
-  printf '{"session_id":"s","source":"startup"}' | HOME="$d/home" CLAUDE_PROJECT_DIR="$d/proj" \
+  printf '{"session_id":"s","source":"startup"}' | HOME="$d/fakehome" CLAUDE_PROJECT_DIR="$d/proj" \
     COPILOT_HOOK_STATE_DIR="$d/state" bash "$HOOK" 2>/dev/null
 }
 ALL="SessionStart PreToolUse SubagentStop UserPromptSubmit"
