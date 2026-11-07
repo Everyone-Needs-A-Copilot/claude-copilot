@@ -213,3 +213,40 @@ def test_prior_verified_failure_window_stays_covered_when_next_child_is_repaired
     diagnose(db_path, parent, 'DELIVERY')
     assert attempts(db_path) == before
     assert ex.scope_usage(task_id=parent, db_path=db_path)['usage']['attempts'] == 4
+
+
+@pytest.mark.parametrize('case', ['renew', 'unchanged', 'uncovered_failure'])
+def test_existing_verified_diagnosis_window_renews_without_resetting_history(db_path, case):
+    root, parent, children = family(db_path)
+    fail(db_path, root, children[0])
+    fail(db_path, root, children[0])
+    (root / 'a.py').write_text('VALUE = 2\n')
+    diagnose(db_path, parent, 'DELIVERY')
+    diagnose(db_path, children[0], 'CHECK')
+    with get_db(db_path) as conn:
+        old = dict(conn.execute("SELECT * FROM execution_checkpoints WHERE task_id=? AND kind='diagnosis' ORDER BY id DESC LIMIT 1", (parent,)).fetchone())
+    if case == 'renew':
+        (root / 'b.py').write_text('VALUE = 2\n')
+    elif case == 'uncovered_failure':
+        fail(db_path, root, children[1])
+        (root / 'a.py').write_text('VALUE = 3\n')
+    before = attempts(db_path)
+    state = ex.execution_status(task_id=parent, db_path=db_path)
+    if case == 'renew':
+        diagnose(db_path, parent, 'DELIVERY')
+        with get_db(db_path) as conn:
+            new = dict(conn.execute("SELECT * FROM execution_checkpoints WHERE task_id=? AND kind='diagnosis' ORDER BY id DESC LIMIT 1", (parent,)).fetchone())
+        assert new['source'] != old['source']
+        assert new['through_started'] == old['through_started']
+        assert new['id'] > old['id']
+    else:
+        with pytest.raises(ValidationError, match='No failed|unchanged'):
+            diagnose(db_path, parent, 'DELIVERY')
+    after = ex.execution_status(task_id=parent, db_path=db_path)
+    assert attempts(db_path) == before
+    assert after['usage'] == state['usage']
+    assert after['limits'] == state['limits']
+    assert after['remaining'] == state['remaining']
+    if case == 'renew':
+        retry = ex.begin_attempt(task_id=children[0], criterion='CHECK', label='source-current root renewal', db_path=db_path)
+        assert retry['task_id'] == children[0]

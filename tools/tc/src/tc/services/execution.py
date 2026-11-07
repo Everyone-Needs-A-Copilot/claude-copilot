@@ -1226,18 +1226,24 @@ def diagnosis_checkpoint(*, task_id, criterion, regression, db_path=None):
         # Previously diagnosed failures stay covered when another child changes.
         # The new regression still binds the current complete root source.
         through = 0
+        covered_source = None
         for checkpoint in conn.execute(
-            "SELECT * FROM execution_checkpoints WHERE task_id=? AND criterion=? AND kind='diagnosis'",
+            "SELECT * FROM execution_checkpoints WHERE task_id=? AND criterion=? AND kind='diagnosis' ORDER BY id",
             (task_id, criterion),
         ):
             try:
                 if _artifact(checkpoint["artifact"])[1] == checkpoint["artifact_hash"]:
-                    through = max(through, checkpoint["through_started"])
+                    if checkpoint["through_started"] >= through:
+                        through = checkpoint["through_started"]
+                        covered_source = checkpoint["source"]
             except (OSError, ValidationError):
                 continue
         rows = [r for r in family if r["criterion"] == criterion
                 and r["state"] in ("failed", "abandoned") and r["started"] > through]
-        if criterion not in p["criteria"] or not rows:
+        # A new current-source prove may renew an already verified window.
+        # It covers no new failures and cannot increase its original boundary.
+        renewal = not rows and through > 0 and covered_source != source
+        if criterion not in p["criteria"] or (not rows and not renewal):
             raise ValidationError("No failed criterion to diagnose")
         # A timestamp checkpoint covers every earlier failure. Require changed
         # source for each outstanding task/check, not just the last sibling.
@@ -1261,7 +1267,8 @@ def diagnosis_checkpoint(*, task_id, criterion, regression, db_path=None):
             )
         conn.execute(
             "INSERT INTO execution_checkpoints(task_id,criterion,kind,source,artifact,artifact_hash,created,through_started) VALUES (?,?,'diagnosis',?,?,?,?,?)",
-            (task_id, criterion, source, path, sha, time.time(), rows[-1]["started"]),
+            (task_id, criterion, source, path, sha, time.time(),
+             rows[-1]["started"] if rows else through),
         )
     return {"criterion": criterion, "source": source, "artifact_sha256": sha}
 
