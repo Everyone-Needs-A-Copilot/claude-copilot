@@ -160,6 +160,7 @@ def verify_packet(file: Path = typer.Option(..., '--file'), sha256: str = typer.
 def dispatch_context(cwd: Path = typer.Option(..., '--cwd'), json: bool = typer.Option(False, '--json')):
     """Find active stage enrollment for omitted-envelope dispatch protection."""
     import os
+
     from tc.db.connection import _main_checkout, find_db_path
     from tc.services.cycle_stages import dispatch_context as context
 
@@ -175,7 +176,10 @@ def dispatch_context(cwd: Path = typer.Option(..., '--cwd'), json: bool = typer.
         if os.environ.get('TC_WORKTREE_DB'):
             raise ValidationError('Explicit database selection has no task authority')
         for directory in (current, *current.parents):
-            candidate = directory / '.copilot' / 'tasks.db'
+            store = directory / '.copilot'
+            if store.is_symlink() and not store.is_dir():
+                raise ValidationError('Task authority directory link is unresolved')
+            candidate = store / 'tasks.db'
             try:
                 candidate.lstat()
             except FileNotFoundError:
@@ -187,7 +191,10 @@ def dispatch_context(cwd: Path = typer.Option(..., '--cwd'), json: bool = typer.
                 main = _main_checkout(directory)
                 if main is None:
                     raise ValidationError('Cannot establish linked-worktree task authority')
-                shared = main / '.copilot' / 'tasks.db'
+                store = main / '.copilot'
+                if store.is_symlink() and not store.is_dir():
+                    raise ValidationError('Shared task authority directory link is unresolved')
+                shared = store / 'tasks.db'
                 try:
                     shared.lstat()
                 except FileNotFoundError:
