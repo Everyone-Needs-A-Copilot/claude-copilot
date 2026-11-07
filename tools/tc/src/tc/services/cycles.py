@@ -794,7 +794,7 @@ def verify_dispatch(*, cycle, stream, role, cwd, blocked_task=None, blocked_task
                 raise ValidationError('Stream requires one explicit registered execution criterion')
             attempt = execution.begin_attempt(task_id=spec['task'], criterion=criterion,
                                               label=f"cycle {cycle}/{stream} generation {data['generation']}",
-                                              work_identity=[stages._digest({"rootTask": data["task"], "check": r["id"]}) for r in checks], conn=conn)
+                                              work_identity=[stages._digest({"rootTask": stages.governing_task(conn, data["task"]), "check": r["id"]}) for r in checks], conn=conn)
             claim['executionToken'] = attempt['token']
             claim['executionCriterion'] = criterion
         claim["dispatchAuthorized"] = True
