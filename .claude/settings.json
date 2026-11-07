@@ -2,14 +2,6 @@
   "hooks": {
     "SessionStart": [
       {
-        "hooks": [
-          {
-            "type": "command",
-            "command": "bash \"$(git rev-parse --show-toplevel)/.claude/hooks/session-start.sh\""
-          }
-        ]
-      },
-      {
         "matcher": "startup|resume|clear|compact",
         "hooks": [
           {
@@ -38,15 +30,6 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bash \"$(git rev-parse --show-toplevel)/.claude/hooks/subagent-stop.sh\""
-          }
-        ]
-      },
-      {
-        "matcher": "me|qa",
-        "hooks": [
-          {
-            "type": "command",
             "command": "bash \"$CLAUDE_PROJECT_DIR/.claude/hooks/copilot-hook.sh\" subagent-stop",
             "_copilot_source": "claude-copilot"
           }
@@ -58,14 +41,6 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bash \"$(git rev-parse --show-toplevel)/.claude/hooks/user-prompt-submit.sh\""
-          }
-        ]
-      },
-      {
-        "hooks": [
-          {
-            "type": "command",
             "command": "bash \"$CLAUDE_PROJECT_DIR/.claude/hooks/copilot-hook.sh\" user-prompt-submit",
             "_copilot_source": "claude-copilot"
           }
@@ -73,14 +48,6 @@
       }
     ],
     "PreCompact": [
-      {
-        "hooks": [
-          {
-            "type": "command",
-            "command": "bash \"$(git rev-parse --show-toplevel)/.claude/hooks/pre-compact-handoff.sh\""
-          }
-        ]
-      },
       {
         "hooks": [
           {

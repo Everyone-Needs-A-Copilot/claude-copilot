@@ -41,6 +41,8 @@ jobs:
           # production because the matcher never admitted those tool
           # calls) — see docs/10-architecture for the root-cause writeup.
           ./tests/hooks/test-hook-wiring.sh
+          # Each framework hook handler is registered once per event.
+          bash ./tests/hooks/test-single-registration.sh
           # Payload-level behavioral tests: force-delegate, qa-gate,
           # /careful, /freeze, subagent-livelock replay, and fail-open
           # crash regression coverage.
