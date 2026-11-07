@@ -37,6 +37,7 @@ Required environment:
 
 Optional environment:
   CC_RELEASE_PYTHON            Python 3 executable for packaging helpers (default: python3 on PATH)
+  CC_RETAIN_SCRATCH            Set to 1 to preserve build/probe evidence on exit
 
 Or use the API-key notarization form:
   CT_NOTARY_KEY_ID
@@ -150,6 +151,10 @@ remote_commit="$(
 
 scratch="$(mktemp -d "${TMPDIR:-/tmp}/claude-cc-release.XXXXXX")"
 cleanup() {
+    if [[ "${CC_RETAIN_SCRATCH:-0}" == "1" ]]; then
+        echo "cc release: retained scratch: ${scratch}" >&2
+        return
+    fi
     rm -rf "${scratch}"
 }
 trap cleanup EXIT
@@ -391,7 +396,7 @@ expected_version="$(
 actual_version="$("${artifact}" --version)"
 [[ "${actual_version}" == "cc version ${expected_version}" ]] ||
     die "arm64 helper returned unexpected version: ${actual_version}"
-if /usr/sbin/sysctl -n sysctl.proc_translated >/dev/null 2>&1 ||
+if [[ "$(/usr/sbin/sysctl -n sysctl.proc_translated 2>/dev/null || true)" == "1" ]] ||
    arch -x86_64 /usr/bin/true >/dev/null 2>&1; then
     x86_version="$(arch -x86_64 "${artifact}" --version)"
     [[ "${x86_version}" == "cc version ${expected_version}" ]] ||

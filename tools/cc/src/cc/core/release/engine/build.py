@@ -198,7 +198,8 @@ def build_release(
         _lock_down(target)
         return manifest
     except BaseException:
-        _remove(target)
+        if os.environ.get("CC_RETAIN_SCRATCH") != "1":
+            _remove(target)
         raise
 
 
@@ -246,7 +247,7 @@ def sources_from_layers(
 
 
 def build_cc_venv(release_directory: Path, _components: Sequence[schema.Component]) -> None:
-    """Post-build step: create the cc/tc virtualenv in place via the component's install.sh.
+    """Build the shared cc/tc/CLI runtime from the verified component snapshots.
 
     The venv is built at its final path (the release directory is not renamed),
     so shims resolve `current/claude-copilot/tools/cc/.venv/bin/python`.
@@ -260,10 +261,26 @@ def build_cc_venv(release_directory: Path, _components: Sequence[schema.Componen
             ["bash", str(script), "--shim-path", str(scratch), "--no-profile-update"],
             check=True, env=environment, timeout=600, capture_output=True, text=True,
         )
+        # The stable copilot launcher uses this same interpreter. Install its
+        # signed foundation and tier packages together so local package names
+        # satisfy overlay requirements instead of resolving them from PyPI.
+        cli_packages = [release_directory / layout.COMPONENT_CLI]
+        cli_packages.extend(
+            release_directory / component.path for component in _components
+            if component.name.startswith("cli/") and component.kind == layout.KIND_SIGNED
+        )
+        cli_packages = [path for path in cli_packages if (path / "pyproject.toml").is_file()]
+        if cli_packages:
+            python = release_directory / layout.CC_VENV_PYTHON_RELATIVE
+            subprocess.run(
+                [str(python), "-m", "pip", "install", "--quiet", *map(str, cli_packages)],
+                check=True, env=environment, timeout=600, capture_output=True, text=True,
+            )
     except subprocess.CalledProcessError as exc:
         tail = (exc.stderr or exc.stdout or "").strip()[-400:]
         raise ReleaseBuildError(f"cc virtualenv build failed: {tail}") from exc
     except (OSError, subprocess.SubprocessError) as exc:
         raise ReleaseBuildError("cc virtualenv build failed") from exc
     finally:
-        scratch.unlink(missing_ok=True)
+        if os.environ.get("CC_RETAIN_SCRATCH") != "1":
+            scratch.unlink(missing_ok=True)

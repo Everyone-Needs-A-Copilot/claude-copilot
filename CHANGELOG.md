@@ -1,5 +1,11 @@
 # Changelog
 
+## [5.35.1] - 2026-11-07
+
+- Preserve authenticated organization and department release pins during onboarding. Existing signed tags, source identity and signer policy are verified before their compatible rows are retained; custom branches, untrusted tags and unfamiliar settings still require review. This lets the real Finder onboarding probe reach Codex without replacing central release pins with `main`. The cc component is 2.19.1.
+- Install signed CLI foundation and tier package dependencies into the shared release interpreter; the stable `copilot` launcher uses that interpreter as well as cc/tc.
+- Add `CC_RETAIN_SCRATCH=1` to preserve macOS helper build, release materialization and trust-probe scratch evidence on success or failure. Detect active Rosetta translation by its value, while retaining the actual x86 execution probe whenever translation is available.
+
 ## [5.35.0] - 2026-11-06
 
 - **Central resolution: one release pointer, zero per-project sync (ADR-001).** `cc release build|publish|flip|rollback|status|history|prune|shims|doctor` builds immutable releases from signature-verified tags behind `~/.copilot/current`; `cc release publish` runs build, flip, user-level links for Claude and Codex, the single Codex marketplace refresh, the full doctor and history in one command, and restores the previous release, links and Codex config if any step fails. `cc doctor --release` checks the pointer, components, links receipt, Codex cache and Control Tower record. `cc project init` writes the thin project marker and sections; `cc project migrate` (dry run unless `--apply`) converts a synced project. `cc settings-hook user-add|user-remove` registers the marker-gated hook shim once at user level, so unmigrated projects keep working. The Codex marketplace step defaults to `strict_frozen` because the Codex plugin is now a frozen core. The cc component moves to 2.19.0; the tc component is unchanged.

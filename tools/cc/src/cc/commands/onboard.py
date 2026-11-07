@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import base64
+import copy
 import hashlib
 import json
 import os
@@ -1909,7 +1910,37 @@ def _manifest_adoption_plan(
             None,
         )
 
-    desired_layers = list(desired["layers"])
+    desired_layers = copy.deepcopy(desired["layers"])
+    # Central releases pin organization/department layers to signed tags.
+    # Authenticate those existing pins before comparing with the onboarding
+    # defaults, and retain the entire compatible row rather than replacing its
+    # ref or signer policy with the legacy `main` default.
+    from cc.core.release.engine.build import ComponentSource, ReleaseBuildError, default_verifier
+
+    pinned_rows: dict[str, dict[str, Any]] = {}
+    for layer in existing["layers"]:
+        if layer.get("role") not in {"organization", "org", "department", "dept"}:
+            continue
+        layer_source = layer.get("source") or {}
+        ref = layer_source.get("ref", "")
+        signers = (layer.get("policy") or {}).get("allowed_signers", [])
+        if not isinstance(ref, str) or not re.fullmatch(r"(?:refs/tags/)?v\d+\.\d+\.\d+(?:-[\w.-]+)?", ref) or not signers:
+            continue
+        expected = next((row for row in desired_layers if row.get("id") == layer.get("id")), None)
+        if expected is None or _repository_identity(layer_source.get("repo")) != _repository_identity(expected["source"].get("repo")):
+            continue
+        repo_path = layer_source.get("path")
+        if not isinstance(repo_path, str) or not Path(repo_path).is_dir():
+            continue
+        origin = subprocess.run(["git", "-C", repo_path, "remote", "get-url", "origin"], capture_output=True, text=True, check=False)
+        if origin.returncode or _repository_identity(origin.stdout.strip()) != _repository_identity(layer_source.get("repo")):
+            continue
+        try:
+            default_verifier(ComponentSource(name=layer["id"], tier=layer["role"], kind="signed-tag", ref=ref, source=repo_path, allowed_signers=tuple(signers)))
+        except (ReleaseBuildError, OSError, ValueError):
+            continue
+        expected["source"]["ref"] = ref
+        pinned_rows[layer["id"]] = layer
     desired_products = {layer["product"] for layer in desired_layers}
     retained = [
         raw_layer
@@ -1944,6 +1975,7 @@ def _manifest_adoption_plan(
             destination,
             None,
         )
+    desired_layers = [copy.deepcopy(pinned_rows.get(layer["id"], layer)) for layer in desired_layers]
     merged = dict(existing_raw)
     merged["version"] = 1
     if desired_org:

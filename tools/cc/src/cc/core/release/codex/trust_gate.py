@@ -171,7 +171,8 @@ def _candidate_hooks(candidate_marketplace: Path, codex_bin: str, runner: Runner
                 return hooks
         return []
     finally:
-        shutil.rmtree(sandbox, ignore_errors=True)
+        if os.environ.get("CC_RETAIN_SCRATCH") != "1":
+            shutil.rmtree(sandbox, ignore_errors=True)
 
 
 def check(release_directory: Path, current_release: Path | None, codex_home: Path, *,
