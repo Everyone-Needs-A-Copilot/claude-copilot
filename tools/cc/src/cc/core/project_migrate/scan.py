@@ -56,11 +56,14 @@ def scan_project(project: Path, known: Known, release_dir: Optional[Path | str] 
         plan = plan_migration(project, known=known, allow_missing_codex=True, release_dir=release_dir)
         copied = sorted(a.path for a in plan.actions if a.detail.get("copy"))
         protected = sum(1 for k in plan.keeps if k.reason.startswith(SOURCE_LABEL))
+        # A settings.json the release reads (the whole claude-copilot tree) is source: its hook
+        # registrations are the repo's own wiring, not consumer leftovers.
+        settings_is_source = any(k.path == SETTINGS and k.reason.startswith(SOURCE_LABEL) for k in plan.keeps)
     except MigrateError:
-        copied, protected = [], 0
+        copied, protected, settings_is_source = [], 0, False
     hook_regs = 0
     sp = project / SETTINGS
-    if sp.is_file():
+    if sp.is_file() and not settings_is_source:
         try:
             text = sp.read_text(encoding="utf-8")
             hook_regs = strip_framework_hooks(text, lock)[1]

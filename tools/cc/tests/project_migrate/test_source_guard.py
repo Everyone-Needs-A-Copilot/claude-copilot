@@ -251,6 +251,19 @@ def test_scan_reports_protected_separately(env):
     assert "scripts/own.sh" not in row["copied_paths"] and row["protected"] >= 1
 
 
+def test_scan_treats_source_settings_hooks_as_source_not_leftovers(env):
+    """claude-copilot's own .claude/settings.json is read by the release and its CI wiring test."""
+    tmp, repos = env
+    from cc.core.project_migrate import scan_project
+
+    root, known = source_repo(repos, "claude-copilot", {"scripts/own.sh": b"own\n"})
+    fw = {"type": "command", "command": 'bash "$CLAUDE_PROJECT_DIR/.claude/hooks/copilot-hook.sh" session-start',
+          "_copilot_source": "claude-copilot"}
+    (root / ".claude/settings.json").write_text(json.dumps({"hooks": {"SessionStart": [{"hooks": [fw]}]}}))
+    row = scan_project(root, known, release(tmp, repos))
+    assert row["hook_registrations"] == 0
+
+
 # -- real source repos, read-only ------------------------------------------------------------------
 REAL = Path("/Volumes/Dev/Sites/CSE")
 RELEASE = Path.home() / ".copilot" / "current"
