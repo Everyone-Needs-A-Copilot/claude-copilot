@@ -3,11 +3,13 @@ from __future__ import annotations
 import json
 import os
 import subprocess
+from unittest.mock import Mock
 
 import pytest
 from typer.testing import CliRunner
 
 from cc.commands.release import release_app
+from cc.core.release import publish as publisher
 from cc.core.release.engine import build, doctor, layout, pointer, prune, schema, shims
 
 from .conftest import git
@@ -198,7 +200,7 @@ def test_default_extractor_archives_subpath(home, repo, tmp_path):
     assert (tmp_path / "out" / "tc" / "tc-limits").is_file()
 
 
-def test_cli_status_flip_history_rollback_prune(home, make_release):
+def test_cli_status_flip_history_rollback_prune(home, make_release, monkeypatch):
     a, b = make_release(), make_release()
     runner = CliRunner()
     base = ["--home", str(home)]
@@ -206,7 +208,16 @@ def test_cli_status_flip_history_rollback_prune(home, make_release):
     assert runner.invoke(release_app, ["flip", b.release_id, *base]).exit_code == 0
     status = json.loads(runner.invoke(release_app, ["status", *base]).stdout)
     assert status["release"] == b.release_id and status["valid"]
-    assert runner.invoke(release_app, ["rollback", *base]).exit_code == 0
+    # These engine-only releases omit Codex/app consumer fixtures. The full
+    # publisher recovery contract has separate behavioral tests; retain real
+    # pointer movement and engine doctor checks for this CLI dispatch test.
+    refresh = Mock()
+    with monkeypatch.context() as patch:
+        patch.setattr(publisher.codex_step, "run", refresh)
+        patch.setattr(publisher, "run_doctor", lambda home, codex_home, **kw: doctor.run(home))
+        assert runner.invoke(release_app, ["rollback", *base]).exit_code == 0
+    refresh.assert_called_once()
+    assert refresh.call_args.args == (home, None)
     history = json.loads(runner.invoke(release_app, ["history", *base]).stdout)
     assert [r["action"] for r in history] == ["flip", "flip", "rollback"]
     plan = json.loads(runner.invoke(release_app, ["prune", "--keep", "1", *base]).stdout)

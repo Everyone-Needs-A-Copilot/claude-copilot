@@ -8,12 +8,14 @@ from __future__ import annotations
 import json
 import os
 from pathlib import Path
+from unittest.mock import Mock
 
 import pytest
 from typer.testing import CliRunner
 
 from cc.commands.release import release_app
-from cc.core.release.engine import build, layout, pointer
+from cc.core.release import publish as publisher
+from cc.core.release.engine import build, doctor, layout, pointer
 
 from .conftest import fake_post_build, fake_verifier
 
@@ -69,7 +71,7 @@ def test_every_subcommand_leaves_the_real_home_untouched(machine, tmp_path):
         assert snapshot(real) == before, cmd
 
 
-def test_flip_and_rollback_move_only_the_isolated_pointer(machine, make_sources, tmp_path):
+def test_flip_and_rollback_move_only_the_isolated_pointer(machine, make_sources, tmp_path, monkeypatch):
     real, iso = machine
     first = build.build_release(make_sources("v1"), None, verifier=fake_verifier, post_build=fake_post_build)
     second = build.build_release(make_sources("v2"), None, verifier=fake_verifier, post_build=fake_post_build)
@@ -77,7 +79,18 @@ def test_flip_and_rollback_move_only_the_isolated_pointer(machine, make_sources,
     before = snapshot(real)
     assert run("flip", first.release_id).exit_code == 0
     assert run("flip", second.release_id).exit_code == 0
-    assert run("rollback").exit_code == 0
+    # This fixture builds engine-only releases, without a Codex marketplace or
+    # installed app. Keep the actual rollback/pointer path and engine checks;
+    # provide only the consumer collaborators absent from these fixtures.
+    refresh = Mock()
+    with monkeypatch.context() as patch:
+        patch.setattr(publisher.codex_step, "run", refresh)
+        patch.setattr(publisher, "run_doctor", lambda home, codex_home, **kw: doctor.run(home))
+        assert run("rollback").exit_code == 0
+    refresh.assert_called_once()
+    selected_home, selected_codex_home = refresh.call_args.args
+    assert layout.copilot_home(selected_home) == iso / ".copilot"
+    assert (selected_codex_home or publisher.codex_step.default_codex_home(selected_home)) == iso / ".codex"
     assert pointer.current_release_id() == first.release_id
     assert pointer.current_release_id(iso) == first.release_id
     assert [r["action"] for r in json.loads(run("history").output)][-3:] == ["flip", "flip", "rollback"]

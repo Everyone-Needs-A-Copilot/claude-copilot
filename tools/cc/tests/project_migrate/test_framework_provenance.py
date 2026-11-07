@@ -6,7 +6,7 @@ from pathlib import Path
 
 from cc.core.project_migrate import build_known, plan_migration, scan_project
 from cc.core.project_migrate.framework_index import build_index
-from tests.project_migrate.test_framework_copies import _commit, _git
+from tests.project_migrate.test_framework_copies import _commit, _git, _release, release_signer
 
 
 def _write(root: Path, rel: str, text: str) -> Path:
@@ -16,7 +16,7 @@ def _write(root: Path, rel: str, text: str) -> Path:
     return path
 
 
-def test_history_provenance_excludes_products_but_keeps_retired_capabilities(tmp_path: Path):
+def test_history_provenance_excludes_products_but_keeps_retired_capabilities(tmp_path: Path, release_signer):
     framework = tmp_path / "knowledge-copilot-internal"
     framework.mkdir()
     _git(framework, "init", "-q", "-b", "main")
@@ -42,6 +42,7 @@ def test_history_provenance_excludes_products_but_keeps_retired_capabilities(tmp
     for rel, data in (product | capabilities).items():
         _write(framework, rel, data)
     _commit(framework, "historical products and distributed capabilities")
+    _release(framework, "v1")
     # A later commit retires both product and framework files. The index must
     # distinguish their historical roles without relying on current file existence.
     for rel in product | capabilities:
@@ -70,7 +71,7 @@ def test_release_snapshot_has_same_provenance_boundary(tmp_path: Path):
     assert index.matches(snapshot / "scripts/check-current.py")
 
 
-def test_declared_project_plugin_is_kept_without_hiding_real_copies(tmp_path: Path):
+def test_declared_project_plugin_is_kept_without_hiding_real_copies(tmp_path: Path, release_signer):
     import json
 
     framework = tmp_path / "framework"
@@ -78,6 +79,7 @@ def test_declared_project_plugin_is_kept_without_hiding_real_copies(tmp_path: Pa
     _git(framework, "init", "-q", "-b", "main")
     _write(framework, "plugins/org/skills/cw/SKILL.md", "shared skill\n")
     _commit(framework, "distributed plugin")
+    _release(framework, "v1")
     project = tmp_path / "project"
     project.mkdir()
     _write(project, "plugins/owned/skills/cw/SKILL.md", "shared skill\n")
