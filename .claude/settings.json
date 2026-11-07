@@ -26,7 +26,7 @@
     ],
     "SubagentStop": [
       {
-        "matcher": "me|qa",
+        "matcher": ".*",
         "hooks": [
           {
             "type": "command",

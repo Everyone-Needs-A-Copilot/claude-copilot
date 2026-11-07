@@ -129,6 +129,19 @@ for task in tasks:
     if not task:
         continue
     meta = metadata(task)
+    stage = meta.get("stageRequirement")
+    if stage:
+        # T1/T2 enrollment is enforced too; no legacy artifact-only fallback.
+        try:
+            cap = run_json(["tc", "cycle", "capability", "--json"])
+            if not isinstance(cap, dict) or 2 not in cap.get("schemaVersions", []) or cap.get("stagePolicyVersion") != 1:
+                raise ValueError("stage-capable tc is required")
+            result = run_json(["tc", "task", "check-qa", str(task["id"]), "--json"])
+            if not isinstance(result, dict) or result.get("approved") is not True:
+                raise ValueError("stage predicate refused completion")
+        except (subprocess.SubprocessError, ValueError, KeyError, TypeError):
+            blocked.append(f"TASK-{task['id']}: enrolled stage is missing, stale or unsupported")
+            continue
     requires_qa = bool(meta.get("requiresQa"))
     if not requires_qa:
         continue

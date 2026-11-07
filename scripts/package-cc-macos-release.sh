@@ -32,6 +32,8 @@ Usage: scripts/package-cc-macos-release.sh \
   [--output-dir PATH]
 
 Required environment:
+  TC_STAGE_PACKET              Exported source-ready packet for this exact signed source
+  TC_STAGE_PACKET_SHA256       Approved packet SHA-256, supplied independently
   CT_SIGN_IDENTITY              Developer ID Application identity
   CT_NOTARY_KEYCHAIN_PROFILE    notarytool Keychain profile
 
@@ -174,6 +176,13 @@ git -C "${source_checkout}" fetch --quiet origin \
 "${SCRIPT_DIR}/verify-foundation-release.sh" \
     "${source_checkout}" "${SOURCE_REF}" "${SOURCE_COMMIT}"
 git -c core.hooksPath=/dev/null -C "${source_checkout}" checkout --quiet --detach "${SOURCE_COMMIT}"
+
+# Source authority above authorizes the candidate verifier; never use an ambient tc.
+[[ -n "${TC_STAGE_PACKET:-}" && "${TC_STAGE_PACKET_SHA256:-}" =~ ^[0-9a-f]{64}$ ]] ||
+    die "TC_STAGE_PACKET and its approved TC_STAGE_PACKET_SHA256 are required"
+"${BOOTSTRAP_PYTHON}" "${source_checkout}/scripts/stage-release-gate.py" \
+    --file "${TC_STAGE_PACKET}" --sha256 "${TC_STAGE_PACKET_SHA256}" \
+    --root "${source_checkout}" --source-commit "${SOURCE_COMMIT}" --phase source-ready
 
 if [[ -n "${CT_NOTARY_KEYCHAIN_PROFILE:-}" ]]; then
     echo "cc release: checking notarization profile before the build"

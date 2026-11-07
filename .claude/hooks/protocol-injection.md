@@ -68,3 +68,5 @@ To register a new reference for future sessions:
 cc config set refs.<name> <value>          # e.g. cc config set refs.cli_copilot /path/to/cli
 cc memory store --type reference "<text>"  # free-text reference entry
 ```
+
+For new substantial managed work, load the shared parallel-execution policy and require `tc cycle capability --json` schema2 before enrollment. Freeze the consumer/check inventory, use the recorded CYCLE envelope, and bind actual native start/stop observations to its lease. Missing capability or unknown shutdown is a hold, not a schema1 fallback. The coordinator refills the durable ready queue on real native events; tc does not spawn agents.

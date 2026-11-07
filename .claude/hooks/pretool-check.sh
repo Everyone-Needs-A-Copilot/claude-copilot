@@ -1277,7 +1277,21 @@ rule_cycle_dispatch() {
   [[ "$TOOL_NAME" != "Agent" ]] && return 0
   local has_envelope
   has_envelope="$("$JQ" -r '(.tool_input.prompt // "") | test("(?m)^CYCLE(?:-CWD)?:")' <<< "$PAYLOAD" 2>/dev/null)" || has_envelope=false
-  [[ "$has_envelope" != "true" ]] && return 0
+  # New managed projects cannot drop the envelope to bypass a claimed permit.
+  # The installed tc owns enrollment; native hooks never maintain a second registry.
+  local context project_dir
+  project_dir="${CLAUDE_PROJECT_DIR:-$PWD}"
+  if ! context="$(cd "$project_dir" && "$QA_GATE_TC_BIN" cycle dispatch-context --cwd "$project_dir" --json 2>/dev/null)"; then
+    deny "Cycle dispatch denied (stage-authority-unavailable). Restore stage-capable tc; do not fall back to untracked native work."
+  fi
+  "$JQ" -e '(.managed | type) == "boolean" and (.cycles | type) == "array"' <<< "$context" >/dev/null 2>&1 ||
+    deny "Cycle dispatch denied (invalid-stage-context). Restore the stage authority."
+  if [[ "$has_envelope" != "true" ]]; then
+    if "$JQ" -e '.managed == true' <<< "$context" >/dev/null 2>&1; then
+      deny "Cycle dispatch denied (managed-envelope-required). Use the enrolled cycle, stream and verified execution root."
+    fi
+    return 0
+  fi
   _cycle_dispatch_envelope || deny "Cycle dispatch denied (malformed-cycle-envelope). Use the recorded cycle, stream and execution directory."
   local role result task blocked_task
   local -a verify_args

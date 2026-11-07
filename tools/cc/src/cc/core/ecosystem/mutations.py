@@ -298,7 +298,7 @@ _USER_SHIM = "$HOME/.copilot/current/claude-copilot/.claude/hooks/copilot-hook.s
 _USER_EVENTS: tuple[tuple[str, str, str], ...] = (
     ("SessionStart", "startup|resume|clear|compact", "session-start"),
     ("PreToolUse", "Bash|Read|Edit|Write|Agent", "pretool-check"),
-    ("SubagentStop", "me|qa", "subagent-stop"),
+    ("SubagentStop", ".*", "subagent-stop"),
     ("UserPromptSubmit", "", "user-prompt-submit"),
     ("PreCompact", "", "pre-compact-handoff"),
 )
