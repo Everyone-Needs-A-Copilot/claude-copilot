@@ -10,11 +10,10 @@ from dataclasses import replace
 from pathlib import Path
 
 import pytest
-from typer.testing import CliRunner
-
 from cc.commands.release import release_app
 from cc.core.release.engine import layout, schema
 from cc.core.release.stage_gate import candidate_inputs_sha256, require_activation
+from typer.testing import CliRunner
 
 
 def candidate(tmp_path, version=None):
