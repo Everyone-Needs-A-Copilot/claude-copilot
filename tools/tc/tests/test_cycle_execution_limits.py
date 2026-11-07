@@ -124,3 +124,119 @@ def test_root_runtime_ceiling_counts_sibling_durations_once(db_path, monkeypatch
     assert usage["progress"]["runtime_seconds"] == pytest.approx(12)
     with pytest.raises(REFUSAL):
         begin(db_path, children[2])
+
+
+def managed_world(tmp_path, *, count=2, ceiling=5):
+    """Governed dispatch fixture: real policy/source scope, no provider calls."""
+    from tests.cycle_stage_fixtures import make_world
+    def configure(plan, root, db):
+        metadata = {"requiresQa": True, "acceptanceContract": {"schemaVersion": 2,
+                    "criteria": [{"id": "BEHAVIOR", "expected": "Declared item is correct."}],
+                    "sources": ["src/shared.py"]}}
+        for task in [plan["task"], *(s["task"] for s in plan["streams"])]:
+            api.update_task(task_id=task, metadata=metadata, db_path=db)
+            ex.register_limits(task_id=task, root=root, ceiling_attempts=ceiling,
+                               timeout_seconds=30, db_path=db)
+        for spec in plan["streams"]:
+            ex.bind_scope(root_task_id=plan["task"], task_id=spec["task"],
+                          criterion_map={"BEHAVIOR": "BEHAVIOR"}, db_path=db)
+    w = make_world(tmp_path, count=count, configure=configure)
+    w.freeze()
+    return w
+
+
+def governed_status(w):
+    return ex.execution_status(task_id=w.plan["task"], db_path=w.db)
+
+
+def test_dispatch_consumption_atomically_begins_one_attempt_claim_alone_is_free(tmp_path):
+    from tc.services import cycles
+    w = managed_world(tmp_path)
+    claim = cycles.claim_stream(cycle=w.cycle, stream="q1", agent="qa", cwd=w.root, db_path=w.db)
+    assert governed_status(w)["usage"]["attempts"] == 0
+    cycles.verify_dispatch(cycle=w.cycle, stream="q1", role="qa", cwd=w.root, db_path=w.db)
+    status = governed_status(w)
+    assert status["usage"]["attempts"] == 1
+    assert status["attempts"][0]["task_id"] == w.plan["streams"][0]["task"]
+    assert status["attempts"][0]["state"] == "running"
+    assert claim["token"]
+
+
+def test_native_start_result_and_observed_stop_settle_exactly_one_attempt(tmp_path, monkeypatch):
+    w = managed_world(tmp_path, count=1)
+    now = ex.time.time()
+    monkeypatch.setattr(ex.time, "time", lambda: now)
+    w.start("q1")
+    assert governed_status(w)["usage"]["attempts"] == 1
+    w.result("q1", "C1")
+    assert governed_status(w)["attempts"][0]["state"] == "running", "A passing result does not prove worker shutdown."
+    now += 5
+    w.stop("q1")
+    status = governed_status(w)
+    assert status["usage"]["attempts"] == 1
+    assert status["attempts"][0]["state"] == "succeeded"
+    assert status["progress"]["runtime_seconds"] >= 5
+    assert status["usage"]["calls"] == 0
+
+
+def test_consumed_permit_crash_retains_attempt_and_cannot_dispatch_again(tmp_path):
+    from tc.services import cycles, cycle_stages
+    w = managed_world(tmp_path, count=1)
+    w.start("q1", native=False)  # native tool return is unknown after coordinator interruption
+    first = governed_status(w)
+    assert first["usage"]["attempts"] == 1
+    assert first["attempts"][0]["state"] == "running"
+    with pytest.raises(REFUSAL):
+        cycles.verify_dispatch(cycle=w.cycle, stream="q1", role="qa", cwd=w.root, db_path=w.db)
+    with pytest.raises(REFUSAL):
+        cycles.claim_stream(cycle=w.cycle, stream="q1", agent="retry", cwd=w.root, db_path=w.db)
+    assert governed_status(w)["usage"]["attempts"] == 1
+    assert cycle_stages.audit_cycle(cycle=w.cycle, db_path=w.db)["unresolvedNative"]
+
+
+def test_root_attempt_ceiling_blocks_sibling_dispatch_without_consuming_permit(tmp_path):
+    from tc.services import cycles
+    w = managed_world(tmp_path, ceiling=1)
+    w.start("q1")
+    with pytest.raises(REFUSAL):
+        cycles.claim_stream(cycle=w.cycle, stream="q2", agent="sibling", cwd=w.root, db_path=w.db)
+        cycles.verify_dispatch(cycle=w.cycle, stream="q2", role="qa", cwd=w.root, db_path=w.db)
+    assert governed_status(w)["usage"]["attempts"] == 1
+    assert not (w.status()["streams"]["q2"]["claim"] or {}).get("dispatchAuthorized")
+
+
+def test_stop_without_result_never_fabricates_success_or_free_retry(tmp_path):
+    w = managed_world(tmp_path, count=1)
+    w.start("q1")
+    w.stop("q1")
+    status = governed_status(w)
+    assert status["usage"]["attempts"] == 1
+    assert status["attempts"][0]["state"] != "succeeded"
+    with pytest.raises(REFUSAL):
+        w.collect()
+
+
+def test_failed_result_settles_failure_and_stop_retry_does_not_charge_twice(tmp_path):
+    from tc.services import cycles
+    w = managed_world(tmp_path, count=1)
+    claim = w.start("q1")
+    w.result("q1", "C1", "failed", defect="D1")
+    receipt = {"leaseToken": claim["token"], "stopped": True, "artifact": w.artifact()}
+    for _ in range(2):
+        cycles.record_event(cycle=w.cycle, stream="q1", event="stopped", receipt=receipt, db_path=w.db)
+    status = governed_status(w)
+    assert status["usage"]["attempts"] == 1
+    assert status["attempts"][0]["state"] == "failed"
+
+
+def test_foreign_lease_cannot_settle_actual_attempt(tmp_path):
+    from tc.services import cycles
+    w = managed_world(tmp_path, count=1)
+    w.start("q1")
+    w.result("q1", "C1")
+    with pytest.raises(REFUSAL):
+        cycles.record_event(cycle=w.cycle, stream="q1", event="stopped",
+                            receipt={"leaseToken": "other", "stopped": True, "artifact": w.artifact()}, db_path=w.db)
+    status = governed_status(w)
+    assert status["usage"]["attempts"] == 1
+    assert status["attempts"][0]["state"] == "running"
