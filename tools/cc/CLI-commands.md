@@ -87,9 +87,9 @@ Generated from the registered parser. Command callbacks were not executed. For i
  Weekly outcomes from every project's open tasks. Read-only.                                        
                                                                                                     
 ╭─ Options ────────────────────────────────────────────────────────────────────────────────────────╮
-│ --week        <str>  Reference date YYYY-MM-DD; default today.                                   │
-│ --json               Output JSON.                                                                │
-│ --help               Show this message and exit.                                                 │
+│ --week        TEXT  Reference date YYYY-MM-DD; default today.                                    │
+│ --json              Output JSON.                                                                 │
+│ --help              Show this message and exit.                                                  │
 ╰──────────────────────────────────────────────────────────────────────────────────────────────────╯
 ```
 
@@ -102,22 +102,22 @@ Generated from the registered parser. Command callbacks were not executed. For i
  Discover personal repositories, then optionally create confirmed-missing ones.                     
                                                                                                     
 ╭─ Options ────────────────────────────────────────────────────────────────────────────────────────╮
-│ --scope                  <str>  Repository scope; currently personal. [default: personal]        │
-│ --components             <str>  Comma-separated ecosystem components.                            │
-│                                 [default: knowledge,cli,claude,codex]                            │
-│ --apply                         Create confirmed-missing private repositories.                   │
-│ --json                          Emit the versioned onboarding report.                            │
-│ --org                    <str>  Organization slug for the complete ecosystem transaction.        │
-│ --products               <str>  Comma-separated Copilot products. [default: claude,codex]        │
-│ --adopt-existing         <str>  Comma-separated components (or `ssh`, for the device's existing  │
-│                                 GitHub SSH alias) whose existing content the person consented to │
-│                                 include (B1). Scoped per item: each is decided on its own, never │
-│                                 all-or-nothing. Any adoptable item left out of this list is a    │
-│                                 no-op.                                                           │
-│ --repository-root        <str>  Visible folder where ecosystem repositories are kept. When       │
-│                                 omitted, cc uses the saved folder or a single unambiguous match  │
-│                                 inside approved project roots.                                   │
-│ --help                          Show this message and exit.                                      │
+│ --scope                  TEXT  Repository scope; currently personal. [default: personal]         │
+│ --components             TEXT  Comma-separated ecosystem components.                             │
+│                                [default: knowledge,cli,claude,codex]                             │
+│ --apply                        Create confirmed-missing private repositories.                    │
+│ --json                         Emit the versioned onboarding report.                             │
+│ --org                    TEXT  Organization slug for the complete ecosystem transaction.         │
+│ --products               TEXT  Comma-separated Copilot products. [default: claude,codex]         │
+│ --adopt-existing         TEXT  Comma-separated components (or `ssh`, for the device's existing   │
+│                                GitHub SSH alias) whose existing content the person consented to  │
+│                                include (B1). Scoped per item: each is decided on its own, never  │
+│                                all-or-nothing. Any adoptable item left out of this list is a     │
+│                                no-op.                                                            │
+│ --repository-root        TEXT  Visible folder where ecosystem repositories are kept. When        │
+│                                omitted, cc uses the saved folder or a single unambiguous match   │
+│                                inside approved project roots.                                    │
+│ --help                         Show this message and exit.                                       │
 ╰──────────────────────────────────────────────────────────────────────────────────────────────────╯
 ```
 
@@ -130,9 +130,9 @@ Generated from the registered parser. Command callbacks were not executed. For i
  Show installation observations and the last verification run, without probes.                      
                                                                                                     
 ╭─ Options ────────────────────────────────────────────────────────────────────────────────────────╮
-│ --project,--root        <path>  Project to inspect (default: current directory). [default: .]    │
-│ --json                          Output local observations as JSON.                               │
-│ --help                          Show this message and exit.                                      │
+│ --project,--root        PATH  Project to inspect (default: current directory). [default: .]      │
+│ --json                        Output local observations as JSON.                                 │
+│ --help                        Show this message and exit.                                        │
 ╰──────────────────────────────────────────────────────────────────────────────────────────────────╯
 ```
 
@@ -159,23 +159,23 @@ Generated from the registered parser. Command callbacks were not executed. For i
 
 ```text
                                                                                                     
- Usage: cc resolve [OPTIONS] [key]                                                                  
+ Usage: cc resolve [OPTIONS] [KEY]                                                                  
                                                                                                     
  Print the resolved value of a single config key, OR (with `--explain` and no KEY) report the WS-A  
  `resolve --explain --json` ecosystem contract. Read-only in both modes -- does not take the        
  copilot lock.                                                                                      
                                                                                                     
 ╭─ Arguments ──────────────────────────────────────────────────────────────────────────────────────╮
-│   key      <str>  Dotted config key to resolve (e.g. paths.shared_docs). Omit together with      │
-│                   --explain for the ecosystem-resolve report.                                    │
+│   [key]      TEXT  Dotted config key to resolve (e.g. paths.shared_docs). Omit together with     │
+│                    --explain for the ecosystem-resolve report.                                   │
 ╰──────────────────────────────────────────────────────────────────────────────────────────────────╯
 ╭─ Options ────────────────────────────────────────────────────────────────────────────────────────╮
-│ --scope          <str>  machine | project | effective                                            │
-│ --explain               Explain the layered ecosystem resolution (winning layer per item, shadow │
-│                         chain, override-stale flags) instead of resolving a config key. Requires │
-│                         no KEY argument.                                                         │
-│ --json                  Output JSON (the WS-A resolve contract, in --explain mode).              │
-│ --help                  Show this message and exit.                                              │
+│ --scope          TEXT  machine | project | effective                                             │
+│ --explain              Explain the layered ecosystem resolution (winning layer per item, shadow  │
+│                        chain, override-stale flags) instead of resolving a config key. Requires  │
+│                        no KEY argument.                                                          │
+│ --json                 Output JSON (the WS-A resolve contract, in --explain mode).               │
+│ --help                 Show this message and exit.                                               │
 ╰──────────────────────────────────────────────────────────────────────────────────────────────────╯
 ```
 
@@ -230,7 +230,7 @@ Generated from the registered parser. Command callbacks were not executed. For i
 
 ```text
                                                                                                     
- Usage: cc connect [OPTIONS] {service_id}                                                           
+ Usage: cc connect [OPTIONS] SERVICE_ID                                                             
                                                                                                     
  Write locally-supplied secret VALUES into the per-user OS keychain for one service's missing       
  credential NAMES (WP-395 D-6, the manual keychain floor), then re-run `cc connections`' own        
@@ -247,8 +247,8 @@ Generated from the registered parser. Command callbacks were not executed. For i
  re-evaluation with no stdin at all.                                                                
                                                                                                     
 ╭─ Arguments ──────────────────────────────────────────────────────────────────────────────────────╮
-│ *    service_id      <str>  The service id/name to connect (from `cc connections --json`).       │
-│                             [required]                                                           │
+│ *    service_id      TEXT  The service id/name to connect (from `cc connections --json`).        │
+│                            [required]                                                            │
 ╰──────────────────────────────────────────────────────────────────────────────────────────────────╯
 ╭─ Options ────────────────────────────────────────────────────────────────────────────────────────╮
 │ --check          Re-evaluate and return the service's connection row only -- never reads stdin,  │
@@ -296,24 +296,23 @@ Generated from the registered parser. Command callbacks were not executed. For i
  refuse; the plain machine-wide sync is unchanged.                                                  
                                                                                                     
 ╭─ Options ────────────────────────────────────────────────────────────────────────────────────────╮
-│ --json                         Output the WS-A update contract as JSON.                          │
-│ --dry-run                      Compute the reconciling-sync plan WITHOUT writing/pruning         │
-│                                materialize-root content or the lockfile.                         │
-│ --project               <str>  RETIRED: materializing a project component. Refuses; use `cc      │
-│                                project init`.                                                    │
-│ --component             <str>  The component to materialize for --project (e.g. 'claude',        │
-│                                'codex').                                                         │
-│ --target-version        <str>  Target version for --project's --component (defaults to its       │
-│                                current recorded version -- an up-to-date no-op check).           │
-│ --release-tag           <str>  Published release tag licensing the --project apply (required to  │
-│                                actually apply a version change; an unverified target is          │
-│                                blocked).                                                         │
-│ --source-root           <str>  Content root to materialize --project's framework-owned files     │
-│                                from.                                                             │
-│ --fanout                       Machine-wide fan-out materialize sweep across every discovered    │
-│                                project's stale components (Component Sync Stream-E) instead of   │
-│                                the machine-wide ecosystem sync.                                  │
-│ --help                         Show this message and exit.                                       │
+│ --json                        Output the WS-A update contract as JSON.                           │
+│ --dry-run                     Compute the reconciling-sync plan WITHOUT writing/pruning          │
+│                               materialize-root content or the lockfile.                          │
+│ --project               TEXT  RETIRED: materializing a project component. Refuses; use `cc       │
+│                               project init`.                                                     │
+│ --component             TEXT  The component to materialize for --project (e.g. 'claude',         │
+│                               'codex').                                                          │
+│ --target-version        TEXT  Target version for --project's --component (defaults to its        │
+│                               current recorded version -- an up-to-date no-op check).            │
+│ --release-tag           TEXT  Published release tag licensing the --project apply (required to   │
+│                               actually apply a version change; an unverified target is blocked). │
+│ --source-root           TEXT  Content root to materialize --project's framework-owned files      │
+│                               from.                                                              │
+│ --fanout                      Machine-wide fan-out materialize sweep across every discovered     │
+│                               project's stale components (Component Sync Stream-E) instead of    │
+│                               the machine-wide ecosystem sync.                                   │
+│ --help                        Show this message and exit.                                        │
 ╰──────────────────────────────────────────────────────────────────────────────────────────────────╯
 ```
 
@@ -342,15 +341,15 @@ Generated from the registered parser. Command callbacks were not executed. For i
  module docstring for the never-destroy guarantees and the soft/hard split.                         
                                                                                                     
 ╭─ Options ────────────────────────────────────────────────────────────────────────────────────────╮
-│ --json                  Output the WS-A deprovision contract as JSON.                            │
-│ --dry-run               Compute the wipe plan WITHOUT removing/quarantining anything.            │
-│ --mode           <str>  'soft' (default): wipe materialized content, quarantine mirror clones so │
-│                         a flip-back restores without a re-clone. 'hard': also permanently delete │
-│                         mirror clones (including any quarantined ones).                          │
-│                         [default: soft]                                                          │
-│ --soft                  Shorthand for --mode soft (the default).                                 │
-│ --hard                  Shorthand for --mode hard.                                               │
-│ --help                  Show this message and exit.                                              │
+│ --json                 Output the WS-A deprovision contract as JSON.                             │
+│ --dry-run              Compute the wipe plan WITHOUT removing/quarantining anything.             │
+│ --mode           TEXT  'soft' (default): wipe materialized content, quarantine mirror clones so  │
+│                        a flip-back restores without a re-clone. 'hard': also permanently delete  │
+│                        mirror clones (including any quarantined ones).                           │
+│                        [default: soft]                                                           │
+│ --soft                 Shorthand for --mode soft (the default).                                  │
+│ --hard                 Shorthand for --mode hard.                                                │
+│ --help                 Show this message and exit.                                               │
 ╰──────────────────────────────────────────────────────────────────────────────────────────────────╯
 ```
 
@@ -395,19 +394,19 @@ Generated from the registered parser. Command callbacks were not executed. For i
 
 ```text
                                                                                                     
- Usage: cc memory store [OPTIONS] {content}                                                         
+ Usage: cc memory store [OPTIONS] CONTENT                                                           
                                                                                                     
  Store a new memory entry as a UUID-named markdown file.                                            
                                                                                                     
 ╭─ Arguments ──────────────────────────────────────────────────────────────────────────────────────╮
-│ *    content      <str>  Memory content to store. [required]                                     │
+│ *    content      TEXT  Memory content to store. [required]                                      │
 ╰──────────────────────────────────────────────────────────────────────────────────────────────────╯
 ╭─ Options ────────────────────────────────────────────────────────────────────────────────────────╮
-│ --type   -t      <str>  Entry type: decision|context|lesson|reference|person [default: context]  │
-│ --tags           <str>  Comma-separated tags, e.g. --tags auth,security                          │
-│ --scope  -s      <str>  Scope: project (default if in git repo) or global.                       │
-│ --json                  Output result as JSON.                                                   │
-│ --help                  Show this message and exit.                                              │
+│ --type   -t      TEXT  Entry type: decision|context|lesson|reference|person [default: context]   │
+│ --tags           TEXT  Comma-separated tags, e.g. --tags auth,security                           │
+│ --scope  -s      TEXT  Scope: project (default if in git repo) or global.                        │
+│ --json                 Output result as JSON.                                                    │
+│ --help                 Show this message and exit.                                               │
 ╰──────────────────────────────────────────────────────────────────────────────────────────────────╯
 ```
 
@@ -415,17 +414,17 @@ Generated from the registered parser. Command callbacks were not executed. For i
 
 ```text
                                                                                                     
- Usage: cc memory get [OPTIONS] {entry_id}                                                          
+ Usage: cc memory get [OPTIONS] ENTRY_ID                                                            
                                                                                                     
  Retrieve a memory entry by UUID (full or prefix match).                                            
                                                                                                     
 ╭─ Arguments ──────────────────────────────────────────────────────────────────────────────────────╮
-│ *    entry_id      <str>  Entry UUID (full or prefix). [required]                                │
+│ *    entry_id      TEXT  Entry UUID (full or prefix). [required]                                 │
 ╰──────────────────────────────────────────────────────────────────────────────────────────────────╯
 ╭─ Options ────────────────────────────────────────────────────────────────────────────────────────╮
-│ --scope  -s      <str>                                                                           │
+│ --scope  -s      TEXT                                                                            │
 │ --json                                                                                           │
-│ --help                  Show this message and exit.                                              │
+│ --help                 Show this message and exit.                                               │
 ╰──────────────────────────────────────────────────────────────────────────────────────────────────╯
 ```
 
@@ -438,11 +437,11 @@ Generated from the registered parser. Command callbacks were not executed. For i
  List memory entries, optionally filtered by type or tag.                                           
                                                                                                     
 ╭─ Options ────────────────────────────────────────────────────────────────────────────────────────╮
-│ --type   -t      <str>  Filter by type.                                                          │
-│ --tags           <str>  Filter by tag.                                                           │
-│ --scope  -s      <str>                                                                           │
+│ --type   -t      TEXT  Filter by type.                                                           │
+│ --tags           TEXT  Filter by tag.                                                            │
+│ --scope  -s      TEXT                                                                            │
 │ --json                                                                                           │
-│ --help                  Show this message and exit.                                              │
+│ --help                 Show this message and exit.                                               │
 ╰──────────────────────────────────────────────────────────────────────────────────────────────────╯
 ```
 
@@ -450,17 +449,17 @@ Generated from the registered parser. Command callbacks were not executed. For i
 
 ```text
                                                                                                     
- Usage: cc memory delete [OPTIONS] {entry_id}                                                       
+ Usage: cc memory delete [OPTIONS] ENTRY_ID                                                         
                                                                                                     
  Delete a memory entry file.                                                                        
                                                                                                     
 ╭─ Arguments ──────────────────────────────────────────────────────────────────────────────────────╮
-│ *    entry_id      <str>  Entry UUID (full or prefix). [required]                                │
+│ *    entry_id      TEXT  Entry UUID (full or prefix). [required]                                 │
 ╰──────────────────────────────────────────────────────────────────────────────────────────────────╯
 ╭─ Options ────────────────────────────────────────────────────────────────────────────────────────╮
-│ --scope  -s      <str>                                                                           │
-│ --yes    -y             Skip confirmation.                                                       │
-│ --help                  Show this message and exit.                                              │
+│ --scope  -s      TEXT                                                                            │
+│ --yes    -y            Skip confirmation.                                                        │
+│ --help                 Show this message and exit.                                               │
 ╰──────────────────────────────────────────────────────────────────────────────────────────────────╯
 ```
 
@@ -468,17 +467,17 @@ Generated from the registered parser. Command callbacks were not executed. For i
 
 ```text
                                                                                                     
- Usage: cc memory search [OPTIONS] {query}                                                          
+ Usage: cc memory search [OPTIONS] QUERY                                                            
                                                                                                     
  Search memory entries (FTS index when available, file-based fallback).                             
                                                                                                     
 ╭─ Arguments ──────────────────────────────────────────────────────────────────────────────────────╮
-│ *    query      <str>  Search query. [required]                                                  │
+│ *    query      TEXT  Search query. [required]                                                   │
 ╰──────────────────────────────────────────────────────────────────────────────────────────────────╯
 ╭─ Options ────────────────────────────────────────────────────────────────────────────────────────╮
-│ --scope  -s      <str>                                                                           │
+│ --scope  -s      TEXT                                                                            │
 │ --json                                                                                           │
-│ --help                  Show this message and exit.                                              │
+│ --help                 Show this message and exit.                                               │
 ╰──────────────────────────────────────────────────────────────────────────────────────────────────╯
 ```
 
@@ -491,10 +490,10 @@ Generated from the registered parser. Command callbacks were not executed. For i
  Manage the SQLite FTS search index (local cache, gitignored).                                      
                                                                                                     
 ╭─ Options ────────────────────────────────────────────────────────────────────────────────────────╮
-│ --rebuild                 Rebuild the FTS index from files.                                      │
-│ --status                  Show index freshness.                                                  │
-│ --scope    -s      <str>                                                                         │
-│ --help                    Show this message and exit.                                            │
+│ --rebuild                Rebuild the FTS index from files.                                       │
+│ --status                 Show index freshness.                                                   │
+│ --scope    -s      TEXT                                                                          │
+│ --help                   Show this message and exit.                                             │
 ╰──────────────────────────────────────────────────────────────────────────────────────────────────╯
 ```
 
@@ -502,7 +501,7 @@ Generated from the registered parser. Command callbacks were not executed. For i
 
 ```text
                                                                                                     
- Usage: cc memory export [OPTIONS] [query]                                                          
+ Usage: cc memory export [OPTIONS] [QUERY]                                                          
                                                                                                     
  Export memory entries to a portable Markdown or JSON bundle.                                       
                                                                                                     
@@ -519,15 +518,15 @@ Generated from the registered parser. Command callbacks were not executed. For i
      cc memory export --all --out dump.md   # write to file                                         
                                                                                                     
 ╭─ Arguments ──────────────────────────────────────────────────────────────────────────────────────╮
-│   query      <str>  Optional keyword filter — exports only entries matching this search query.   │
+│   [query]      TEXT  Optional keyword filter — exports only entries matching this search query.  │
 ╰──────────────────────────────────────────────────────────────────────────────────────────────────╯
 ╭─ Options ────────────────────────────────────────────────────────────────────────────────────────╮
-│ --type   -t      <str>   Filter by type: decision|context|lesson|reference|person.               │
-│ --all                    Export all entries (default when no query or --type is given).          │
-│ --json                   Export as a JSON array instead of Markdown.                             │
-│ --out            <path>  Write output to this file path instead of stdout.                       │
-│ --scope  -s      <str>                                                                           │
-│ --help                   Show this message and exit.                                             │
+│ --type   -t      TEXT  Filter by type: decision|context|lesson|reference|person.                 │
+│ --all                  Export all entries (default when no query or --type is given).            │
+│ --json                 Export as a JSON array instead of Markdown.                               │
+│ --out            PATH  Write output to this file path instead of stdout.                         │
+│ --scope  -s      TEXT                                                                            │
+│ --help                 Show this message and exit.                                               │
 ╰──────────────────────────────────────────────────────────────────────────────────────────────────╯
 ```
 
@@ -561,13 +560,13 @@ Generated from the registered parser. Command callbacks were not executed. For i
      cc memory check --no-commands --json                                                           
                                                                                                     
 ╭─ Options ────────────────────────────────────────────────────────────────────────────────────────╮
-│ --scope           -s      <str>                                                                  │
-│ --json                           Output structured JSON report.                                  │
-│ --no-paths                       Skip path-existence checks.                                     │
-│ --no-commands                    Skip command-resolves checks.                                   │
-│ --no-stale                       Skip staleness checks.                                          │
-│ --staleness-days          <int>  Days threshold for staleness warning. [default: 90]             │
-│ --help                           Show this message and exit.                                     │
+│ --scope           -s      TEXT                                                                   │
+│ --json                             Output structured JSON report.                                │
+│ --no-paths                         Skip path-existence checks.                                   │
+│ --no-commands                      Skip command-resolves checks.                                 │
+│ --no-stale                         Skip staleness checks.                                        │
+│ --staleness-days          INTEGER  Days threshold for staleness warning. [default: 90]           │
+│ --help                             Show this message and exit.                                   │
 ╰──────────────────────────────────────────────────────────────────────────────────────────────────╯
 ```
 
@@ -580,13 +579,12 @@ Generated from the registered parser. Command callbacks were not executed. For i
  Migrate legacy copilot-memory SQLite entries to the new file-per-entry format.                     
                                                                                                     
 ╭─ Options ────────────────────────────────────────────────────────────────────────────────────────╮
-│ --from-global                 Migrate from legacy ~/.claude/memory/*/memory.db databases.        │
-│ --status                      Show migration status: source DB entry count vs existing .md       │
-│                               files.                                                             │
-│ --dry-run                     Print what would be migrated without writing files.                │
-│ --scope        -s      <str>  Target scope: project (default if in git repo) or global.          │
-│ --all                         Migrate from all discovered legacy databases without prompting.    │
-│ --help                        Show this message and exit.                                        │
+│ --from-global                Migrate from legacy ~/.claude/memory/*/memory.db databases.         │
+│ --status                     Show migration status: source DB entry count vs existing .md files. │
+│ --dry-run                    Print what would be migrated without writing files.                 │
+│ --scope        -s      TEXT  Target scope: project (default if in git repo) or global.           │
+│ --all                        Migrate from all discovered legacy databases without prompting.     │
+│ --help                       Show this message and exit.                                         │
 ╰──────────────────────────────────────────────────────────────────────────────────────────────────╯
 ```
 
@@ -619,9 +617,9 @@ Generated from the registered parser. Command callbacks were not executed. For i
  List all discovered skills with name and description.                                              
                                                                                                     
 ╭─ Options ────────────────────────────────────────────────────────────────────────────────────────╮
-│ --scope        <str>  Scope to scan: project | machine | knowledge | all [default: all]          │
-│ --json                Output as JSON.                                                            │
-│ --help                Show this message and exit.                                                │
+│ --scope        TEXT  Scope to scan: project | machine | knowledge | all [default: all]           │
+│ --json               Output as JSON.                                                             │
+│ --help               Show this message and exit.                                                 │
 ╰──────────────────────────────────────────────────────────────────────────────────────────────────╯
 ```
 
@@ -629,17 +627,17 @@ Generated from the registered parser. Command callbacks were not executed. For i
 
 ```text
                                                                                                     
- Usage: cc skill search [OPTIONS] {query}                                                           
+ Usage: cc skill search [OPTIONS] QUERY                                                             
                                                                                                     
  Search skills by keyword (matches name, description, tags).                                        
                                                                                                     
 ╭─ Arguments ──────────────────────────────────────────────────────────────────────────────────────╮
-│ *    query      <str>  Search query (keyword match). [required]                                  │
+│ *    query      TEXT  Search query (keyword match). [required]                                   │
 ╰──────────────────────────────────────────────────────────────────────────────────────────────────╯
 ╭─ Options ────────────────────────────────────────────────────────────────────────────────────────╮
-│ --scope        <str>  Scope to scan: project | machine | knowledge | all [default: all]          │
-│ --json                Output as JSON.                                                            │
-│ --help                Show this message and exit.                                                │
+│ --scope        TEXT  Scope to scan: project | machine | knowledge | all [default: all]           │
+│ --json               Output as JSON.                                                             │
+│ --help               Show this message and exit.                                                 │
 ╰──────────────────────────────────────────────────────────────────────────────────────────────────╯
 ```
 
@@ -647,7 +645,7 @@ Generated from the registered parser. Command callbacks were not executed. For i
 
 ```text
                                                                                                     
- Usage: cc skill get [OPTIONS] {name}                                                               
+ Usage: cc skill get [OPTIONS] NAME                                                                 
                                                                                                     
  Print the full SKILL.md content (plain text, pipeable).                                            
                                                                                                     
@@ -656,12 +654,12 @@ Generated from the registered parser. Command callbacks were not executed. For i
  @include <(cc skill get stride-dread)                                                              
                                                                                                     
 ╭─ Arguments ──────────────────────────────────────────────────────────────────────────────────────╮
-│ *    name      <str>  Skill name (from frontmatter or directory name). [required]                │
+│ *    name      TEXT  Skill name (from frontmatter or directory name). [required]                 │
 ╰──────────────────────────────────────────────────────────────────────────────────────────────────╯
 ╭─ Options ────────────────────────────────────────────────────────────────────────────────────────╮
-│ --scope        <str>  Scope to scan: project | machine | knowledge | all [default: all]          │
-│ --json                Output content and provenance as JSON.                                     │
-│ --help                Show this message and exit.                                                │
+│ --scope        TEXT  Scope to scan: project | machine | knowledge | all [default: all]           │
+│ --json               Output content and provenance as JSON.                                      │
+│ --help               Show this message and exit.                                                 │
 ╰──────────────────────────────────────────────────────────────────────────────────────────────────╯
 ```
 
@@ -669,7 +667,7 @@ Generated from the registered parser. Command callbacks were not executed. For i
 
 ```text
                                                                                                     
- Usage: cc skill path [OPTIONS] {name}                                                              
+ Usage: cc skill path [OPTIONS] NAME                                                                
                                                                                                     
  Print the absolute path to a SKILL.md file (plain text, pipeable).                                 
                                                                                                     
@@ -679,11 +677,11 @@ Generated from the registered parser. Command callbacks were not executed. For i
  @include $(cc skill path stride-dread)                                                             
                                                                                                     
 ╭─ Arguments ──────────────────────────────────────────────────────────────────────────────────────╮
-│ *    name      <str>  Skill name (from frontmatter or directory name). [required]                │
+│ *    name      TEXT  Skill name (from frontmatter or directory name). [required]                 │
 ╰──────────────────────────────────────────────────────────────────────────────────────────────────╯
 ╭─ Options ────────────────────────────────────────────────────────────────────────────────────────╮
-│ --scope        <str>  Scope to scan: project | machine | knowledge | all [default: all]          │
-│ --help                Show this message and exit.                                                │
+│ --scope        TEXT  Scope to scan: project | machine | knowledge | all [default: all]           │
+│ --help               Show this message and exit.                                                 │
 ╰──────────────────────────────────────────────────────────────────────────────────────────────────╯
 ```
 
@@ -691,20 +689,20 @@ Generated from the registered parser. Command callbacks were not executed. For i
 
 ```text
                                                                                                     
- Usage: cc skill select [OPTIONS] [query]                                                           
+ Usage: cc skill select [OPTIONS] [QUERY]                                                           
                                                                                                     
  Load relevant optional context with a reproducible selection receipt.                              
                                                                                                     
 ╭─ Arguments ──────────────────────────────────────────────────────────────────────────────────────╮
-│   query      <str>  Keywords for optional skill selection.                                       │
+│   [query]      TEXT  Keywords for optional skill selection.                                      │
 ╰──────────────────────────────────────────────────────────────────────────────────────────────────╯
 ╭─ Options ────────────────────────────────────────────────────────────────────────────────────────╮
-│ --required         <str>               Required skill; repeatable, never budget-truncated.       │
-│ --max-chars        <int range> [x>=0]  Character budget for returned content, not tokens.        │
-│                                        [default: 12000]                                          │
-│ --scope            <str>               project | machine | knowledge | all [default: all]        │
-│ --json                                 Return content and source/selection receipts.             │
-│ --help                                 Show this message and exit.                               │
+│ --required         TEXT                  Required skill; repeatable, never budget-truncated.     │
+│ --max-chars        INTEGER RANGE [x>=0]  Character budget for returned content, not tokens.      │
+│                                          [default: 12000]                                        │
+│ --scope            TEXT                  project | machine | knowledge | all [default: all]      │
+│ --json                                   Return content and source/selection receipts.           │
+│ --help                                   Show this message and exit.                             │
 ╰──────────────────────────────────────────────────────────────────────────────────────────────────╯
 ```
 
@@ -739,18 +737,18 @@ Generated from the registered parser. Command callbacks were not executed. For i
 
 ```text
                                                                                                     
- Usage: cc config get [OPTIONS] {key}                                                               
+ Usage: cc config get [OPTIONS] KEY                                                                 
                                                                                                     
  Get a resolved configuration value.                                                                
                                                                                                     
 ╭─ Arguments ──────────────────────────────────────────────────────────────────────────────────────╮
-│ *    key      <str>  Dotted config key (e.g. paths.shared_docs). [required]                      │
+│ *    key      TEXT  Dotted config key (e.g. paths.shared_docs). [required]                       │
 ╰──────────────────────────────────────────────────────────────────────────────────────────────────╯
 ╭─ Options ────────────────────────────────────────────────────────────────────────────────────────╮
-│ --scope        <str>  Restrict to: machine | project | effective (default).                      │
-│ --raw                 Print raw value without formatting.                                        │
-│ --json                Output as JSON.                                                            │
-│ --help                Show this message and exit.                                                │
+│ --scope        TEXT  Restrict to: machine | project | effective (default).                       │
+│ --raw                Print raw value without formatting.                                         │
+│ --json               Output as JSON.                                                             │
+│ --help               Show this message and exit.                                                 │
 ╰──────────────────────────────────────────────────────────────────────────────────────────────────╯
 ```
 
@@ -758,15 +756,15 @@ Generated from the registered parser. Command callbacks were not executed. For i
 
 ```text
                                                                                                     
- Usage: cc config set [OPTIONS] {key} {value}                                                       
+ Usage: cc config set [OPTIONS] KEY VALUE                                                           
                                                                                                     
  Set a configuration value (machine config by default).                                             
                                                                                                     
 ╭─ Arguments ──────────────────────────────────────────────────────────────────────────────────────╮
-│ *    key        <str>  Dotted config key. [required]                                             │
-│ *    value      <str>  Value to set. For list-valued keys (e.g. paths.knowledge_repo), a         │
-│                        comma-separated value (e.g. 'a,b,c') is parsed into a list.               │
-│                        [required]                                                                │
+│ *    key        TEXT  Dotted config key. [required]                                              │
+│ *    value      TEXT  Value to set. For list-valued keys (e.g. paths.knowledge_repo), a          │
+│                       comma-separated value (e.g. 'a,b,c') is parsed into a list.                │
+│                       [required]                                                                 │
 ╰──────────────────────────────────────────────────────────────────────────────────────────────────╯
 ╭─ Options ────────────────────────────────────────────────────────────────────────────────────────╮
 │ --project          Write to project config instead of machine config.                            │
@@ -778,7 +776,7 @@ Generated from the registered parser. Command callbacks were not executed. For i
 
 ```text
                                                                                                     
- Usage: cc config add [OPTIONS] {key} {value}                                                       
+ Usage: cc config add [OPTIONS] KEY VALUE                                                           
                                                                                                     
  Append a value to a list-valued config key, idempotently.                                          
                                                                                                     
@@ -787,8 +785,8 @@ Generated from the registered parser. Command callbacks were not executed. For i
  the first entry in the list is consulted first at resolution time.                                 
                                                                                                     
 ╭─ Arguments ──────────────────────────────────────────────────────────────────────────────────────╮
-│ *    key        <str>  Dotted config key (list-valued, e.g. paths.knowledge_repo). [required]    │
-│ *    value      <str>  Value to append to the list. [required]                                   │
+│ *    key        TEXT  Dotted config key (list-valued, e.g. paths.knowledge_repo). [required]     │
+│ *    value      TEXT  Value to append to the list. [required]                                    │
 ╰──────────────────────────────────────────────────────────────────────────────────────────────────╯
 ╭─ Options ────────────────────────────────────────────────────────────────────────────────────────╮
 │ --project          Write to project config instead of machine config.                            │
@@ -800,15 +798,15 @@ Generated from the registered parser. Command callbacks were not executed. For i
 
 ```text
                                                                                                     
- Usage: cc config remove [OPTIONS] {key} {value}                                                    
+ Usage: cc config remove [OPTIONS] KEY VALUE                                                        
                                                                                                     
  Remove a value from a list-valued config key (symmetric to `add`).                                 
                                                                                                     
  No-op if the value is not present.                                                                 
                                                                                                     
 ╭─ Arguments ──────────────────────────────────────────────────────────────────────────────────────╮
-│ *    key        <str>  Dotted config key (list-valued, e.g. paths.knowledge_repo). [required]    │
-│ *    value      <str>  Value to remove from the list. [required]                                 │
+│ *    key        TEXT  Dotted config key (list-valued, e.g. paths.knowledge_repo). [required]     │
+│ *    value      TEXT  Value to remove from the list. [required]                                  │
 ╰──────────────────────────────────────────────────────────────────────────────────────────────────╯
 ╭─ Options ────────────────────────────────────────────────────────────────────────────────────────╮
 │ --project          Remove from project config instead of machine config.                         │
@@ -820,12 +818,12 @@ Generated from the registered parser. Command callbacks were not executed. For i
 
 ```text
                                                                                                     
- Usage: cc config unset [OPTIONS] {key}                                                             
+ Usage: cc config unset [OPTIONS] KEY                                                               
                                                                                                     
  Remove a key from machine or project config.                                                       
                                                                                                     
 ╭─ Arguments ──────────────────────────────────────────────────────────────────────────────────────╮
-│ *    key      <str>  Dotted config key to remove. [required]                                     │
+│ *    key      TEXT  Dotted config key to remove. [required]                                      │
 ╰──────────────────────────────────────────────────────────────────────────────────────────────────╯
 ╭─ Options ────────────────────────────────────────────────────────────────────────────────────────╮
 │ --project          Remove from project config.                                                   │
@@ -842,9 +840,9 @@ Generated from the registered parser. Command callbacks were not executed. For i
  List configuration keys and values with source annotation.                                         
                                                                                                     
 ╭─ Options ────────────────────────────────────────────────────────────────────────────────────────╮
-│ --scope        <str>  Show: machine | project | effective (default).                             │
-│ --json                Output as JSON.                                                            │
-│ --help                Show this message and exit.                                                │
+│ --scope        TEXT  Show: machine | project | effective (default).                              │
+│ --json               Output as JSON.                                                             │
+│ --help               Show this message and exit.                                                 │
 ╰──────────────────────────────────────────────────────────────────────────────────────────────────╯
 ```
 
@@ -852,12 +850,12 @@ Generated from the registered parser. Command callbacks were not executed. For i
 
 ```text
                                                                                                     
- Usage: cc config where [OPTIONS] {key}                                                             
+ Usage: cc config where [OPTIONS] KEY                                                               
                                                                                                     
  Show which config layer provides a key's value.                                                    
                                                                                                     
 ╭─ Arguments ──────────────────────────────────────────────────────────────────────────────────────╮
-│ *    key      <str>  Dotted config key. [required]                                               │
+│ *    key      TEXT  Dotted config key. [required]                                                │
 ╰──────────────────────────────────────────────────────────────────────────────────────────────────╯
 ╭─ Options ────────────────────────────────────────────────────────────────────────────────────────╮
 │ --json                                                                                           │
@@ -874,8 +872,8 @@ Generated from the registered parser. Command callbacks were not executed. For i
  Validate config files against the schema.                                                          
                                                                                                     
 ╭─ Options ────────────────────────────────────────────────────────────────────────────────────────╮
-│ --scope        <str>  Validate: machine | project | both. [default: both]                        │
-│ --help                Show this message and exit.                                                │
+│ --scope        TEXT  Validate: machine | project | both. [default: both]                         │
+│ --help               Show this message and exit.                                                 │
 ╰──────────────────────────────────────────────────────────────────────────────────────────────────╯
 ```
 
@@ -961,17 +959,17 @@ Generated from the registered parser. Command callbacks were not executed. For i
 
 ```text
                                                                                                     
- Usage: cc docs resolve [OPTIONS] {pkg}                                                             
+ Usage: cc docs resolve [OPTIONS] PKG                                                               
                                                                                                     
  Detect the installed/declared version of a package.                                                
                                                                                                     
 ╭─ Arguments ──────────────────────────────────────────────────────────────────────────────────────╮
-│ *    pkg      <str>  Package name (e.g. 'react', 'requests'). [required]                         │
+│ *    pkg      TEXT  Package name (e.g. 'react', 'requests'). [required]                          │
 ╰──────────────────────────────────────────────────────────────────────────────────────────────────╯
 ╭─ Options ────────────────────────────────────────────────────────────────────────────────────────╮
-│ --lang  -l      <str>  Ecosystem: js|npm|python|pip  (auto-detected when omitted).               │
-│ --json                 Output as JSON.                                                           │
-│ --help                 Show this message and exit.                                               │
+│ --lang  -l      TEXT  Ecosystem: js|npm|python|pip  (auto-detected when omitted).                │
+│ --json                Output as JSON.                                                            │
+│ --help                Show this message and exit.                                                │
 ╰──────────────────────────────────────────────────────────────────────────────────────────────────╯
 ```
 
@@ -979,18 +977,18 @@ Generated from the registered parser. Command callbacks were not executed. For i
 
 ```text
                                                                                                     
- Usage: cc docs get [OPTIONS] {pkg}                                                                 
+ Usage: cc docs get [OPTIONS] PKG                                                                   
                                                                                                     
  Fetch documentation for a package.                                                                 
                                                                                                     
 ╭─ Arguments ──────────────────────────────────────────────────────────────────────────────────────╮
-│ *    pkg      <str>  Package name. [required]                                                    │
+│ *    pkg      TEXT  Package name. [required]                                                     │
 ╰──────────────────────────────────────────────────────────────────────────────────────────────────╯
 ╭─ Options ────────────────────────────────────────────────────────────────────────────────────────╮
-│ --topic    -t      <str>               Documentation topic / query string (optional).            │
-│ --lang     -l      <str>               Ecosystem: js|npm|python|pip  (auto-detected when         │
+│ --topic    -t      TEXT                Documentation topic / query string (optional).            │
+│ --lang     -l      TEXT                Ecosystem: js|npm|python|pip  (auto-detected when         │
 │                                        omitted).                                                 │
-│ --source   -s      <auto|local|fetch>  Backend: auto (local→fetch), local, or fetch.             │
+│ --source   -s      [auto|local|fetch]  Backend: auto (local→fetch), local, or fetch.             │
 │                                        [default: auto]                                           │
 │ --refresh  -r                          Bypass cache and fetch fresh docs.                        │
 │ --json                                 Output as JSON.                                           │
@@ -1002,18 +1000,18 @@ Generated from the registered parser. Command callbacks were not executed. For i
 
 ```text
                                                                                                     
- Usage: cc docs search [OPTIONS] {pkg} {query}                                                      
+ Usage: cc docs search [OPTIONS] PKG QUERY                                                          
                                                                                                     
  Search package documentation for a query topic.                                                    
                                                                                                     
 ╭─ Arguments ──────────────────────────────────────────────────────────────────────────────────────╮
-│ *    pkg        <str>  Package name. [required]                                                  │
-│ *    query      <str>  Search query / topic. [required]                                          │
+│ *    pkg        TEXT  Package name. [required]                                                   │
+│ *    query      TEXT  Search query / topic. [required]                                           │
 ╰──────────────────────────────────────────────────────────────────────────────────────────────────╯
 ╭─ Options ────────────────────────────────────────────────────────────────────────────────────────╮
-│ --lang  -l      <str>                                                                            │
+│ --lang  -l      TEXT                                                                             │
 │ --json                                                                                           │
-│ --help                 Show this message and exit.                                               │
+│ --help                Show this message and exit.                                                │
 ╰──────────────────────────────────────────────────────────────────────────────────────────────────╯
 ```
 
@@ -1035,7 +1033,7 @@ Generated from the registered parser. Command callbacks were not executed. For i
 
 ```text
                                                                                                     
- Usage: cc docs cache [OPTIONS] [pkg]                                                               
+ Usage: cc docs cache [OPTIONS] [PKG]                                                               
                                                                                                     
  Inspect or clear the docs cache.                                                                   
                                                                                                     
@@ -1046,7 +1044,7 @@ Generated from the registered parser. Command callbacks were not executed. For i
  cc docs cache --clear requests  # not yet supported (pkg-specific clear TBD)                       
                                                                                                     
 ╭─ Arguments ──────────────────────────────────────────────────────────────────────────────────────╮
-│   pkg      <str>  Package to operate on (optional — omit for all packages).                      │
+│   [pkg]      TEXT  Package to operate on (optional — omit for all packages).                     │
 ╰──────────────────────────────────────────────────────────────────────────────────────────────────╯
 ╭─ Options ────────────────────────────────────────────────────────────────────────────────────────╮
 │ --status          Show cache statistics.                                                         │
@@ -1086,12 +1084,12 @@ Generated from the registered parser. Command callbacks were not executed. For i
 
 ```text
                                                                                                     
- Usage: cc design guide [OPTIONS] [action]                                                          
+ Usage: cc design guide [OPTIONS] [ACTION]                                                          
                                                                                                     
  List focused actions or load one source-hashed playbook.                                           
                                                                                                     
 ╭─ Arguments ──────────────────────────────────────────────────────────────────────────────────────╮
-│   action      <str>                                                                              │
+│   [action]      TEXT                                                                             │
 ╰──────────────────────────────────────────────────────────────────────────────────────────────────╯
 ╭─ Options ────────────────────────────────────────────────────────────────────────────────────────╮
 │ --json                                                                                           │
@@ -1108,9 +1106,9 @@ Generated from the registered parser. Command callbacks were not executed. For i
  Print a draft surface contract; --output creates a new file exclusively.                           
                                                                                                     
 ╭─ Options ────────────────────────────────────────────────────────────────────────────────────────╮
-│ --output        <str>                                                                            │
+│ --output        TEXT                                                                             │
 │ --json                                                                                           │
-│ --help                 Show this message and exit.                                               │
+│ --help                Show this message and exit.                                                │
 ╰──────────────────────────────────────────────────────────────────────────────────────────────────╯
 ```
 
@@ -1123,11 +1121,11 @@ Generated from the registered parser. Command callbacks were not executed. For i
  Load a surface contract and bounded explicit authority, with selection receipts.                   
                                                                                                     
 ╭─ Options ────────────────────────────────────────────────────────────────────────────────────────╮
-│ *  --contract         <str>                       [required]                                     │
-│    --action           <str>                       [default: shape]                               │
-│    --max-chars        <int range> [0<=x<=100000]  [default: 12000]                               │
+│ *  --contract         TEXT                          [required]                                   │
+│    --action           TEXT                          [default: shape]                             │
+│    --max-chars        INTEGER RANGE [0<=x<=100000]  [default: 12000]                             │
 │    --json                                                                                        │
-│    --help                                         Show this message and exit.                    │
+│    --help                                           Show this message and exit.                  │
 ╰──────────────────────────────────────────────────────────────────────────────────────────────────╯
 ```
 
@@ -1140,11 +1138,11 @@ Generated from the registered parser. Command callbacks were not executed. For i
  Record initial design judgment before running the detector.                                        
                                                                                                     
 ╭─ Options ────────────────────────────────────────────────────────────────────────────────────────╮
-│ *  --contract          <str>  [required]                                                         │
-│ *  --assessment        <str>  [required]                                                         │
-│ *  --output            <str>  [required]                                                         │
+│ *  --contract          TEXT  [required]                                                          │
+│ *  --assessment        TEXT  [required]                                                          │
+│ *  --output            TEXT  [required]                                                          │
 │    --json                                                                                        │
-│    --help                     Show this message and exit.                                        │
+│    --help                    Show this message and exit.                                         │
 ╰──────────────────────────────────────────────────────────────────────────────────────────────────╯
 ```
 
@@ -1152,19 +1150,19 @@ Generated from the registered parser. Command callbacks were not executed. For i
 
 ```text
                                                                                                     
- Usage: cc design audit [OPTIONS] [targets]...                                                      
+ Usage: cc design audit [OPTIONS] [TARGETS]...                                                      
                                                                                                     
  Run a pinned local static scan; exit 1 when scan evidence is unavailable.                          
                                                                                                     
 ╭─ Arguments ──────────────────────────────────────────────────────────────────────────────────────╮
-│   targets      <str>                                                                             │
+│   [targets]...      TEXT                                                                         │
 ╰──────────────────────────────────────────────────────────────────────────────────────────────────╯
 ╭─ Options ────────────────────────────────────────────────────────────────────────────────────────╮
-│ --review         <str>                                                                           │
-│ --output         <str>                                                                           │
-│ --timeout        <int range> [1<=x<=60]  [default: 20]                                           │
+│ --review         TEXT                                                                            │
+│ --output         TEXT                                                                            │
+│ --timeout        INTEGER RANGE [1<=x<=60]  [default: 20]                                         │
 │ --json                                                                                           │
-│ --help                                   Show this message and exit.                             │
+│ --help                                     Show this message and exit.                           │
 ╰──────────────────────────────────────────────────────────────────────────────────────────────────╯
 ```
 
@@ -1177,12 +1175,12 @@ Generated from the registered parser. Command callbacks were not executed. For i
  Check criterion coverage and evidence identity; never issue a QA verdict.                          
                                                                                                     
 ╭─ Options ────────────────────────────────────────────────────────────────────────────────────────╮
-│ *  --review              <str>  [required]                                                       │
-│ *  --audit               <str>  [required]                                                       │
-│ *  --verification        <str>  [required]                                                       │
-│ *  --output              <str>  [required]                                                       │
+│ *  --review              TEXT  [required]                                                        │
+│ *  --audit               TEXT  [required]                                                        │
+│ *  --verification        TEXT  [required]                                                        │
+│ *  --output              TEXT  [required]                                                        │
 │    --json                                                                                        │
-│    --help                       Show this message and exit.                                      │
+│    --help                      Show this message and exit.                                       │
 ╰──────────────────────────────────────────────────────────────────────────────────────────────────╯
 ```
 
@@ -1190,17 +1188,17 @@ Generated from the registered parser. Command callbacks were not executed. For i
 
 ```text
                                                                                                     
- Usage: cc design compare [OPTIONS] {manifest}                                                      
+ Usage: cc design compare [OPTIONS] MANIFEST                                                        
                                                                                                     
  Create a self-contained baseline/candidate screenshot comparison.                                  
                                                                                                     
 ╭─ Arguments ──────────────────────────────────────────────────────────────────────────────────────╮
-│ *    manifest      <str>  [required]                                                             │
+│ *    manifest      TEXT  [required]                                                              │
 ╰──────────────────────────────────────────────────────────────────────────────────────────────────╯
 ╭─ Options ────────────────────────────────────────────────────────────────────────────────────────╮
-│ *  --output        <str>  [required]                                                             │
+│ *  --output        TEXT  [required]                                                              │
 │    --json                                                                                        │
-│    --help                 Show this message and exit.                                            │
+│    --help                Show this message and exit.                                             │
 ╰──────────────────────────────────────────────────────────────────────────────────────────────────╯
 ```
 
@@ -1213,10 +1211,10 @@ Generated from the registered parser. Command callbacks were not executed. For i
  Enable/disable project feedback and preserve unrelated native hooks.                               
                                                                                                     
 ╭─ Options ────────────────────────────────────────────────────────────────────────────────────────╮
-│ *  --runtime                 <str>  [required]                                                   │
-│    --enable     --disable           [default: enable]                                            │
+│ *  --runtime                 TEXT  [required]                                                    │
+│    --enable     --disable          [default: enable]                                             │
 │    --json                                                                                        │
-│    --help                           Show this message and exit.                                  │
+│    --help                          Show this message and exit.                                   │
 ╰──────────────────────────────────────────────────────────────────────────────────────────────────╯
 ```
 
@@ -1229,8 +1227,8 @@ Generated from the registered parser. Command callbacks were not executed. For i
  Native PostToolUse adapter; bounded input/output and no task-state mutation.                       
                                                                                                     
 ╭─ Options ────────────────────────────────────────────────────────────────────────────────────────╮
-│ *  --runtime        <str>  [required]                                                            │
-│    --help                  Show this message and exit.                                           │
+│ *  --runtime        TEXT  [required]                                                             │
+│    --help                 Show this message and exit.                                            │
 ╰──────────────────────────────────────────────────────────────────────────────────────────────────╯
 ```
 
@@ -1286,20 +1284,20 @@ Generated from the registered parser. Command callbacks were not executed. For i
 
 ```text
                                                                                                     
- Usage: cc design tool register [OPTIONS] {binary}                                                  
+ Usage: cc design tool register [OPTIONS] BINARY                                                    
                                                                                                     
  Pin a separately verified local Impeccable engine; never trust project-selected executables.       
                                                                                                     
 ╭─ Arguments ──────────────────────────────────────────────────────────────────────────────────────╮
-│ *    binary      <path>  [required]                                                              │
+│ *    binary      PATH  [required]                                                                │
 ╰──────────────────────────────────────────────────────────────────────────────────────────────────╯
 ╭─ Options ────────────────────────────────────────────────────────────────────────────────────────╮
-│ *  --sha256         <str>  [required]                                                            │
-│ *  --version        <str>  [required]                                                            │
-│ *  --source         <str>  [required]                                                            │
+│ *  --sha256         TEXT  [required]                                                             │
+│ *  --version        TEXT  [required]                                                             │
+│ *  --source         TEXT  [required]                                                             │
 │    --replace                                                                                     │
 │    --json                                                                                        │
-│    --help                  Show this message and exit.                                           │
+│    --help                 Show this message and exit.                                            │
 ╰──────────────────────────────────────────────────────────────────────────────────────────────────╯
 ```
 
@@ -1346,14 +1344,14 @@ Generated from the registered parser. Command callbacks were not executed. For i
  Select checks without executing manifest commands; unknown impact broadens.                        
                                                                                                     
 ╭─ Options ────────────────────────────────────────────────────────────────────────────────────────╮
-│ --root            <path>  Repository root. [default: .]                                          │
-│ --manifest        <str>   Repository-relative manifest. [default: verification.json]             │
-│ --changed         <str>   Changed path; repeat as needed.                                        │
-│ --base            <str>   Git review base; includes dirty and untracked files.                   │
-│ --lane            <str>   Explicit lane scope; repeat as needed.                                 │
-│ --task            <str>   Task association only, not approval.                                   │
+│ --root            PATH  Repository root. [default: .]                                            │
+│ --manifest        TEXT  Repository-relative manifest. [default: verification.json]               │
+│ --changed         TEXT  Changed path; repeat as needed.                                          │
+│ --base            TEXT  Git review base; includes dirty and untracked files.                     │
+│ --lane            TEXT  Explicit lane scope; repeat as needed.                                   │
+│ --task            TEXT  Task association only, not approval.                                     │
 │ --json                                                                                           │
-│ --help                    Show this message and exit.                                            │
+│ --help                  Show this message and exit.                                              │
 ╰──────────────────────────────────────────────────────────────────────────────────────────────────╯
 ```
 
@@ -1366,12 +1364,12 @@ Generated from the registered parser. Command callbacks were not executed. For i
  Execute a fresh manifest-bound plan and retain logs under .copilot/verification.                   
                                                                                                     
 ╭─ Options ────────────────────────────────────────────────────────────────────────────────────────╮
-│ *  --plan         <path>  Saved JSON plan from cc verify plan. [required]                        │
-│    --root         <path>  [default: .]                                                           │
-│    --reuse                Opt in to matching hermetic execution reuse; never approval reuse.     │
-│    --task         <str>   Override execution's task association; not approval.                   │
+│ *  --plan         PATH  Saved JSON plan from cc verify plan. [required]                          │
+│    --root         PATH  [default: .]                                                             │
+│    --reuse              Opt in to matching hermetic execution reuse; never approval reuse.       │
+│    --task         TEXT  Override execution's task association; not approval.                     │
 │    --json                                                                                        │
-│    --help                 Show this message and exit.                                            │
+│    --help               Show this message and exit.                                              │
 ╰──────────────────────────────────────────────────────────────────────────────────────────────────╯
 ```
 
@@ -1384,10 +1382,10 @@ Generated from the registered parser. Command callbacks were not executed. For i
  Read durable status without a daemon or task-state changes.                                        
                                                                                                     
 ╭─ Options ────────────────────────────────────────────────────────────────────────────────────────╮
-│ *  --run         <str>   Local run ID. [required]                                                │
-│    --root        <path>  [default: .]                                                            │
+│ *  --run         TEXT  Local run ID. [required]                                                  │
+│    --root        PATH  [default: .]                                                              │
 │    --json                                                                                        │
-│    --help                Show this message and exit.                                             │
+│    --help              Show this message and exit.                                               │
 ╰──────────────────────────────────────────────────────────────────────────────────────────────────╯
 ```
 
@@ -1400,15 +1398,15 @@ Generated from the registered parser. Command callbacks were not executed. For i
  Run regression evals against agent contracts.                                                      
                                                                                                     
 ╭─ Options ────────────────────────────────────────────────────────────────────────────────────────╮
-│ --agent                 <str>    Agent name to evaluate (e.g. qa).                               │
-│ --threshold             <float>  Pass-rate threshold [0.0–1.0].                                  │
-│ --json                           Emit JSON to stdout.                                            │
-│ --list-agents                    List agents that have eval cases.                               │
-│ --runner                <str>    'local' (default, static) or 'live' (real headless dispatch;    │
-│                                  costs API spend).                                               │
-│                                  [default: local]                                                │
-│ --max-budget-usd        <float>  Per-dispatch spend cap for --runner live (default: 0.50).       │
-│ --help                           Show this message and exit.                                     │
+│ --agent                 TEXT   Agent name to evaluate (e.g. qa).                                 │
+│ --threshold             FLOAT  Pass-rate threshold [0.0–1.0].                                    │
+│ --json                         Emit JSON to stdout.                                              │
+│ --list-agents                  List agents that have eval cases.                                 │
+│ --runner                TEXT   'local' (default, static) or 'live' (real headless dispatch;      │
+│                                costs API spend).                                                 │
+│                                [default: local]                                                  │
+│ --max-budget-usd        FLOAT  Per-dispatch spend cap for --runner live (default: 0.50).         │
+│ --help                         Show this message and exit.                                       │
 ╰──────────────────────────────────────────────────────────────────────────────────────────────────╯
 ╭─ Commands ───────────────────────────────────────────────────────────────────────────────────────╮
 │ run              Run the golden eval set for an agent and exit non-zero on regression.           │
@@ -1430,17 +1428,17 @@ Generated from the registered parser. Command callbacks were not executed. For i
  1 — pass-rate < threshold OR any P0 case regressed                                                 
                                                                                                     
 ╭─ Options ────────────────────────────────────────────────────────────────────────────────────────╮
-│ *  --agent                 <str>    Agent name to evaluate (e.g. qa). [required]                 │
-│    --threshold             <float>  Pass-rate threshold [0.0–1.0]. Default from                  │
-│                                     quality-gates.json (0.8).                                    │
-│    --json                           Emit JSON to stdout.                                         │
-│    --runner                <str>    'local' (default): static assertion engine, no LLM calls.    │
-│                                     'live': dispatches source.type=live-agent cases through a    │
-│                                     real headless `claude --print --agent` session and asserts   │
-│                                     against the model's actual output; costs real API spend.     │
-│                                     [default: local]                                             │
-│    --max-budget-usd        <float>  Per-dispatch spend cap for --runner live (default: 0.50).    │
-│    --help                           Show this message and exit.                                  │
+│ *  --agent                 TEXT   Agent name to evaluate (e.g. qa). [required]                   │
+│    --threshold             FLOAT  Pass-rate threshold [0.0–1.0]. Default from quality-gates.json │
+│                                   (0.8).                                                         │
+│    --json                         Emit JSON to stdout.                                           │
+│    --runner                TEXT   'local' (default): static assertion engine, no LLM calls.      │
+│                                   'live': dispatches source.type=live-agent cases through a real │
+│                                   headless `claude --print --agent` session and asserts against  │
+│                                   the model's actual output; costs real API spend.               │
+│                                   [default: local]                                               │
+│    --max-budget-usd        FLOAT  Per-dispatch spend cap for --runner live (default: 0.50).      │
+│    --help                         Show this message and exit.                                    │
 ╰──────────────────────────────────────────────────────────────────────────────────────────────────╯
 ```
 
@@ -1448,17 +1446,16 @@ Generated from the registered parser. Command callbacks were not executed. For i
 
 ```text
                                                                                                     
- Usage: cc eval adoption-freeze [OPTIONS] {plan}                                                    
+ Usage: cc eval adoption-freeze [OPTIONS] PLAN                                                      
                                                                                                     
  Freeze held-out inputs, pinned controls and adoption thresholds.                                   
                                                                                                     
 ╭─ Arguments ──────────────────────────────────────────────────────────────────────────────────────╮
-│ *    plan      <path>  Pilot plan JSON; brief/rubric paths resolve from its directory.           │
-│                        [required]                                                                │
+│ *    plan      PATH  Pilot plan JSON; brief/rubric paths resolve from its directory. [required]  │
 ╰──────────────────────────────────────────────────────────────────────────────────────────────────╯
 ╭─ Options ────────────────────────────────────────────────────────────────────────────────────────╮
-│ *  --output        <path>  New frozen receipt path; refuses overwrite. [required]                │
-│    --help                  Show this message and exit.                                           │
+│ *  --output        PATH  New frozen receipt path; refuses overwrite. [required]                  │
+│    --help                Show this message and exit.                                             │
 ╰──────────────────────────────────────────────────────────────────────────────────────────────────╯
 ```
 
@@ -1466,13 +1463,13 @@ Generated from the registered parser. Command callbacks were not executed. For i
 
 ```text
                                                                                                     
- Usage: cc eval adoption-check [OPTIONS] {frozen} {observations}                                    
+ Usage: cc eval adoption-check [OPTIONS] FROZEN OBSERVATIONS                                        
                                                                                                     
  Apply frozen gates to benchmark observations; no runtime dispatch.                                 
                                                                                                     
 ╭─ Arguments ──────────────────────────────────────────────────────────────────────────────────────╮
-│ *    frozen            <path>  Frozen receipt JSON, located in the pilot directory. [required]   │
-│ *    observations      <path>  JSON array of reviewed trial observations. [required]             │
+│ *    frozen            PATH  Frozen receipt JSON, located in the pilot directory. [required]     │
+│ *    observations      PATH  JSON array of reviewed trial observations. [required]               │
 ╰──────────────────────────────────────────────────────────────────────────────────────────────────╯
 ╭─ Options ────────────────────────────────────────────────────────────────────────────────────────╮
 │ --help          Show this message and exit.                                                      │
@@ -1509,10 +1506,10 @@ Generated from the registered parser. Command callbacks were not executed. For i
  fallbackBehavior. Never raises on a missing/malformed manifest.                                    
                                                                                                     
 ╭─ Options ────────────────────────────────────────────────────────────────────────────────────────╮
-│ --agent        <str>  Agent ID to resolve (e.g. sd, cw, ta).                                     │
-│ --all                 Resolve every agent ID found in .claude/agents/.                           │
-│ --json                Output as JSON.                                                            │
-│ --help                Show this message and exit.                                                │
+│ --agent        TEXT  Agent ID to resolve (e.g. sd, cw, ta).                                      │
+│ --all                Resolve every agent ID found in .claude/agents/.                            │
+│ --json               Output as JSON.                                                             │
+│ --help               Show this message and exit.                                                 │
 ╰──────────────────────────────────────────────────────────────────────────────────────────────────╯
 ```
 
@@ -1525,11 +1522,11 @@ Generated from the registered parser. Command callbacks were not executed. For i
  GitHub sign-in and least-privilege permission grants.                                              
                                                                                                     
 ╭─ Options ────────────────────────────────────────────────────────────────────────────────────────╮
-│ --poll                      Perform one device-flow poll step instead of initiating.             │
-│ --device-code        <str>  The device_code from a prior `cc auth --json`.                       │
-│ --org                <str>  GitHub org slug to sign in through -- see `cc auth login --help`.    │
-│ --json                      Output the WS-A auth contract as JSON.                               │
-│ --help                      Show this message and exit.                                          │
+│ --poll                     Perform one device-flow poll step instead of initiating.              │
+│ --device-code        TEXT  The device_code from a prior `cc auth --json`.                        │
+│ --org                TEXT  GitHub org slug to sign in through -- see `cc auth login --help`.     │
+│ --json                     Output the WS-A auth contract as JSON.                                │
+│ --help                     Show this message and exit.                                           │
 ╰──────────────────────────────────────────────────────────────────────────────────────────────────╯
 ╭─ Commands ───────────────────────────────────────────────────────────────────────────────────────╮
 │ login   Initiate GitHub device-flow sign-in (no flags), or perform one poll                      │
@@ -1551,16 +1548,16 @@ Generated from the registered parser. Command callbacks were not executed. For i
  <code>`). Read-only w.r.t. the copilot lock -- auth never acquires it.                             
                                                                                                     
 ╭─ Options ────────────────────────────────────────────────────────────────────────────────────────╮
-│ --poll                      Perform one device-flow poll step instead of initiating.             │
-│ --device-code        <str>  The device_code from a prior `cc auth login --json`.                 │
-│ --org                <str>  GitHub org slug to sign in through, on a machine with no             │
-│                             github_app.client_id/org configured yet. Required again on every     │
-│                             --poll call for the same reason --device-code is: this CLI holds no  │
-│                             session state between processes. Falls back to the github_app.org    │
-│                             config key (set once via `cc config set` by the app or an admin)     │
-│                             when omitted.                                                        │
-│ --json                      Output the WS-A auth contract as JSON.                               │
-│ --help                      Show this message and exit.                                          │
+│ --poll                     Perform one device-flow poll step instead of initiating.              │
+│ --device-code        TEXT  The device_code from a prior `cc auth login --json`.                  │
+│ --org                TEXT  GitHub org slug to sign in through, on a machine with no              │
+│                            github_app.client_id/org configured yet. Required again on every      │
+│                            --poll call for the same reason --device-code is: this CLI holds no   │
+│                            session state between processes. Falls back to the github_app.org     │
+│                            config key (set once via `cc config set` by the app or an admin) when │
+│                            omitted.                                                              │
+│ --json                     Output the WS-A auth contract as JSON.                                │
+│ --help                     Show this message and exit.                                           │
 ╰──────────────────────────────────────────────────────────────────────────────────────────────────╯
 ```
 
@@ -1573,11 +1570,11 @@ Generated from the registered parser. Command callbacks were not executed. For i
  Request only the permission needed to add this Mac's public SSH key.                               
                                                                                                     
 ╭─ Options ────────────────────────────────────────────────────────────────────────────────────────╮
-│ --poll                      Perform one permission-grant poll step instead of initiating.        │
-│ --device-code        <str>  The device_code from a prior `cc auth grant --json`.                 │
-│ --org                <str>  GitHub org slug; falls back to github_app.org.                       │
-│ --json                      Output the strict auth permission-grant contract as JSON.            │
-│ --help                      Show this message and exit.                                          │
+│ --poll                     Perform one permission-grant poll step instead of initiating.         │
+│ --device-code        TEXT  The device_code from a prior `cc auth grant --json`.                  │
+│ --org                TEXT  GitHub org slug; falls back to github_app.org.                        │
+│ --json                     Output the strict auth permission-grant contract as JSON.             │
+│ --help                     Show this message and exit.                                           │
 ╰──────────────────────────────────────────────────────────────────────────────────────────────────╯
 ```
 
@@ -1637,14 +1634,14 @@ Generated from the registered parser. Command callbacks were not executed. For i
 
 ```text
                                                                                                     
- Usage: cc layers join [OPTIONS] {layer_id}                                                         
+ Usage: cc layers join [OPTIONS] LAYER_ID                                                           
                                                                                                     
  Join an entitled, not-yet-joined department/org layer (WS-A `layers join <id> --json` contract) -- 
  MUTATING: acquires the copilot lock, syncs the layer's mirror, extends the local manifest, and     
  materializes it via `cc update`'s own pipeline. `not-entitled` is a normal outcome, not a crash.   
                                                                                                     
 ╭─ Arguments ──────────────────────────────────────────────────────────────────────────────────────╮
-│ *    layer_id      <str>  The layer id to join (from `cc layers list`). [required]               │
+│ *    layer_id      TEXT  The layer id to join (from `cc layers list`). [required]                │
 ╰──────────────────────────────────────────────────────────────────────────────────────────────────╯
 ╭─ Options ────────────────────────────────────────────────────────────────────────────────────────╮
 │ --json          Output the WS-A layers-join contract as JSON.                                    │
@@ -1683,15 +1680,15 @@ Generated from the registered parser. Command callbacks were not executed. For i
  Record a task journey with runtime, prompt and planned specialist evidence.                        
                                                                                                     
 ╭─ Options ────────────────────────────────────────────────────────────────────────────────────────╮
-│ *  --task                    <int>  [required]                                                   │
-│ *  --runtime                 <str>  [required]                                                   │
-│ *  --classification          <str>  [required]                                                   │
-│ *  --specialists-json        <str>  [required]                                                   │
-│ *  --events-json             <str>  [required]                                                   │
-│ *  --prompt-sha256           <str>  [required]                                                   │
-│ *  --session                 <str>  [required]                                                   │
+│ *  --task                    INTEGER  [required]                                                 │
+│ *  --runtime                 TEXT     [required]                                                 │
+│ *  --classification          TEXT     [required]                                                 │
+│ *  --specialists-json        TEXT     [required]                                                 │
+│ *  --events-json             TEXT     [required]                                                 │
+│ *  --prompt-sha256           TEXT     [required]                                                 │
+│ *  --session                 TEXT     [required]                                                 │
 │    --json                                                                                        │
-│    --help                           Show this message and exit.                                  │
+│    --help                             Show this message and exit.                                │
 ╰──────────────────────────────────────────────────────────────────────────────────────────────────╯
 ```
 
@@ -1704,10 +1701,10 @@ Generated from the registered parser. Command callbacks were not executed. For i
  Prepare the next specialist dispatch and return its evidence marker.                               
                                                                                                     
 ╭─ Options ────────────────────────────────────────────────────────────────────────────────────────╮
-│ *  --run               <str>  [required]                                                         │
-│ *  --specialist        <str>  [required]                                                         │
+│ *  --run               TEXT  [required]                                                          │
+│ *  --specialist        TEXT  [required]                                                          │
 │    --json                                                                                        │
-│    --help                     Show this message and exit.                                        │
+│    --help                    Show this message and exit.                                         │
 ╰──────────────────────────────────────────────────────────────────────────────────────────────────╯
 ```
 
@@ -1720,9 +1717,9 @@ Generated from the registered parser. Command callbacks were not executed. For i
  Read the recorded state of one journey run.                                                        
                                                                                                     
 ╭─ Options ────────────────────────────────────────────────────────────────────────────────────────╮
-│ *  --run         <str>  [required]                                                               │
+│ *  --run         TEXT  [required]                                                                │
 │    --json                                                                                        │
-│    --help               Show this message and exit.                                              │
+│    --help              Show this message and exit.                                               │
 ╰──────────────────────────────────────────────────────────────────────────────────────────────────╯
 ```
 
@@ -1735,11 +1732,11 @@ Generated from the registered parser. Command callbacks were not executed. For i
  Bind the exact complete Agent prompt before PreToolUse dispatch.                                   
                                                                                                     
 ╭─ Options ────────────────────────────────────────────────────────────────────────────────────────╮
-│ *  --run                  <str>  [required]                                                      │
-│ *  --specialist           <str>  [required]                                                      │
-│ *  --prompt-sha256        <str>  [required]                                                      │
+│ *  --run                  TEXT  [required]                                                       │
+│ *  --specialist           TEXT  [required]                                                       │
+│ *  --prompt-sha256        TEXT  [required]                                                       │
 │    --json                                                                                        │
-│    --help                        Show this message and exit.                                     │
+│    --help                       Show this message and exit.                                      │
 ╰──────────────────────────────────────────────────────────────────────────────────────────────────╯
 ```
 
@@ -1752,9 +1749,9 @@ Generated from the registered parser. Command callbacks were not executed. For i
  Record a continuation point for the selected journey.                                              
                                                                                                     
 ╭─ Options ────────────────────────────────────────────────────────────────────────────────────────╮
-│ *  --run         <str>  [required]                                                               │
+│ *  --run         TEXT  [required]                                                                │
 │    --json                                                                                        │
-│    --help               Show this message and exit.                                              │
+│    --help              Show this message and exit.                                               │
 ╰──────────────────────────────────────────────────────────────────────────────────────────────────╯
 ```
 
@@ -1767,11 +1764,11 @@ Generated from the registered parser. Command callbacks were not executed. For i
  Close an unfinished run so it stops gating its session.                                            
                                                                                                     
 ╭─ Options ────────────────────────────────────────────────────────────────────────────────────────╮
-│ *  --run            <str>  [required]                                                            │
-│ *  --session        <str>  [required]                                                            │
-│ *  --reason         <str>  [required]                                                            │
+│ *  --run            TEXT  [required]                                                             │
+│ *  --session        TEXT  [required]                                                             │
+│ *  --reason         TEXT  [required]                                                             │
 │    --json                                                                                        │
-│    --help                  Show this message and exit.                                           │
+│    --help                 Show this message and exit.                                            │
 ╰──────────────────────────────────────────────────────────────────────────────────────────────────╯
 ```
 
@@ -1784,10 +1781,10 @@ Generated from the registered parser. Command callbacks were not executed. For i
  Resume a recorded journey for the selected task.                                                   
                                                                                                     
 ╭─ Options ────────────────────────────────────────────────────────────────────────────────────────╮
-│ *  --task        <int>  [required]                                                               │
-│    --run         <str>                                                                           │
+│ *  --task        INTEGER  [required]                                                             │
+│    --run         TEXT                                                                            │
 │    --json                                                                                        │
-│    --help               Show this message and exit.                                              │
+│    --help                 Show this message and exit.                                            │
 ╰──────────────────────────────────────────────────────────────────────────────────────────────────╯
 ```
 
@@ -1800,13 +1797,13 @@ Generated from the registered parser. Command callbacks were not executed. For i
  Verify a dispatch against its session, specialist and exact prompt identity.                       
                                                                                                     
 ╭─ Options ────────────────────────────────────────────────────────────────────────────────────────╮
-│ *  --session                 <str>  [required]                                                   │
-│ *  --subagent                <str>  [required]                                                   │
-│    --marker                  <str>                                                               │
-│ *  --prompt-sha256           <str>  [required]                                                   │
-│    --knowledge-sha256        <str>                                                               │
+│ *  --session                 TEXT  [required]                                                    │
+│ *  --subagent                TEXT  [required]                                                    │
+│    --marker                  TEXT                                                                │
+│ *  --prompt-sha256           TEXT  [required]                                                    │
+│    --knowledge-sha256        TEXT                                                                │
 │    --json                                                                                        │
-│    --help                           Show this message and exit.                                  │
+│    --help                          Show this message and exit.                                   │
 ╰──────────────────────────────────────────────────────────────────────────────────────────────────╯
 ```
 
@@ -1819,10 +1816,10 @@ Generated from the registered parser. Command callbacks were not executed. For i
  Project folders for Control Tower (activation is `cc project init`).                               
                                                                                                     
 ╭─ Options ────────────────────────────────────────────────────────────────────────────────────────╮
-│ --project        <str>  Retired.                                                                 │
-│ --all                   Retired.                                                                 │
-│ --json                  Emit JSON.                                                               │
-│ --help                  Show this message and exit.                                              │
+│ --project        TEXT  Retired.                                                                  │
+│ --all                  Retired.                                                                  │
+│ --json                 Emit JSON.                                                                │
+│ --help                 Show this message and exit.                                               │
 ╰──────────────────────────────────────────────────────────────────────────────────────────────────╯
 ╭─ Commands ───────────────────────────────────────────────────────────────────────────────────────╮
 │ configure     RETIRED. `cc workspace configure` is retired: the framework is resolved centrally  │
@@ -1975,10 +1972,10 @@ Generated from the registered parser. Command callbacks were not executed. For i
  Plan or approve one project folder; never scans outside that folder.                               
                                                                                                     
 ╭─ Options ────────────────────────────────────────────────────────────────────────────────────────╮
-│ *  --path         <str>  Folder the user selected for project discovery. [required]              │
-│    --apply               Add this folder to bounded workspace discovery.                         │
-│    --json                Emit the versioned root-approval report.                                │
-│    --help                Show this message and exit.                                             │
+│ *  --path         TEXT  Folder the user selected for project discovery. [required]               │
+│    --apply              Add this folder to bounded workspace discovery.                          │
+│    --json               Emit the versioned root-approval report.                                 │
+│    --help               Show this message and exit.                                              │
 ╰──────────────────────────────────────────────────────────────────────────────────────────────────╯
 ```
 
@@ -1991,10 +1988,10 @@ Generated from the registered parser. Command callbacks were not executed. For i
  Plan or apply removing one approved folder. Never deletes anything inside it.                      
                                                                                                     
 ╭─ Options ────────────────────────────────────────────────────────────────────────────────────────╮
-│ *  --path         <str>  Folder to stop watching for projects. [required]                        │
-│    --apply               Remove this folder from bounded workspace discovery.                    │
-│    --json                Emit the versioned root-approval report.                                │
-│    --help                Show this message and exit.                                             │
+│ *  --path         TEXT  Folder to stop watching for projects. [required]                         │
+│    --apply              Remove this folder from bounded workspace discovery.                     │
+│    --json               Emit the versioned root-approval report.                                 │
+│    --help               Show this message and exit.                                              │
 ╰──────────────────────────────────────────────────────────────────────────────────────────────────╯
 ```
 
@@ -2378,10 +2375,10 @@ Generated from the registered parser. Command callbacks were not executed. For i
  Run COMMAND after -- with a fresh server; success cleans, failure retains 48h.                     
                                                                                                     
 ╭─ Options ────────────────────────────────────────────────────────────────────────────────────────╮
-│    --project        <path>  [default: .]                                                         │
-│ *  --task           <str>   [required]                                                           │
-│    --profile        <str>   [default: postgres]                                                  │
-│    --help                   Show this message and exit.                                          │
+│    --project        PATH  [default: .]                                                           │
+│ *  --task           TEXT  [required]                                                             │
+│    --profile        TEXT  [default: postgres]                                                    │
+│    --help                 Show this message and exit.                                            │
 ╰──────────────────────────────────────────────────────────────────────────────────────────────────╯
 ```
 
@@ -2428,12 +2425,12 @@ Generated from the registered parser. Command callbacks were not executed. For i
 
 ```text
                                                                                                     
- Usage: cc resources finish [OPTIONS] {run_id}                                                      
+ Usage: cc resources finish [OPTIONS] RUN_ID                                                        
                                                                                                     
  Dispose of a stopped managed run now, after inspecting its retained evidence.                      
                                                                                                     
 ╭─ Arguments ──────────────────────────────────────────────────────────────────────────────────────╮
-│ *    run_id      <str>  [required]                                                               │
+│ *    run_id      TEXT  [required]                                                                │
 ╰──────────────────────────────────────────────────────────────────────────────────────────────────╯
 ╭─ Options ────────────────────────────────────────────────────────────────────────────────────────╮
 │ --help          Show this message and exit.                                                      │
@@ -2449,8 +2446,8 @@ Generated from the registered parser. Command callbacks were not executed. For i
  Refuse provisioning unless database settings match this managed test server.                       
                                                                                                     
 ╭─ Options ────────────────────────────────────────────────────────────────────────────────────────╮
-│ --project        <path>  [default: .]                                                            │
-│ --help                   Show this message and exit.                                             │
+│ --project        PATH  [default: .]                                                              │
+│ --help                 Show this message and exit.                                               │
 ╰──────────────────────────────────────────────────────────────────────────────────────────────────╯
 ```
 
@@ -2505,9 +2502,9 @@ Generated from the registered parser. Command callbacks were not executed. For i
  Check readiness and authorization of the selected secret-store scope.                              
                                                                                                     
 ╭─ Options ────────────────────────────────────────────────────────────────────────────────────────╮
-│ --scope        <str>  Store scope to verify. [default: shared]                                   │
-│ --json                Output JSON.                                                               │
-│ --help                Show this message and exit.                                                │
+│ --scope        TEXT  Store scope to verify. [default: shared]                                    │
+│ --json               Output JSON.                                                                │
+│ --help               Show this message and exit.                                                 │
 ╰──────────────────────────────────────────────────────────────────────────────────────────────────╯
 ```
 
@@ -2520,17 +2517,17 @@ Generated from the registered parser. Command callbacks were not executed. For i
  What fraction of agent-authored lines survive untouched (git-only, no rubric).                     
                                                                                                     
 ╭─ Options ────────────────────────────────────────────────────────────────────────────────────────╮
-│ --repo                     <path>  Repository to measure. [default: .]                           │
-│ --since                    <str>   Only consider commits after this date (git --since syntax).   │
-│ --include-framework                Also count framework-installed files (.claude/, plugins/,     │
-│                                    CLAUDE.md). Off by default: those are replaced wholesale on   │
-│                                    every framework update, so their survival measures release    │
-│                                    cadence, not the work.                                        │
-│ --by-window                        Split by authoring year, so eras are compared at comparable   │
-│                                    ages.                                                         │
-│ --top                      <int>   Also show the N lowest-survival files. [default: 0]           │
-│ --json                             Machine-readable output.                                      │
-│ --help                             Show this message and exit.                                   │
+│ --repo                     PATH     Repository to measure. [default: .]                          │
+│ --since                    TEXT     Only consider commits after this date (git --since syntax).  │
+│ --include-framework                 Also count framework-installed files (.claude/, plugins/,    │
+│                                     CLAUDE.md). Off by default: those are replaced wholesale on  │
+│                                     every framework update, so their survival measures release   │
+│                                     cadence, not the work.                                       │
+│ --by-window                         Split by authoring year, so eras are compared at comparable  │
+│                                     ages.                                                        │
+│ --top                      INTEGER  Also show the N lowest-survival files. [default: 0]          │
+│ --json                              Machine-readable output.                                     │
+│ --help                              Show this message and exit.                                  │
 ╰──────────────────────────────────────────────────────────────────────────────────────────────────╯
 ```
 
@@ -2680,10 +2677,10 @@ Generated from the registered parser. Command callbacks were not executed. For i
  env). Backs up first; preserves all other keys.                                                    
                                                                                                     
 ╭─ Options ────────────────────────────────────────────────────────────────────────────────────────╮
-│ --home           <str>  Home directory (defaults to $HOME).                                      │
-│ --dry-run               Compute without writing.                                                 │
-│ --json                  Output as JSON.                                                          │
-│ --help                  Show this message and exit.                                              │
+│ --home           TEXT  Home directory (defaults to $HOME).                                       │
+│ --dry-run              Compute without writing.                                                  │
+│ --json                 Output as JSON.                                                           │
+│ --help                 Show this message and exit.                                               │
 ╰──────────────────────────────────────────────────────────────────────────────────────────────────╯
 ```
 
@@ -2696,9 +2693,9 @@ Generated from the registered parser. Command callbacks were not executed. For i
  Reverse `user-add`: remove only the entries and env keys it added.                                 
                                                                                                     
 ╭─ Options ────────────────────────────────────────────────────────────────────────────────────────╮
-│ --home        <str>  Home directory (defaults to $HOME).                                         │
-│ --json               Output as JSON.                                                             │
-│ --help               Show this message and exit.                                                 │
+│ --home        TEXT  Home directory (defaults to $HOME).                                          │
+│ --json              Output as JSON.                                                              │
+│ --help              Show this message and exit.                                                  │
 ╰──────────────────────────────────────────────────────────────────────────────────────────────────╯
 ```
 
@@ -2839,15 +2836,15 @@ Generated from the registered parser. Command callbacks were not executed. For i
  Write a rule as a rewrite or a section insert, never appended at the end.                          
                                                                                                     
 ╭─ Options ────────────────────────────────────────────────────────────────────────────────────────╮
-│ *  --text               <str>  The rule, one current statement. [required]                       │
-│    --destination        <str>  global|framework|project|memory [default: global]                 │
-│    --replaces           <str>  Substring of the one current rule line to rewrite.                │
-│    --section            <str>  `## ` heading to insert under (last bullet).                      │
-│    --file               <str>  Target file (required for framework).                             │
-│    --date               <str>  YYYY-MM-DD; default today.                                        │
-│    --dry-run                   Show the result without writing or logging.                       │
-│    --json                      Output JSON.                                                      │
-│    --help                      Show this message and exit.                                       │
+│ *  --text               TEXT  The rule, one current statement. [required]                        │
+│    --destination        TEXT  global|framework|project|memory [default: global]                  │
+│    --replaces           TEXT  Substring of the one current rule line to rewrite.                 │
+│    --section            TEXT  `## ` heading to insert under (last bullet).                       │
+│    --file               TEXT  Target file (required for framework).                              │
+│    --date               TEXT  YYYY-MM-DD; default today.                                         │
+│    --dry-run                  Show the result without writing or logging.                        │
+│    --json                     Output JSON.                                                       │
+│    --help                     Show this message and exit.                                        │
 ╰──────────────────────────────────────────────────────────────────────────────────────────────────╯
 ```
 
@@ -2860,9 +2857,9 @@ Generated from the registered parser. Command callbacks were not executed. For i
  Print the append-only rules log.                                                                   
                                                                                                     
 ╭─ Options ────────────────────────────────────────────────────────────────────────────────────────╮
-│ --since        <str>  Only entries recorded on or after YYYY-MM-DD.                              │
-│ --json                Output JSON.                                                               │
-│ --help                Show this message and exit.                                                │
+│ --since        TEXT  Only entries recorded on or after YYYY-MM-DD.                               │
+│ --json               Output JSON.                                                                │
+│ --help               Show this message and exit.                                                 │
 ╰──────────────────────────────────────────────────────────────────────────────────────────────────╯
 ```
 
@@ -2875,9 +2872,9 @@ Generated from the registered parser. Command callbacks were not executed. For i
  Recommend a destination using the placement test (judgment, procedure, fact).                      
                                                                                                     
 ╭─ Options ────────────────────────────────────────────────────────────────────────────────────────╮
-│ *  --text        <str>  The correction. [required]                                               │
-│    --json               Output JSON.                                                             │
-│    --help               Show this message and exit.                                              │
+│ *  --text        TEXT  The correction. [required]                                                │
+│    --json              Output JSON.                                                              │
+│    --help              Show this message and exit.                                               │
 ╰──────────────────────────────────────────────────────────────────────────────────────────────────╯
 ```
 
@@ -2915,12 +2912,12 @@ Generated from the registered parser. Command callbacks were not executed. For i
  Build a release from signed tags; current changes only with --flip.                                
                                                                                                     
 ╭─ Options ────────────────────────────────────────────────────────────────────────────────────────╮
-│ *  --pins          <path>  JSON file of framework component pins. [required]                     │
-│    --layers        <path>  [default:                                                             │
-│                            /private/tmp/cr-release-readiness-20261107/task234-generation/home/.… │
-│    --home          <path>  Home directory (default: user home).                                  │
-│    --flip                  Flip current to the new release.                                      │
-│    --help                  Show this message and exit.                                           │
+│ *  --pins          PATH  JSON file of framework component pins. [required]                       │
+│    --layers        PATH  [default:                                                               │
+│                          /private/tmp/cr-release-readiness-20261107/task234-generation/home/.co… │
+│    --home          PATH  Home directory (default: user home).                                    │
+│    --flip                Flip current to the new release.                                        │
+│    --help                Show this message and exit.                                             │
 ╰──────────────────────────────────────────────────────────────────────────────────────────────────╯
 ```
 
@@ -2928,17 +2925,17 @@ Generated from the registered parser. Command callbacks were not executed. For i
 
 ```text
                                                                                                     
- Usage: cc release flip [OPTIONS] {release_id}                                                      
+ Usage: cc release flip [OPTIONS] RELEASE_ID                                                        
                                                                                                     
  Atomically point current at RELEASE_ID.                                                            
                                                                                                     
 ╭─ Arguments ──────────────────────────────────────────────────────────────────────────────────────╮
-│ *    release_id      <str>  [required]                                                           │
+│ *    release_id      TEXT  [required]                                                            │
 ╰──────────────────────────────────────────────────────────────────────────────────────────────────╯
 ╭─ Options ────────────────────────────────────────────────────────────────────────────────────────╮
-│ --home          <path>  Home directory (default: user home).                                     │
-│ --reason        <str>                                                                            │
-│ --help                  Show this message and exit.                                              │
+│ --home          PATH  Home directory (default: user home).                                       │
+│ --reason        TEXT                                                                             │
+│ --help                Show this message and exit.                                                │
 ╰──────────────────────────────────────────────────────────────────────────────────────────────────╯
 ```
 
@@ -2951,11 +2948,11 @@ Generated from the registered parser. Command callbacks were not executed. For i
  Walk back --steps releases through history, or to the --to named release.                          
                                                                                                     
 ╭─ Options ────────────────────────────────────────────────────────────────────────────────────────╮
-│ --to            <str>                                                                            │
-│ --steps         <int range> [x>=1]  Walk back this many releases [default: 1]                    │
-│ --home          <path>              Home directory (default: user home).                         │
-│ --reason        <str>                                                                            │
-│ --help                              Show this message and exit.                                  │
+│ --to            TEXT                                                                             │
+│ --steps         INTEGER RANGE [x>=1]  Walk back this many releases [default: 1]                  │
+│ --home          PATH                  Home directory (default: user home).                       │
+│ --reason        TEXT                                                                             │
+│ --help                                Show this message and exit.                                │
 ╰──────────────────────────────────────────────────────────────────────────────────────────────────╯
 ```
 
@@ -2968,8 +2965,8 @@ Generated from the registered parser. Command callbacks were not executed. For i
  Show the active release pointer and its manifest.                                                  
                                                                                                     
 ╭─ Options ────────────────────────────────────────────────────────────────────────────────────────╮
-│ --home        <path>  Home directory (default: user home).                                       │
-│ --help                Show this message and exit.                                                │
+│ --home        PATH  Home directory (default: user home).                                         │
+│ --help              Show this message and exit.                                                  │
 ╰──────────────────────────────────────────────────────────────────────────────────────────────────╯
 ```
 
@@ -2982,8 +2979,8 @@ Generated from the registered parser. Command callbacks were not executed. For i
  Read the recorded central release transitions.                                                     
                                                                                                     
 ╭─ Options ────────────────────────────────────────────────────────────────────────────────────────╮
-│ --home        <path>  Home directory (default: user home).                                       │
-│ --help                Show this message and exit.                                                │
+│ --home        PATH  Home directory (default: user home).                                         │
+│ --help              Show this message and exit.                                                  │
 ╰──────────────────────────────────────────────────────────────────────────────────────────────────╯
 ```
 
@@ -2996,11 +2993,11 @@ Generated from the registered parser. Command callbacks were not executed. For i
  List exact paths a prune would delete; delete only with --approve --receipt ID.                    
                                                                                                     
 ╭─ Options ────────────────────────────────────────────────────────────────────────────────────────╮
-│ --keep           <int>   [default: 5]                                                            │
-│ --approve                Delete the paths of --receipt.                                          │
-│ --receipt        <str>                                                                           │
-│ --home           <path>  Home directory (default: user home).                                    │
-│ --help                   Show this message and exit.                                             │
+│ --keep           INTEGER  [default: 5]                                                           │
+│ --approve                 Delete the paths of --receipt.                                         │
+│ --receipt        TEXT                                                                            │
+│ --home           PATH     Home directory (default: user home).                                   │
+│ --help                    Show this message and exit.                                            │
 ╰──────────────────────────────────────────────────────────────────────────────────────────────────╯
 ```
 
@@ -3013,8 +3010,8 @@ Generated from the registered parser. Command callbacks were not executed. For i
  (Re)write the cc, tc and tc-limits shims.                                                          
                                                                                                     
 ╭─ Options ────────────────────────────────────────────────────────────────────────────────────────╮
-│ --home        <path>  Home directory (default: user home).                                       │
-│ --help                Show this message and exit.                                                │
+│ --home        PATH  Home directory (default: user home).                                         │
+│ --help              Show this message and exit.                                                  │
 ╰──────────────────────────────────────────────────────────────────────────────────────────────────╯
 ```
 
@@ -3027,9 +3024,9 @@ Generated from the registered parser. Command callbacks were not executed. For i
  Run release checks; exit 1 on any failure (also used by `cc doctor --release`).                    
                                                                                                     
 ╭─ Options ────────────────────────────────────────────────────────────────────────────────────────╮
-│ --home              <path>  Home directory (default: user home).                                 │
-│ --codex-home        <path>  Codex home (default: $CODEX_HOME or ~/.codex).                       │
-│ --help                      Show this message and exit.                                          │
+│ --home              PATH  Home directory (default: user home).                                   │
+│ --codex-home        PATH  Codex home (default: $CODEX_HOME or ~/.codex).                         │
+│ --help                    Show this message and exit.                                            │
 ╰──────────────────────────────────────────────────────────────────────────────────────────────────╯
 ```
 
@@ -3042,14 +3039,14 @@ Generated from the registered parser. Command callbacks were not executed. For i
  Build, flip, link, refresh the Codex marketplace, run doctor, record history; restore on failure.  
                                                                                                     
 ╭─ Options ────────────────────────────────────────────────────────────────────────────────────────╮
-│ *  --pins                    <path>  JSON file of framework component pins. [required]           │
-│    --layers                  <path>  [default:                                                   │
-│                                      /private/tmp/cr-release-readiness-20261107/task234-generat… │
-│    --home                    <path>  Home directory (default: user home).                        │
-│    --codex-home              <path>                                                              │
-│    --retrust                 <str>   Plugin whose Codex content trust may reset.                 │
-│    --no-strict-frozen                Allow plugin directory changes (resets Codex trust).        │
-│    --help                            Show this message and exit.                                 │
+│ *  --pins                    PATH  JSON file of framework component pins. [required]             │
+│    --layers                  PATH  [default:                                                     │
+│                                    /private/tmp/cr-release-readiness-20261107/task234-generatio… │
+│    --home                    PATH  Home directory (default: user home).                          │
+│    --codex-home              PATH                                                                │
+│    --retrust                 TEXT  Plugin whose Codex content trust may reset.                   │
+│    --no-strict-frozen              Allow plugin directory changes (resets Codex trust).          │
+│    --help                          Show this message and exit.                                   │
 ╰──────────────────────────────────────────────────────────────────────────────────────────────────╯
 ```
 
@@ -3075,12 +3072,12 @@ Generated from the registered parser. Command callbacks were not executed. For i
 
 ```text
                                                                                                     
- Usage: cc project status [OPTIONS] [path]                                                          
+ Usage: cc project status [OPTIONS] [PATH]                                                          
                                                                                                     
  Read thin project wiring without changing files or checking machine health.                        
                                                                                                     
 ╭─ Arguments ──────────────────────────────────────────────────────────────────────────────────────╮
-│   path      <path>  Inspect exactly this folder (default: current).                              │
+│   [path]      PATH  Inspect exactly this folder (default: current).                              │
 ╰──────────────────────────────────────────────────────────────────────────────────────────────────╯
 ╭─ Options ────────────────────────────────────────────────────────────────────────────────────────╮
 │ --all           Registered projects and approved folders only.                                   │
@@ -3093,12 +3090,12 @@ Generated from the registered parser. Command callbacks were not executed. For i
 
 ```text
                                                                                                     
- Usage: cc project init [OPTIONS] [path]                                                            
+ Usage: cc project init [OPTIONS] [PATH]                                                            
                                                                                                     
  Write the marker, thin CLAUDE.md/AGENTS.md sections and Codex trust.                               
                                                                                                     
 ╭─ Arguments ──────────────────────────────────────────────────────────────────────────────────────╮
-│   path      <path>  Project folder (default: current). [default: .]                              │
+│   [path]      PATH  Project folder (default: current). [default: .]                              │
 ╰──────────────────────────────────────────────────────────────────────────────────────────────────╯
 ╭─ Options ────────────────────────────────────────────────────────────────────────────────────────╮
 │ --force          Back up and recreate a corrupt copilot.project.json.                            │
@@ -3111,30 +3108,30 @@ Generated from the registered parser. Command callbacks were not executed. For i
 
 ```text
                                                                                                     
- Usage: cc project migrate [OPTIONS] [path]                                                         
+ Usage: cc project migrate [OPTIONS] [PATH]                                                         
                                                                                                     
  Convert a synced project to the central model. Dry run unless --apply.                             
                                                                                                     
 ╭─ Arguments ──────────────────────────────────────────────────────────────────────────────────────╮
-│   path      <path>  Project folder (default: current). [default: .]                              │
+│   [path]      PATH  Project folder (default: current). [default: .]                              │
 ╰──────────────────────────────────────────────────────────────────────────────────────────────────╯
 ╭─ Options ────────────────────────────────────────────────────────────────────────────────────────╮
-│ --apply                             Write the changes. Default is a dry run that only prints the │
-│                                     plan.                                                        │
-│ --commit-branch              <str>  With --apply: commit the migration on a new branch.          │
-│ --allow-missing-codex               Proceed when no Codex root resolves; Codex files are kept.   │
-│ --source-repo                       Treat PATH as a framework source repo: remove only consumer  │
-│                                     artefacts (locks, synced copies outside protected source     │
-│                                     paths) and write the marker. Release components are detected │
-│                                     automatically.                                               │
-│ --rollback                          Undo a migration from its backup manifest (latest by         │
-│                                     default).                                                    │
-│ --manifest                   <str>  With --rollback: the run id or backup folder to restore.     │
-│ --scan                              Report copied framework files and locks per project (PATH,   │
-│                                     or --all); exit 1 if any.                                    │
-│ --all                               With --scan: every project in the machine registry.          │
-│ --json                              Machine-readable output.                                     │
-│ --help                              Show this message and exit.                                  │
+│ --apply                            Write the changes. Default is a dry run that only prints the  │
+│                                    plan.                                                         │
+│ --commit-branch              TEXT  With --apply: commit the migration on a new branch.           │
+│ --allow-missing-codex              Proceed when no Codex root resolves; Codex files are kept.    │
+│ --source-repo                      Treat PATH as a framework source repo: remove only consumer   │
+│                                    artefacts (locks, synced copies outside protected source      │
+│                                    paths) and write the marker. Release components are detected  │
+│                                    automatically.                                                │
+│ --rollback                         Undo a migration from its backup manifest (latest by          │
+│                                    default).                                                     │
+│ --manifest                   TEXT  With --rollback: the run id or backup folder to restore.      │
+│ --scan                             Report copied framework files and locks per project (PATH, or │
+│                                    --all); exit 1 if any.                                        │
+│ --all                              With --scan: every project in the machine registry.           │
+│ --json                             Machine-readable output.                                      │
+│ --help                             Show this message and exit.                                   │
 ╰──────────────────────────────────────────────────────────────────────────────────────────────────╯
 ```
 
