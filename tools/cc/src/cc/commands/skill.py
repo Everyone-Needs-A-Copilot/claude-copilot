@@ -64,12 +64,20 @@ def _load_all_skills(scope: str = "all"):
     both surfaces see the identical catalog) filtered to the requested
     scope, rather than re-implementing root discovery here.
     """
+    from cc.core.ecosystem.knowledge_skill_source import resolve_knowledge_skill_sources
     from cc.core.skill_store import default_skill_paths, discover_skills_with_sources
 
-    all_pairs = default_skill_paths()
+    # Keep the authenticated sources from this operation. Discarding them here
+    # makes discovery verify the entire ladder again for every Knowledge root.
+    knowledge_sources = resolve_knowledge_skill_sources()
+    all_pairs = default_skill_paths(knowledge_sources=knowledge_sources)
     pairs = all_pairs if scope == "all" else [p for p in all_pairs if p[1] == scope]
 
-    return discover_skills_with_sources(pairs, cache_dir=_resolve_skill_cache_dir())
+    return discover_skills_with_sources(
+        pairs,
+        cache_dir=_resolve_skill_cache_dir(),
+        _knowledge_sources=dict(knowledge_sources),
+    )
 
 
 def _load_trusted_skills(scope: str = "all"):
