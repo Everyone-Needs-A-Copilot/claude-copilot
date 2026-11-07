@@ -36,10 +36,24 @@ fail() {
 # Helpers
 # ---------------------------------------------------------------------------
 clean_gate() {
+  if [[ "${COPILOT_TEST_RETAIN_SCRATCH:-0}" == "1" ]]; then
+    local archive candidate
+    archive="$(mktemp -d "$TEST_ROOT/retained-state.XXXXXX")" || return 1
+    for candidate in "$GATE_FILE" "${STATE_DIR}/qa-gate.lock" "${STATE_DIR}/qa-gate.log"; do
+      if [[ -e "$candidate" || -L "$candidate" ]]; then
+        mv -- "$candidate" "$archive/" || return 1
+      fi
+    done
+    return
+  fi
   rm -f "$GATE_FILE" "${STATE_DIR}/qa-gate.lock" "${STATE_DIR}/qa-gate.log" 2>/dev/null || true
 }
 
 cleanup_all() {
+  if [[ "${COPILOT_TEST_RETAIN_SCRATCH:-0}" == "1" ]]; then
+    echo "Retained subagent-stop fixture: $TEST_ROOT"
+    return
+  fi
   case "$TEST_ROOT" in
     "${TMPDIR:-/tmp}"/subagent-stop.*) rm -rf -- "$TEST_ROOT" ;;
     *) echo "Refusing to remove unexpected fixture root: $TEST_ROOT" >&2 ;;
