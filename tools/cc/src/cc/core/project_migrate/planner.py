@@ -380,7 +380,7 @@ def _apply_guard(b: _Builder) -> None:
         if why:
             to_keep(a.path, why)
             plan.staged.pop(a.path, None)
-        elif a.kind != WRITE and (verdict := _unproven_removal(b, a)):
+        elif a.kind != WRITE and a.path != SETTINGS and (verdict := _unproven_removal(b, a)):
             state, reason = verdict
             plan.staged.pop(a.path, None)
             if state == "held":

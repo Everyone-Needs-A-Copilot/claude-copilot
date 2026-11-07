@@ -231,7 +231,9 @@ def test_explicit_source_repo_mode_touches_consumer_artefacts_and_marker_only(en
     rel = release(tmp, repos)
     assert not plan_migration(root, known=known, release_dir=rel, allow_missing_codex=True).source_repo
     plan = plan_migration(root, known=known, release_dir=rel, allow_missing_codex=True, source_repo=True)
-    assert plan.source_repo and not [a for a in plan.actions if a.kind in ("edit-json", "edit-text")]
+    assert plan.source_repo and not [a for a in plan.actions if a.kind == "edit-text"]
+    # settings hook registrations are consumer leftovers even here (task 209); nothing else is edited
+    assert [a.path for a in plan.actions if a.kind == "edit-json"] == [".claude/settings.json"]
     assert [a.path for a in plan.actions if a.kind == "write"] == ["copilot.project.json"]
     claude_md = (root / "CLAUDE.md").read_bytes()
     apply_migration(root, known=known, release_dir=rel, allow_missing_codex=True, source_repo=True,
@@ -285,3 +287,25 @@ def test_real_claude_copilot_keeps_the_codex_skill_bridge():
     plan = plan_migration(REAL / "claude-copilot", allow_missing_codex=True, release_dir=RELEASE)
     assert removed(plan) == {"copilot.lock.json", ".codex-copilot.json"}
     assert ".claude/skills/codex-copilot" in kept_as_source(plan)
+
+
+def test_source_repo_settings_drop_framework_hooks_keep_the_rest(env):
+    """knowledge-copilot-internal shape: framework hook registrations are consumer leftovers even in a source repo."""
+    tmp, repos = env
+    root, known = source_repo(repos, "knowledge-copilot-internal", {".claude/rules/r.md": b"own\n"})
+    fw = {"type": "command", "command": 'bash "$CLAUDE_PROJECT_DIR/.claude/hooks/copilot-hook.sh" session-start',
+          "_copilot_source": "claude-copilot"}
+    mine = {"type": "command", "command": "echo mine"}
+    (root / ".claude/settings.json").write_text(json.dumps({
+        "permissions": {"allow": ["Bash(ls)"]},
+        "hooks": {"SessionStart": [{"hooks": [fw, mine]}], "PreToolUse": [{"hooks": [fw]}]}}))
+    rel = release(tmp, repos)
+    plan = plan_migration(root, known=known, release_dir=rel, allow_missing_codex=True)
+    assert ".claude/rules/r.md" in kept_as_source(plan)
+    assert [a.path for a in plan.actions if a.kind == "edit-json"] == [".claude/settings.json"]
+    apply_migration(root, known=known, release_dir=rel, allow_missing_codex=True, backup_root=tmp / "bk",
+                    codex_config=tmp / "codex.toml", registry=tmp / "reg.json")
+    data = json.loads((root / ".claude/settings.json").read_text())
+    assert data["permissions"] == {"allow": ["Bash(ls)"]}
+    assert data["hooks"] == {"SessionStart": [{"hooks": [mine]}]}
+    assert (root / ".claude/rules/r.md").read_bytes() == b"own\n"
