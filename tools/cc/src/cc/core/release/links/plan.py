@@ -167,7 +167,7 @@ class _Builder:
 
 
 def _skill_roots(b: _Builder) -> list[tuple[str, Path]]:
-    """(source, skills dir); codex-copilot's root-level `skills/` is codex-only (see _plan_skills)."""
+    """(source, skills dir); codex-copilot's root-level `skills/` serves both runtimes."""
     roots: list[tuple[str, Path]] = []
     for tier in OVERLAY_ORDER:
         if tier not in b.tiers:
@@ -208,8 +208,7 @@ def _plan_skills(b: _Builder) -> None:
     for source, base in _skill_roots(b):
         for skill_dir in sorted(_iter_skill_dirs(base)):
             name, chars = _skill_info(skill_dir)
-            if source != layout.COMPONENT_CODEX:
-                b.add(CLAUDE, "skill", name, f".claude/skills/{name}", skill_dir, source, chars)
+            b.add(CLAUDE, "skill", name, f".claude/skills/{name}", skill_dir, source, chars)
             if name in plugin_names and source != layout.COMPONENT_CODEX:
                 b.plan.warnings.append(
                     f"codex skill '{name}' ({source}) not linked: the codex plugin already serves that name")

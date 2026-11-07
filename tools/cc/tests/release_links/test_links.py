@@ -307,13 +307,59 @@ def test_framework_rules_text_matches_import_delivery():
     assert "import line" in text and "~/.claude/CLAUDE.md" in text
 
 
-def test_codex_root_level_skills_linked_for_codex_only(home, release):
+def test_codex_root_level_skills_linked_for_both_runtimes(home, release):
+    # Old expectation: root-level codex skills were codex-only (claude got them via claude-copilot's
+    # plugins/codex-copilot bundle symlink). The bundle is retired (PRD-16), so claude takes them from the
+    # codex-copilot component root as well.
     skill(release / "codex-copilot/skills", "codex-only", "codex-only")
     plan = build_plan(release, home)
-    assert "codex-only" in link_names(plan, "codex", "skill")
-    assert "codex-only" not in link_names(plan, "claude", "skill")
-    entry = next(e for e in plan.entries if e.runtime == "codex" and e.name == "codex-only")
-    assert entry.target.endswith("/current/codex-copilot/skills/codex-only")
+    for runtime, rdir in (("codex", ".codex"), ("claude", ".claude")):
+        assert "codex-only" in link_names(plan, runtime, "skill")
+        entry = next(e for e in plan.entries if e.runtime == runtime and e.name == "codex-only")
+        assert entry.link == f"{rdir}/skills/codex-only"
+        assert entry.target.endswith("/current/codex-copilot/skills/codex-only")
+
+
+REPO_ROOT = Path(__file__).resolve().parents[4]
+LIVE_CLAUDE_SKILLS = Path(__file__).resolve().parents[1] / "fixtures/live-release-7-claude-skills.json"
+
+
+def test_candidate_plan_keeps_every_live_release_7_claude_skill(home, tmp_path):
+    import json
+    import shutil
+
+    live = json.loads(LIVE_CLAUDE_SKILLS.read_text())  # [[name, source]] captured from live release #7
+    rel = layout.release_dir("20261106T000001Z-bbb", home)
+    ks = Path("03-ai-enabling/01-skills")
+    shutil.copytree(REPO_ROOT / ".claude/skills", rel / "claude-copilot/.claude/skills", symlinks=False)
+    own = {p.name for p in (rel / "claude-copilot/.claude/skills").iterdir()}
+    for name, source in live:
+        if source == "claude-copilot":
+            if name not in own:  # was served through the removed plugin bundle: codex-copilot root skills
+                skill(rel / "codex-copilot/skills", name, name)
+        elif source == "product-creation-copilot":
+            skill(rel / source / "skills", name, name)
+        elif source.startswith("knowledge/"):
+            skill(rel / source / ks, name, name)
+        else:
+            skill(rel / source / "skills", name, name)
+    plan = build_plan(rel, home)
+    claude = {e.name for e in plan.entries if e.runtime == "claude" and e.kind == "skill"}
+    assert {n for n, _ in live} <= claude
+    assert len(plan.entries) >= len(live)
+    for e in plan.entries:  # no dangling link in the candidate plan
+        assert Path(e.target.replace(str(layout.current_path(home)), str(rel))).exists(), e.link
+
+
+def test_tracked_skill_symlinks_do_not_dangle():
+    import subprocess
+
+    out = subprocess.run(["git", "ls-files", "-s", ".claude/skills"], cwd=REPO_ROOT, capture_output=True,
+                         text=True, check=True).stdout
+    for line in out.splitlines():
+        if line.startswith("120000"):
+            path = REPO_ROOT / line.split("\t", 1)[1]
+            assert path.exists(), f"dangling tracked symlink {path}"
 
 
 # ---- adoption of framework-owned copies ----------------------------------------------------------
