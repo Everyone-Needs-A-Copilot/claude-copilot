@@ -159,5 +159,41 @@ def verify_packet(file: Path = typer.Option(..., '--file'), sha256: str = typer.
 @cycle_app.command('dispatch-context')
 def dispatch_context(cwd: Path = typer.Option(..., '--cwd'), json: bool = typer.Option(False, '--json')):
     """Find active stage enrollment for omitted-envelope dispatch protection."""
+    import os
+    from tc.db.connection import _main_checkout, find_db_path
     from tc.services.cycle_stages import dispatch_context as context
-    _run(context, json, cwd=cwd, db_path=require_db())
+
+    def resolve():
+        # Absence is a positive statement by this capable authority, not a
+        # fallback for an old/missing tc, damaged DB or unresolved worktree.
+        db_path = find_db_path()
+        if db_path is not None:
+            return context(cwd=cwd, db_path=db_path)
+        current = Path.cwd().resolve()
+        if cwd.resolve() != current or not cwd.is_dir():
+            raise ValidationError('Dispatch context must be inspected from its requested cwd')
+        if os.environ.get('TC_WORKTREE_DB'):
+            raise ValidationError('Explicit database selection has no task authority')
+        for directory in (current, *current.parents):
+            candidate = directory / '.copilot' / 'tasks.db'
+            try:
+                candidate.lstat()
+            except FileNotFoundError:
+                pass
+            else:
+                raise ValidationError('Task authority exists but could not be discovered')
+            marker = directory / '.git'
+            if marker.is_file() or marker.is_symlink():
+                main = _main_checkout(directory)
+                if main is None:
+                    raise ValidationError('Cannot establish linked-worktree task authority')
+                shared = main / '.copilot' / 'tasks.db'
+                try:
+                    shared.lstat()
+                except FileNotFoundError:
+                    pass
+                else:
+                    raise ValidationError('Shared task authority exists but could not be discovered')
+        return {'managed': False, 'cycles': [], 'nativeDispatch': False}
+
+    _run(resolve, json)
