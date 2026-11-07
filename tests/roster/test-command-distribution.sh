@@ -12,6 +12,7 @@
 #   2. Every command file intended for delivery appears in SOME roster
 #      (project or machine) -- with an explicit, documented allowlist of
 #      commands that are deliberately repo-local (not a silent pass).
+#      (Roster-based, so it is unchanged by the move to central resolution.)
 #   3. The release link plan built from THIS checkout (the central model that
 #      replaced the per-project copy install, PRD-16) actually links reflect
 #      for Claude -- not just that the roster says it would.
@@ -81,6 +82,45 @@ fi
 #                               here rather than silently passed or silently "fixed" by
 #                               this test (fixing rosters is out of scope for C4, which
 #                               authors tests only).
+KNOWN_NOT_YET_ROSTERED=(
+  "config.md"
+  "setup-knowledge-sync.md"
+  "skills-approve.md"
+)
+
+is_known_exception() {
+  local name="$1"
+  for known in "${KNOWN_NOT_YET_ROSTERED[@]}"; do
+    [[ "$name" == "$known" ]] && return 0
+  done
+  return 1
+}
+
+ROSTERED="$(python3 -c "
+import json
+d = json.load(open('$VERSION_JSON'))
+c = d['components']['commands']
+rostered = set(c.get('projectCommands', [])) | set(c.get('machineCommands', []))
+print('\n'.join(sorted(rostered)))
+")"
+
+UNACCOUNTED=0
+for f in "$PROJECT_ROOT"/.claude/commands/*.md; do
+  name="$(basename "$f")"
+  if grep -qxF "$name" <<< "$ROSTERED"; then
+    ok "$name is in a VERSION.json roster"
+  elif is_known_exception "$name"; then
+    echo "  SKIP (documented exception, not distributed): $name"
+  else
+    fail "$name is in a VERSION.json roster (unaccounted-for command - neither rostered nor a documented exception)"
+    UNACCOUNTED=$((UNACCOUNTED + 1))
+  fi
+done
+
+if [[ "$UNACCOUNTED" -eq 0 ]]; then
+  ok "no unaccounted-for commands (every .claude/commands/*.md is either rostered or a documented exception)"
+fi
+
 # ---------------------------------------------------------------------------
 # 3. Release link plan: build the real user-level link plan (the same
 #    build_plan the release engine uses) from a scratch release whose
